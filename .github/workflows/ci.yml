@@ -1,0 +1,27 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        config: [release, sanitize]
+    steps:
+      - uses: actions/checkout@v4
+      - name: configure
+        run: |
+          if [ "${{ matrix.config }}" = "sanitize" ]; then
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCARTERET_ASAN=ON
+          else
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          fi
+      - name: build
+        run: cmake --build build -j
+      - name: test
+        run: ctest --test-dir build --output-on-failure
+
+# NOTE: CI runs correctness only. It never publishes a latency number -- a
+# shared GitHub runner has no core isolation, no frequency control and noisy
+# neighbours, so any timing it produced would be meaningless. Benchmarks are a
+# manual run on a named machine, logged in BENCHMARKS.md.

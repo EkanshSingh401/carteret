@@ -1,0 +1,14 @@
+# Market data NEVER ships. NASDAQ ITCH and LOBSTER data carry redistribution
+# restrictions. Use tools/fetch_data.sh; keep the repo clean.
+data/
+*.itch
+*.ITCH_50
+*_ITCH50
+*.gz
+*.csv
+
+build/
+build-*/
+results/
+.cache/
+compile_commands.json
