@@ -64,6 +64,8 @@ void print_counters(const ReferenceBook& ref, const FastCounters& f) {
     std::printf("  window ticks               %14zu\n", kWindowTicks);
     std::printf("  order record bytes         %14zu\n", sizeof(FastOrder));
     std::printf("  overflow hits              %14llu\n", (unsigned long long)f.overflow_hits);
+    std::printf("  window recenters           %14llu\n", (unsigned long long)f.recenters);
+    std::printf("  levels moved by recenters  %14llu\n", (unsigned long long)f.levels_moved);
     std::printf("  sub-cent prices            %14llu\n", (unsigned long long)f.sub_cent_prices);
     std::printf("  pool exhausted             %14llu\n", (unsigned long long)f.pool_exhausted);
     std::printf("  symbol table overflow      %14llu\n", (unsigned long long)f.symbol_overflow);

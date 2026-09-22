@@ -29,6 +29,7 @@
 #include "order_index.hpp"
 #include "spec.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cstdint>
 #include <map>
@@ -62,6 +63,21 @@ inline constexpr std::size_t kBitmapWords = kWindowTicks / 64;
 
 inline constexpr std::uint32_t kNoLevel = 0xFFFFFFFFu;
 
+// Headroom kept beyond a side's best price before its window is moved.
+//
+// A window is anchored asymmetrically rather than centred, because a side's
+// resting interest is almost all on one side of its own best price: bids sit
+// at or below the best bid, offers at or above the best offer. Centring would
+// spend half the window on prices that cannot be occupied. So the best bid is
+// placed kRecenterMargin below the top of its window and the best offer
+// kRecenterMargin above the bottom of its own, leaving the margin as room for
+// the inside to move before a rebuild and the rest of the window for depth.
+inline constexpr std::size_t kRecenterMargin = kWindowTicks / 8;
+
+// The smallest move worth rebuilding a window for, so that an inside
+// oscillating around the trigger point does not rebuild on every tick.
+inline constexpr std::size_t kRecenterHysteresis = kWindowTicks / 8;
+
 // A resting order. Addressed by 32-bit pool index, never by pointer, so the
 // pool can be relocated at construction and so each link costs 4 bytes rather
 // than 8.
@@ -72,11 +88,17 @@ struct FastOrder {
     Price price = 0;
     std::uint16_t locate = 0;
     std::uint8_t side = 0;
-    std::uint8_t in_overflow = 0;
-    // Explicit trailing padding. The two variants carry identical fields; only
-    // the alignment against a 64-byte line differs, which is the whole point
-    // of the experiment.
-    std::uint8_t pad[CARTERET_ORDER_BYTES - 20] = {};
+    // No cached "is this in the overflow map" flag. Where a level lives is a
+    // function of its price and the symbol's current window origin, and that
+    // origin MOVES (see recenter()). A cached flag would have to be rewritten
+    // on every order of every level that crossed the window boundary during a
+    // recenter, which is the one operation recentering exists to keep cheap.
+    // Recomputing it is two comparisons.
+    //
+    // Explicit trailing padding. The two size variants carry identical fields;
+    // only the alignment against a 64-byte line differs, which is the whole
+    // point of the experiment.
+    std::uint8_t pad[CARTERET_ORDER_BYTES - 19] = {};
 };
 static_assert(sizeof(FastOrder) == CARTERET_ORDER_BYTES,
               "the order record must be exactly the configured size, or the "
@@ -126,16 +148,22 @@ struct LevelBitmap {
 };
 
 // One side of one symbol.
+//
+// Each side carries its OWN window origin. A single origin per symbol has to
+// span the spread, and on a thin venue the best bid and best offer can sit
+// hundreds of ticks apart -- wider than the window -- so the trigger fires
+// permanently and the window is rebuilt on every tick of the mid. Per side,
+// the spread is irrelevant: a side's levels are near that side's own best.
 struct FastSide {
     std::vector<FastLevel> levels; // kWindowTicks entries, allocated once
     LevelBitmap occupied;
     std::map<Price, FastLevel> overflow; // ordered: supplies the BBO beyond the window
+    std::int64_t base_cents = -1;        // window origin in cents; -1 until first use
 };
 
 struct FastSymbol {
     FastSide bid;
     FastSide ask;
-    std::int64_t base_cents = -1; // window origin; -1 until the first order
 };
 
 struct FastCounters {
@@ -155,6 +183,8 @@ struct FastCounters {
 
     // Structure-specific, with no counterpart in the reference book.
     std::uint64_t overflow_hits = 0;   // orders placed outside the flat window
+    std::uint64_t recenters = 0;       // times a symbol's window origin moved
+    std::uint64_t levels_moved = 0;    // levels relocated by those recenters
     std::uint64_t sub_cent_prices = 0; // prices that are not a whole cent
     std::uint64_t pool_exhausted = 0;  // order pool capacity reached
     std::uint64_t symbol_overflow = 0; // locate code beyond the configured maximum
@@ -407,8 +437,133 @@ private:
         return (side == kBuy) ? sym.bid : sym.ask;
     }
 
-    // Resolves a price to its level, allocating the symbol's window on first
-    // use. Returns nullptr only when the pool or symbol table is exhausted.
+    // True if `price` falls inside the symbol's current window, setting `off`
+    // to its slot. Sub-cent prices are never in the window: the axis is whole
+    // cents (record 005).
+    [[nodiscard]] static bool in_window(const FastSide& s, Price price,
+                                        std::int64_t& off) noexcept {
+        std::int64_t cents = 0;
+        if (!to_cents(price, cents) || s.base_cents < 0) return false;
+        off = cents - s.base_cents;
+        return off >= 0 && off < static_cast<std::int64_t>(kWindowTicks);
+    }
+
+    // Where a side's window should start, given that side's best price. Bids
+    // are placed near the top of their window and offers near the bottom, so
+    // that the bulk of the window covers the prices that side can actually
+    // occupy.
+    [[nodiscard]] static std::int64_t anchor_for(unsigned char side,
+                                                 std::int64_t best_cents) noexcept {
+        const auto margin = static_cast<std::int64_t>(kRecenterMargin);
+        const auto width = static_cast<std::int64_t>(kWindowTicks);
+        std::int64_t base =
+            (side == kBuy) ? best_cents - (width - 1 - margin) : best_cents - margin;
+        return base < 0 ? 0 : base;
+    }
+
+    // Moves a symbol's window so that `centre_cents` sits in the middle, and
+    // relocates every occupied level accordingly.
+    //
+    // This is what makes the flat array worth having. With a fixed origin --
+    // the window centred on a symbol's first price and never moved -- a third
+    // of all orders on a real session landed in the overflow map, because the
+    // rate measured the symbol's intraday RANGE rather than any order's
+    // distance from the inside. See docs/design.md record 033.
+    //
+    // Cost is one pass over the window plus one over the overflow map, per
+    // side. No order is touched: a level's location is derived from its price
+    // and the current origin, so moving the origin moves every level at once.
+    void recenter(FastSide& s, unsigned char side, std::int64_t best_cents) {
+        const std::int64_t new_base = anchor_for(side, best_cents);
+
+        // Hysteresis, so an inside oscillating around the trigger point does
+        // not rebuild the window on every tick.
+        if (s.base_cents >= 0) {
+            const std::int64_t delta =
+                new_base > s.base_cents ? new_base - s.base_cents : s.base_cents - new_base;
+            if (delta < static_cast<std::int64_t>(kRecenterHysteresis)) return;
+        }
+
+        ++counters_.recenters;
+
+        // Collect everything occupied, from both homes, then re-place it. No
+        // order is touched: a level's location is derived from its price and
+        // the current origin, so moving the origin moves every level at once.
+        scratch_.clear();
+        if (!s.levels.empty() && s.base_cents >= 0) {
+            // Driven by the occupancy bitmap rather than by a scan of the
+            // window. The bitmap already knows which slots are occupied, and
+            // a rebuild that walked all of them would cost the window width
+            // per recenter regardless of how little was in it.
+            std::uint64_t summary = s.occupied.summary;
+            while (summary) {
+                const auto w = static_cast<std::size_t>(std::countr_zero(summary));
+                summary &= summary - 1;
+                std::uint64_t word = s.occupied.words[w];
+                while (word) {
+                    const auto b = static_cast<std::size_t>(std::countr_zero(word));
+                    word &= word - 1;
+                    const std::size_t i = (w << 6) + b;
+                    const auto cents = s.base_cents + static_cast<std::int64_t>(i);
+                    scratch_.emplace_back(static_cast<Price>(cents * 100), s.levels[i]);
+                }
+            }
+        }
+        for (const auto& [price, lvl] : s.overflow) scratch_.emplace_back(price, lvl);
+
+        if (!s.levels.empty()) std::fill(s.levels.begin(), s.levels.end(), FastLevel{});
+        s.occupied = LevelBitmap{};
+        s.overflow.clear();
+        s.base_cents = new_base;
+
+        for (const auto& [price, lvl] : scratch_) {
+            ++counters_.levels_moved;
+            std::int64_t off = 0;
+            if (in_window(s, price, off)) {
+                if (s.levels.empty()) s.levels.resize(kWindowTicks);
+                s.levels[static_cast<std::size_t>(off)] = lvl;
+                s.occupied.set(static_cast<std::size_t>(off));
+            } else {
+                s.overflow[price] = lvl;
+            }
+        }
+    }
+
+    // Moves a side's window when that side's best price has drifted within
+    // kRecenterMargin of a window edge. Driven by the side's own best rather
+    // than by the mid, so the spread never enters the decision.
+    //
+    // This is what makes the flat array worth having. With a fixed origin --
+    // the window placed on a symbol's first price and never moved -- a third
+    // of all orders on a real session landed in the overflow map, because the
+    // rate measured the symbol's intraday RANGE rather than any order's
+    // distance from the inside. See docs/design.md record 033.
+    void maybe_recenter(std::uint16_t locate) {
+        if (locate >= symbols_.size()) return;
+        FastSymbol& sym = symbols_[locate];
+        for (const unsigned char side : {kBuy, kSell}) {
+            FastSide& s = side_of(sym, side);
+            const auto best_px = best(locate, side);
+            if (!best_px.first) continue;
+            const std::int64_t best_cents = static_cast<std::int64_t>(best_px.second) / 100;
+            if (s.base_cents < 0) {
+                recenter(s, side, best_cents);
+                continue;
+            }
+            const std::int64_t off = best_cents - s.base_cents;
+            const auto margin = static_cast<std::int64_t>(kRecenterMargin);
+            const auto width = static_cast<std::int64_t>(kWindowTicks);
+            if (off >= margin && off < width - margin) continue;
+            recenter(s, side, best_cents);
+        }
+    }
+
+    // Which side a FastSide reference belongs to, for anchoring.
+    [[nodiscard]] static unsigned char side_code(const FastSymbol& sym,
+                                                 const FastSide& s) noexcept {
+        return (&s == &sym.bid) ? kBuy : kSell;
+    }
+
     FastLevel* level_for(FastSymbol& sym, FastSide& s, Price price, bool& overflowed) {
         std::int64_t cents = 0;
         const bool whole = to_cents(price, cents);
@@ -418,15 +573,15 @@ private:
             ++counters_.overflow_hits;
             return &s.overflow[price];
         }
-        if (sym.base_cents < 0) {
-            // Centre the window on the first price seen for the symbol, which
-            // is the only information available at that point.
-            sym.base_cents = cents - static_cast<std::int64_t>(kWindowTicks / 2);
-            if (sym.base_cents < 0) sym.base_cents = 0;
+        if (s.base_cents < 0) {
+            // Anchor on the first price this side sees, which is the only
+            // information available at that point. maybe_recenter() moves it
+            // once a best price exists.
+            s.base_cents = anchor_for(side_code(sym, s), cents);
         }
         if (s.levels.empty()) s.levels.resize(kWindowTicks);
 
-        const std::int64_t off = cents - sym.base_cents;
+        const std::int64_t off = cents - s.base_cents;
         if (off < 0 || off >= static_cast<std::int64_t>(kWindowTicks)) {
             overflowed = true;
             ++counters_.overflow_hits;
@@ -437,12 +592,10 @@ private:
     }
 
     const FastLevel* find_level(const FastSymbol& sym, const FastSide& s, Price price) const {
-        std::int64_t cents = 0;
-        if (to_cents(price, cents) && sym.base_cents >= 0 && !s.levels.empty()) {
-            const std::int64_t off = cents - sym.base_cents;
-            if (off >= 0 && off < static_cast<std::int64_t>(kWindowTicks)) {
-                return &s.levels[static_cast<std::size_t>(off)];
-            }
+        (void)sym;
+        std::int64_t off = 0;
+        if (in_window(s, price, off) && !s.levels.empty()) {
+            return &s.levels[static_cast<std::size_t>(off)];
         }
         const auto it = s.overflow.find(price);
         return it == s.overflow.end() ? nullptr : &it->second;
@@ -477,7 +630,6 @@ private:
         o.price = price;
         o.locate = locate;
         o.side = static_cast<std::uint8_t>(side);
-        o.in_overflow = overflowed ? 1u : 0u;
         refs_[idx] = ref;
 
         if (lvl->tail != kNoOrder)
@@ -493,7 +645,7 @@ private:
         if (!overflowed && was_empty) {
             std::int64_t cents = 0;
             to_cents(price, cents);
-            s.occupied.set(static_cast<std::size_t>(cents - sym.base_cents));
+            s.occupied.set(static_cast<std::size_t>(cents - s.base_cents));
         }
 
         if (!index_.insert(ref, idx)) {
@@ -541,19 +693,20 @@ private:
         return true;
     }
 
+    // Where a level lives is derived from its price and the symbol's CURRENT
+    // window origin. Nothing is cached, so a recenter that moves levels
+    // between the flat array and the overflow map needs to touch no orders.
     FastLevel* mutable_level(const FastOrder& o) {
         if (o.locate >= symbols_.size()) return nullptr;
         FastSymbol& sym = symbols_[o.locate];
         FastSide& s = side_of(sym, o.side);
-        if (o.in_overflow) {
-            const auto it = s.overflow.find(o.price);
-            return it == s.overflow.end() ? nullptr : &it->second;
+        (void)sym;
+        std::int64_t off = 0;
+        if (in_window(s, o.price, off) && !s.levels.empty()) {
+            return &s.levels[static_cast<std::size_t>(off)];
         }
-        std::int64_t cents = 0;
-        if (!to_cents(o.price, cents) || sym.base_cents < 0 || s.levels.empty()) return nullptr;
-        const std::int64_t off = cents - sym.base_cents;
-        if (off < 0 || off >= static_cast<std::int64_t>(kWindowTicks)) return nullptr;
-        return &s.levels[static_cast<std::size_t>(off)];
+        const auto it = s.overflow.find(o.price);
+        return it == s.overflow.end() ? nullptr : &it->second;
     }
 
     // Removes an order from its level's FIFO and clears the occupancy bit if
@@ -579,15 +732,14 @@ private:
         if (lvl->orders) --lvl->orders;
 
         if (lvl->orders == 0) {
-            if (o.in_overflow) {
+            std::int64_t off = 0;
+            if (in_window(s, o.price, off)) {
+                s.occupied.clear(static_cast<std::size_t>(off));
+            } else {
                 // The overflow map drops emptied levels so it does not grow
                 // without bound, and so that it matches the reference book,
                 // which cannot distinguish an empty level from an absent one.
                 s.overflow.erase(o.price);
-            } else {
-                std::int64_t cents = 0;
-                to_cents(o.price, cents);
-                s.occupied.clear(static_cast<std::size_t>(cents - sym.base_cents));
             }
         }
     }
@@ -608,10 +760,10 @@ private:
         // price. A symbol whose first order is sub-cent has an empty window
         // and a populated overflow map, so the overflow side must be consulted
         // regardless of whether the window exists.
-        if (sym.base_cents >= 0 && !s.occupied.empty()) {
+        if (s.base_cents >= 0 && !s.occupied.empty()) {
             const std::size_t i = (side == kBuy) ? s.occupied.highest() : s.occupied.lowest();
             if (i < kWindowTicks) {
-                out = static_cast<Price>((sym.base_cents + static_cast<std::int64_t>(i)) * 100);
+                out = static_cast<Price>((s.base_cents + static_cast<std::int64_t>(i)) * 100);
                 have = true;
             }
         }
@@ -630,7 +782,13 @@ private:
 
     // Crossed and locked books occur legitimately around halts and auctions.
     // Counted per observation, never repaired (record 007).
+    //
+    // The window is moved here rather than on insertion, because the trigger
+    // is where the INSIDE is, not where a single order happened to be priced.
+    // An order far from the inside should overflow; a window that has drifted
+    // away from the inside should move.
     void check_bbo(std::uint16_t locate) {
+        maybe_recenter(locate);
         const auto b = best(locate, kBuy);
         const auto a = best(locate, kSell);
         if (!b.first || !a.first) return;
@@ -645,6 +803,8 @@ private:
     std::vector<FastOrder> pool_;
     std::vector<Ref> refs_; // parallel to pool_; keeps FastOrder at its target size
     std::vector<FastSymbol> symbols_;
+    // Reused by recenter() so that moving a window allocates nothing.
+    std::vector<std::pair<Price, FastLevel>> scratch_;
     std::uint32_t free_head_ = kNoOrder;
     FastCounters counters_;
     bool after_hours_ = false;

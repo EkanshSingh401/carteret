@@ -284,6 +284,62 @@ void test_first_order_at_a_sub_cent_price() {
     CHECK(d2.fast().best_bid(1) == 1510000);
 }
 
+// A price that trends far beyond one window width, which forces the window to
+// move repeatedly. Recentering rebuilds a side's level array and bitmap and
+// moves levels between the flat array and the overflow map; nothing else in
+// the book changes, so a defect here shows up as a level in the wrong place
+// or an occupancy bit that disagrees with its level.
+//
+// The fixed-origin design this replaced never moved, so no amount of trending
+// flow could have caught a bug in it -- and it put a third of all orders on a
+// real session into the overflow map. See docs/design.md record 033.
+void test_trending_price_forces_recentering() {
+    FlowGenerator g(23);
+    Ref ref = 1;
+    // Walk the inside up by 4,000 ticks, about sixteen window widths at the
+    // default width, leaving resting depth behind at every level.
+    for (int step = 0; step < 4000; ++step) {
+        const Price bid = static_cast<Price>(1000000 + step * 100);
+        const Price ask = bid + 100;
+        g.add(1, ref++, kBuy, bid, 100);
+        g.add(1, ref++, kSell, ask, 100);
+        if (step % 3 == 0 && ref > 4) {
+            // Remove some depth left behind, so levels empty as well as fill.
+            g.simple('D', 1, ref - 4, 0);
+        }
+    }
+    // And back down again, so the window moves in both directions.
+    for (int step = 4000; step-- > 0;) {
+        const Price bid = static_cast<Price>(1000000 + step * 100);
+        g.add(1, ref++, kBuy, bid, 100);
+    }
+    carteret::test::frame_end(g.buf);
+
+    FastBookConfig cfg;
+    cfg.max_orders = 1u << 16;
+    cfg.max_symbols = 64;
+    cfg.index_hint = 1u << 16;
+
+    Differential<> d(cfg, 1024);
+    Parser<Differential<>> parser(d);
+    const ParseStats st = parser.run({g.buf.data(), g.buf.size()});
+
+    CHECK(st.clean());
+    if (d.divergence().found) d.report(stderr);
+    CHECK(!d.divergence().found);
+    CHECK(d.compare_everything());
+    CHECK(d.reference().check_invariants() == 0);
+    CHECK(d.fast().check_invariants() == 0);
+    // The point of the test: the window really did move, many times.
+    CHECK(d.fast().counters().recenters > 20);
+    CHECK(d.fast().counters().levels_moved > 0);
+
+    std::printf("  %-16s %llu recenters, %llu levels moved, %llu overflow hits\n",
+                "recentering", (unsigned long long)d.fast().counters().recenters,
+                (unsigned long long)d.fast().counters().levels_moved,
+                (unsigned long long)d.fast().counters().overflow_hits);
+}
+
 // The same flow through the harness must be reported as clean, which is the
 // other half of the check above.
 void test_harness_reports_agreement() {
@@ -312,6 +368,7 @@ int main() {
     test_harness_detects_a_planted_difference();
     test_harness_reports_agreement();
     test_first_order_at_a_sub_cent_price();
+    test_trending_price_forces_recentering();
 
     run_policy<IdentityHash>(IdentityHash::name, 1, 40000);
     run_policy<MultiplyShiftHash>(MultiplyShiftHash::name, 2, 40000);
