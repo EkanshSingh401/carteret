@@ -35,8 +35,19 @@ fi
 
 mkdir -p data
 
+# Sessions run to several gigabytes and the archive drops connections
+# mid-transfer, so the fetch resumes from whatever is already on disk and
+# retries rather than restarting. Without -C the download begins again from
+# zero, which on a 5 GB session is an hour lost to a transient reset.
 echo "fetching ${DIR}/${FILE} ..."
-curl -fL --progress-bar --path-as-is "${BASE}/${DIR// /%20}/${FILE}" -o "data/${FILE}"
+if [ -f "data/${FILE}" ]; then
+  echo "resuming from $(wc -c < "data/${FILE}" | tr -d ' ') bytes already on disk"
+fi
+curl -fL --progress-bar --path-as-is \
+  --continue-at - \
+  --retry 10 --retry-delay 5 --retry-all-errors \
+  --speed-time 60 --speed-limit 1024 \
+  "${BASE}/${DIR// /%20}/${FILE}" -o "data/${FILE}"
 
 # The archive publishes an .md5sum beside most sessions. Files are withdrawn
 # and re-uploaded over time, so the checksum is the only evidence that a given
@@ -57,6 +68,16 @@ if curl -fsL --path-as-is "${BASE}/${DIR// /%20}/${FILE}.md5sum" -o "data/${FILE
   fi
 else
   echo "no .md5sum published for ${FILE}; integrity unverified" >&2
+fi
+
+# A resumed transfer can still be short if the server closed cleanly at the
+# wrong point, and gunzip on a truncated stream produces a plausible prefix of
+# a session rather than an error at the start. Testing the stream first turns
+# that into a failure here instead of a wrong message count later.
+echo "verifying the gzip stream ..."
+if ! gunzip -t "data/${FILE}"; then
+  echo "gzip stream is incomplete or corrupt; re-run to resume" >&2
+  exit 1
 fi
 
 echo "unpacking ..."
