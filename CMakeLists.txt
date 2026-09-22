@@ -9,7 +9,13 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
-add_compile_options(-Wall -Wextra -Wpedantic -Wshadow -Wconversion)
+# The warning set is carried on an interface target rather than applied
+# directory-wide, so that vendored dependencies fetched below are not held to
+# it. A warning in code this project did not write is noise that hides the
+# warnings that matter.
+add_library(carteret_warnings INTERFACE)
+target_compile_options(carteret_warnings INTERFACE
+  -Wall -Wextra -Wpedantic -Wshadow -Wconversion)
 
 # -march=native produces a binary that is not portable and a result that cannot
 # be reproduced on another machine, so it stays off for anything published. It
@@ -31,9 +37,25 @@ endif()
 option(CARTERET_FUZZ "Build libFuzzer targets" OFF)
 
 option(CARTERET_BENCH "Build the benchmark harness" OFF)
+if(CARTERET_BENCH)
+  # hdr_histogram_c records a full distribution in bounded memory at a stated
+  # precision. Storing raw samples instead would either cap the sample count --
+  # biasing the distribution toward the start of the session -- or hold
+  # hundreds of megabytes per run.
+  include(FetchContent)
+  set(HDR_HISTOGRAM_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+  set(HDR_HISTOGRAM_BUILD_SHARED   OFF CACHE BOOL "" FORCE)
+  set(HDR_LOG_REQUIRED             OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(hdr_histogram
+    GIT_REPOSITORY https://github.com/HdrHistogram/HdrHistogram_c.git
+    GIT_TAG        0.11.8
+    GIT_SHALLOW    TRUE)
+  FetchContent_MakeAvailable(hdr_histogram)
+endif()
 
 add_library(carteret INTERFACE)
 target_include_directories(carteret INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(carteret INTERFACE carteret_warnings)
 
 # Test-only helpers. Not part of the installed interface.
 add_library(carteret_testing INTERFACE)
@@ -46,6 +68,15 @@ add_executable(gen_synthetic  tools/gen_synthetic.cpp)
 target_link_libraries(census        PRIVATE carteret)
 target_link_libraries(replay       PRIVATE carteret)
 target_link_libraries(gen_synthetic PRIVATE carteret)
+
+if(CARTERET_BENCH)
+  add_executable(bench_book bench/bench_book.cpp bench/timer.cpp)
+  target_link_libraries(bench_book PRIVATE carteret hdr_histogram_static)
+  target_compile_definitions(bench_book PRIVATE CARTERET_HAVE_HDR=1)
+  # The vendored headers are not held to this project's warning set.
+  target_include_directories(bench_book SYSTEM PRIVATE
+    ${hdr_histogram_SOURCE_DIR}/include)
+endif()
 
 enable_testing()
 add_executable(test_wire tests/test_wire.cpp)
