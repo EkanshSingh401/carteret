@@ -41,8 +41,10 @@ target_link_libraries(carteret_testing INTERFACE carteret)
 target_include_directories(carteret_testing INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 
 add_executable(census         src/census.cpp)
+add_executable(replay        src/replay.cpp)
 add_executable(gen_synthetic  tools/gen_synthetic.cpp)
 target_link_libraries(census        PRIVATE carteret)
+target_link_libraries(replay       PRIVATE carteret)
 target_link_libraries(gen_synthetic PRIVATE carteret)
 
 enable_testing()
@@ -65,6 +67,10 @@ add_test(NAME reference_book COMMAND test_reference_book)
 add_executable(test_order_index tests/test_order_index.cpp)
 target_link_libraries(test_order_index PRIVATE carteret_testing)
 add_test(NAME order_index COMMAND test_order_index)
+
+add_executable(test_differential tests/test_differential.cpp)
+target_link_libraries(test_differential PRIVATE carteret_testing)
+add_test(NAME differential COMMAND test_differential)
 
 if(CARTERET_FUZZ)
   # Sanitizers are not optional here: a fuzzer without them finds only inputs
