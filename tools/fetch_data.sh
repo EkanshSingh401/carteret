@@ -37,56 +37,74 @@ mkdir -p data
 
 URL="${BASE}/${DIR// /%20}/${FILE}"
 
-# Sessions run to several gigabytes and the archive drops connections
-# mid-transfer, so a fetch has to survive a reset. Resuming is the obvious way
-# and is NOT safe here: the server advertises "accept-ranges: bytes" and then
-# answers every range request with 416 and "content-range: bytes */0". curl
-# reads that 416 as "the local file is already complete", prints 100%, and
-# exits zero on a file that is a third of the session. Resuming therefore
-# happens only if a probe shows the server actually honours a range.
-RANGE_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -r 0-0 --max-time 30 "$URL" || echo 000)
-if [ "$RANGE_STATUS" = "206" ]; then
-  RESUME=(--continue-at -)
-  echo "server honours range requests; a partial file will be resumed"
-else
-  RESUME=()
-  echo "server does not honour range requests (probe returned ${RANGE_STATUS}); fetching whole"
-  rm -f "data/${FILE}"
-fi
-
+# Sessions run to several gigabytes and this archive drops connections
+# mid-transfer, so a fetch has to survive a reset. The obvious answer --
+# continuing a partial file with curl's --continue-at -- was tried twice and
+# abandoned, because this server's range handling is unreliable in two ways
+# that both end in a file that looks finished and is not:
+#
+#   * It answers HEAD carrying a Range header with 416 and "content-range:
+#     bytes */0", while answering GET carrying a Range with a correct 206. A
+#     probe built on HEAD concludes, wrongly, that ranges are unsupported.
+#   * More seriously, a continued transfer that hit curl's slow-transfer
+#     timeout and retried came back with the WHOLE body rather than the
+#     requested range, and curl appended it to the partial file. The result
+#     was 115% of the advertised length and still growing, with valid gzip at
+#     the front and garbage from the restart offset on. A size check catches
+#     that, but only after the bandwidth is spent.
+#
+# So: no partial continuation. Every attempt fetches the whole file to a
+# temporary path, and the file is moved into place only once its length
+# matches what the server advertised. A failed attempt therefore leaves no
+# partial file that a later run could mistake for a good one.
 EXPECTED=$(curl -sI --max-time 30 "$URL" | tr -d '\r' \
            | awk 'tolower($1) == "content-length:" { print $2 }' | tail -1)
 
-echo "fetching ${DIR}/${FILE}${EXPECTED:+ (${EXPECTED} bytes)} ..."
-if [ -n "${RESUME[*]:-}" ] && [ -f "data/${FILE}" ]; then
-  echo "resuming from $(wc -c < "data/${FILE}" | tr -d ' ') bytes already on disk"
-fi
-curl -fL --progress-bar --path-as-is \
-  "${RESUME[@]}" \
-  --retry 10 --retry-delay 5 --retry-all-errors \
-  --speed-time 120 --speed-limit 1024 \
-  "$URL" -o "data/${FILE}"
-
-# curl exiting zero is not evidence the file is whole: see the 416 case above.
-# The byte count is checked against what the server advertised.
-if [ -n "$EXPECTED" ]; then
-  ACTUAL=$(wc -c < "data/${FILE}" | tr -d ' ')
-  if [ "$ACTUAL" != "$EXPECTED" ]; then
-    echo "short download: got ${ACTUAL} bytes, expected ${EXPECTED}; re-run" >&2
+if [ -f "data/${FILE}" ] && [ -n "$EXPECTED" ] \
+   && [ "$(wc -c < "data/${FILE}" | tr -d ' ')" = "$EXPECTED" ]; then
+  echo "already have ${FILE} at the advertised ${EXPECTED} bytes"
+else
+  TMP="data/.${FILE}.partial"
+  rm -f "$TMP"
+  ATTEMPTS="${FETCH_ATTEMPTS:-4}"
+  ok=0
+  for attempt in $(seq 1 "$ATTEMPTS"); do
+    echo "fetching ${DIR}/${FILE}${EXPECTED:+ (${EXPECTED} bytes)}, attempt ${attempt}/${ATTEMPTS} ..."
+    rm -f "$TMP"
+    if curl -fL --progress-bar --path-as-is \
+         --speed-time 120 --speed-limit 10240 \
+         "$URL" -o "$TMP"; then
+      actual=$(wc -c < "$TMP" | tr -d ' ')
+      if [ -z "$EXPECTED" ]; then
+        echo "server advertised no content-length; size unverified"
+        ok=1
+        break
+      elif [ "$actual" = "$EXPECTED" ]; then
+        echo "size ok: ${actual} bytes"
+        ok=1
+        break
+      else
+        echo "short or over-long: got ${actual}, expected ${EXPECTED}; retrying" >&2
+      fi
+    else
+      echo "transfer failed; retrying" >&2
+    fi
+  done
+  if [ "$ok" -ne 1 ]; then
+    rm -f "$TMP"
+    echo "gave up after ${ATTEMPTS} attempts; no partial file left behind" >&2
     exit 1
   fi
-  echo "size ok: ${ACTUAL} bytes"
-else
-  echo "server advertised no content-length; size unverified" >&2
+  mv "$TMP" "data/${FILE}"
 fi
 
-# A resumed transfer can still be short if the server closed cleanly at the
-# wrong point, and gunzip on a truncated stream produces a plausible prefix of
-# a session rather than an error at the start. Testing the stream first turns
-# that into a failure here instead of a wrong message count later.
+# A file of the right length can still be the wrong bytes, and gunzip on a
+# truncated stream produces a plausible prefix of a session rather than
+# failing at the start. Testing the stream turns that into a failure here
+# instead of a wrong message count much later.
 echo "verifying the gzip stream ..."
 if ! gunzip -t "data/${FILE}"; then
-  echo "gzip stream is incomplete or corrupt; re-run to resume" >&2
+  echo "gzip stream is corrupt; delete data/${FILE} and re-run" >&2
   exit 1
 fi
 

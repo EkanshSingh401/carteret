@@ -196,12 +196,12 @@ Consequences, stated rather than worked around:
 - This is re-checked whenever a session is fetched. If the checksums become
   retrievable, the verification results are recorded in the tables above.
 
-## Continuing an interrupted download, and how curl can report success on a third of a file
+## Fetching a multi-gigabyte session, and three attempts to get it right
 
-The archive drops connections mid-transfer: fetching
-`12302019.NASDAQ_ITCH50.gz` (3,524,013,057 bytes) failed once with a
-connection reset at 29% and once with a stall at 38%. Continuing a partial
-transfer is therefore necessary, and it needs care.
+The archive drops connections mid-transfer. Fetching
+`12302019.NASDAQ_ITCH50.gz` (3,524,013,057 bytes) failed with a connection
+reset at 29%, and again with a stall at 38%. Surviving that is necessary, and
+the obvious mechanism does not work here.
 
 **Measured on 2026-09-22:**
 
@@ -212,26 +212,36 @@ transfer is therefore necessary, and it needs care.
 | `GET` with `Range: bytes=0-0` | 206, `content-range: bytes 0-0/3524013057` |
 | `GET` with a mid-file `Range` | 206, correct `content-range` |
 
-So the server does honour range requests, but only on `GET`; it answers `HEAD`
-with a `Range` header as though the range were unsatisfiable. A probe for
-range support must therefore use `GET`, or it will conclude that continuing a
-partial transfer is impossible when it is not.
+### Two failed approaches, both of which produced a file that looked finished
 
-**The failure that matters is separate from that.** On the first such
-attempt, curl was configured with `--continue-at -` together with `--retry`
-and a slow-transfer timeout. It continued correctly from the partial file,
-transferred to 38.5%, timed out, retried — and then immediately printed
-`100.0%` and **exited zero, with the file back at exactly the byte offset it
-had started from**, 29% of the session. The bytes fetched after that offset
-were discarded and the transfer was declared complete.
+**First attempt: `curl --continue-at -` unconditionally.** On the retry after a
+slow-transfer timeout, curl printed `100.0%` and **exited zero with the file
+back at exactly the byte offset it had started from** — 29% of the session.
+Everything fetched after that offset was discarded.
 
-`curl` exiting zero is therefore not evidence that a file is whole.
-`tools/fetch_data.sh` checks the downloaded size against the advertised
-`content-length` and re-runs until it matches, and tests the gzip stream
-before unpacking. The gzip test is the backstop: `gunzip` on a truncated
-stream produces a plausible prefix of a session rather than failing at the
-start, so a short download would otherwise surface much later as a wrong
-message count with no obvious cause.
+**Second attempt: probe for range support, then continue.** The probe used
+`GET` and correctly saw 206, so continuation was enabled. It worked, reached
+71%, and then a retry after a slow-transfer timeout came back with **the whole
+body rather than the requested range**, which curl appended to the partial
+file. The result was **4,038,899,612 bytes — 115% of the advertised length and
+still growing** — with valid gzip at the front and garbage from the restart
+offset onward. `gunzip -t` would have caught it; so would the length check;
+but only after an hour of bandwidth.
+
+### What the script does now
+
+No partial continuation at all. Each attempt fetches the whole file to
+`data/.<name>.partial`, and the file is moved into place only once its length
+matches the advertised `content-length`. Up to four attempts, then it gives up
+and removes the partial, so a failed fetch never leaves something a later run
+could mistake for a good file. The gzip stream is tested before unpacking,
+because `gunzip` on a truncated stream yields a plausible prefix of a session
+rather than failing at the start, and a short session would otherwise surface
+much later as a wrong message count with no obvious cause.
+
+The lesson worth keeping: **`curl` exiting zero is not evidence that a file is
+whole**, and neither is a progress bar reaching 100%. Only the length is, and
+only then the checksum — which this archive does not serve.
 
 ## Provenance
 
