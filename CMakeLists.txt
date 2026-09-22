@@ -44,6 +44,10 @@ add_executable(test_wire tests/test_wire.cpp)
 target_link_libraries(test_wire PRIVATE carteret)
 add_test(NAME wire COMMAND test_wire)
 
+add_executable(test_messages tests/test_messages.cpp)
+target_link_libraries(test_messages PRIVATE carteret)
+add_test(NAME messages COMMAND test_messages)
+
 # Writes a synthetic session and censuses it back, which catches framing
 # regressions without requiring a multi-gigabyte download in CI.
 add_test(NAME roundtrip
