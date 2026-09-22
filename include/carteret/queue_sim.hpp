@@ -57,6 +57,7 @@
 #include <random>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace carteret {
@@ -95,7 +96,13 @@ struct QueueSimConfig {
     std::uint64_t max_life_ns = 60'000'000'000ULL; // 60 s, then cancelled
     std::array<std::uint64_t, 3> horizons_ns = {1'000'000'000ULL, 10'000'000'000ULL,
                                                 60'000'000'000ULL};
-    bool rule4_non_displayed_fills = false;         // reported both ways
+    bool rule4_non_displayed_fills = false; // reported both ways
+    // Symbols eligible for placement. Empty means every symbol that is
+    // two-sided at the time, which pools names whose spreads differ by two
+    // orders of magnitude and lets a handful of illiquid symbols dominate the
+    // value statistics. A restricted universe is the usual design and is what
+    // makes a pooled value figure interpretable.
+    std::vector<std::uint16_t> universe;
     std::uint64_t start_ns = 34'200'000'000'000ULL; // 09:30:00
     std::uint64_t end_ns = 57'600'000'000'000ULL;   // 16:00:00
     std::size_t max_concurrent = 4096;
@@ -148,6 +155,7 @@ struct SyntheticOrder {
     std::uint64_t entered_ts = 0;
     std::uint64_t depth_at_entry = 0; // shares ahead at entry, the exact figure
     std::uint32_t level_orders_at_entry = 0;
+    std::uint32_t spread_at_entry = 0; // Price(4) units; the natural scale for value
     std::array<ModelState, static_cast<std::size_t>(QueueModel::kCount)> models;
     // References resting ahead at entry. Exact attribution needs this and
     // nothing else: anything not in here joined behind.
@@ -165,6 +173,7 @@ struct PendingValuation {
     std::uint8_t model = 0;
     std::uint8_t horizon = 0;
     std::size_t depth_bucket = 0;
+    std::uint32_t spread_at_entry = 0;
 };
 
 struct ModelResults {
@@ -178,6 +187,12 @@ struct ModelResults {
     std::array<std::uint64_t, kDepthBucketEdges.size()> placed_by_depth{};
     std::array<std::uint64_t, kDepthBucketEdges.size()> filled_by_depth{};
     std::array<std::array<double, 3>, kDepthBucketEdges.size()> value_by_depth{};
+    // The same value expressed in half-spreads at entry. A synthetic order
+    // resting at the inside starts half a spread better than the mid, so this
+    // scale puts symbols with a one-cent spread and symbols with a dollar
+    // spread on comparable footing; a pooled figure in ticks is dominated by
+    // the widest names.
+    std::array<std::array<double, 3>, kDepthBucketEdges.size()> value_halfspreads{};
     std::array<std::array<std::uint64_t, 3>, kDepthBucketEdges.size()> valued_by_depth{};
     std::uint64_t sum_time_to_fill_ns = 0;
 
@@ -443,6 +458,7 @@ private:
             p.model = static_cast<std::uint8_t>(mi);
             p.horizon = h;
             p.depth_bucket = db;
+            p.spread_at_entry = o.spread_at_entry;
             pending_.push_back(p);
         }
         refresh_live(o);
@@ -541,6 +557,7 @@ private:
         o.price = (o.side == kBuy) ? sym->best_bid() : sym->best_ask();
         o.size = cfg_.order_size;
         o.entered_ts = ts;
+        o.spread_at_entry = sym->best_ask() - sym->best_bid();
 
         const LevelSnapshot lv = book_.level(locate, o.side, o.price);
         if (!lv.present) {
@@ -573,10 +590,17 @@ private:
 
     void refresh_universe() {
         two_sided_.clear();
-        for (std::uint32_t l = 0; l <= 0xFFFF; ++l) {
-            const RefSymbol* s = book_.symbol(static_cast<std::uint16_t>(l));
-            if (s && s->has_bid() && s->has_ask()) {
-                two_sided_.push_back(static_cast<std::uint16_t>(l));
+        if (!cfg_.universe.empty()) {
+            for (const std::uint16_t l : cfg_.universe) {
+                const RefSymbol* s = book_.symbol(l);
+                if (s && s->has_bid() && s->has_ask()) two_sided_.push_back(l);
+            }
+        } else {
+            for (std::uint32_t l = 0; l <= 0xFFFF; ++l) {
+                const RefSymbol* s = book_.symbol(static_cast<std::uint16_t>(l));
+                if (s && s->has_bid() && s->has_ask()) {
+                    two_sided_.push_back(static_cast<std::uint16_t>(l));
+                }
             }
         }
         universe_refreshed_ = last_ts_;
@@ -610,6 +634,10 @@ private:
             const double edge = (p.side == kBuy) ? (m - static_cast<double>(p.fill_price))
                                                  : (static_cast<double>(p.fill_price) - m);
             res_[p.model].value_by_depth[p.depth_bucket][p.horizon] += edge;
+            if (p.spread_at_entry > 0) {
+                res_[p.model].value_halfspreads[p.depth_bucket][p.horizon] +=
+                    edge / (static_cast<double>(p.spread_at_entry) / 2.0);
+            }
             ++res_[p.model].valued_by_depth[p.depth_bucket][p.horizon];
         }
         pending_.swap(still);

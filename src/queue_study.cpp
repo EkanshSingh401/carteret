@@ -14,17 +14,25 @@
 // results are reported. See record 020.
 //
 //   usage: queue_study [--seed N] [--interarrival-ms N] [--max-life-s N]
-//                      [--out DIR] [--venue NAME] [--date YYYY-MM-DD]
-//                      <session-file>
+//                      [--universe N] [--out DIR] [--venue NAME]
+//                      [--date YYYY-MM-DD] <session-file>
+//
+// Placements are restricted to the --universe busiest symbols. Pooling every
+// two-sided symbol mixes one-cent spreads with dollar spreads, and the value
+// figures are then dominated by a handful of illiquid names whose inside means
+// little.
 
 #include "carteret/mapped_file.hpp"
 #include "carteret/parser.hpp"
 #include "carteret/queue_sim.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 using namespace carteret;
 
@@ -38,7 +46,46 @@ struct Options {
     std::uint64_t seed = 20190130;
     std::uint64_t interarrival_ms = 250;
     std::uint64_t max_life_s = 60;
+    std::size_t universe = 50; // 0 means every two-sided symbol
 };
+
+// Picks the busiest symbols, so placements land on names whose inside is
+// meaningful. Pooling every two-sided symbol mixes one-cent spreads with
+// dollar spreads and lets a few illiquid names dominate any value figure.
+struct UniverseCensus {
+    std::unordered_map<std::uint16_t, std::uint64_t> messages;
+    std::unordered_map<std::uint16_t, std::string> names;
+
+    void on(StockDirectory v) { names[v.locate()] = std::string(v.stock()); }
+    void on(AddOrder v) { ++messages[v.locate()]; }
+    void on(AddOrderMpid v) { ++messages[v.locate()]; }
+    void on(OrderExecuted v) { ++messages[v.locate()]; }
+    void on(OrderExecutedPrice v) { ++messages[v.locate()]; }
+    void on(OrderCancel v) { ++messages[v.locate()]; }
+    void on(OrderDelete v) { ++messages[v.locate()]; }
+    void on(OrderReplace v) { ++messages[v.locate()]; }
+};
+
+std::vector<std::uint16_t> pick_universe(const MappedFile& mf, std::size_t n,
+                                         std::string& busiest) {
+    UniverseCensus c;
+    Parser<UniverseCensus> parser(c);
+    parser.run(mf.bytes());
+
+    std::vector<std::pair<std::uint64_t, std::uint16_t>> ranked;
+    ranked.reserve(c.messages.size());
+    for (const auto& [locate, count] : c.messages) {
+        if (c.names.count(locate)) ranked.emplace_back(count, locate);
+    }
+    std::sort(ranked.begin(), ranked.end(), std::greater<>());
+    if (n && ranked.size() > n) ranked.resize(n);
+
+    std::vector<std::uint16_t> out;
+    out.reserve(ranked.size());
+    for (const auto& [count, locate] : ranked) out.push_back(locate);
+    if (!ranked.empty()) busiest = c.names[ranked.front().second];
+    return out;
+}
 
 std::FILE* open_or_die(const std::string& path) {
     std::FILE* f = std::fopen(path.c_str(), "w");
@@ -49,8 +96,10 @@ std::FILE* open_or_die(const std::string& path) {
     return f;
 }
 
-QueueSimulator run_once(const MappedFile& mf, const Options& opt, bool rule4) {
+QueueSimulator run_once(const MappedFile& mf, const Options& opt,
+                        const std::vector<std::uint16_t>& universe, bool rule4) {
     QueueSimConfig cfg;
+    cfg.universe = universe;
     cfg.seed = opt.seed;
     cfg.mean_interarrival_ns = opt.interarrival_ms * 1000000ULL;
     cfg.max_life_ns = opt.max_life_s * 1000000000ULL;
@@ -132,8 +181,9 @@ void write_csv(const QueueSimulator& sim, const Options& opt, bool rule4) {
 
     std::FILE* f = open_or_die(opt.out + "/queue_bias_" + suffix + ".csv");
     std::fprintf(f, "venue,date,rule4,model,depth_bucket,depth_low,depth_high,placed,filled,"
-                    "fill_rate,value_1s,value_10s,value_60s,valued_1s,valued_10s,"
-                    "valued_60s\n");
+                    "fill_rate,value_1s,value_10s,value_60s,"
+                    "value_hs_1s,value_hs_10s,value_hs_60s,"
+                    "valued_1s,valued_10s,valued_60s\n");
     for (std::size_t m = 0; m < 4; ++m) {
         for (std::size_t d = 0; d < kDepthBucketEdges.size(); ++d) {
             if (r[m].placed_by_depth[d] == 0) continue;
@@ -156,6 +206,13 @@ void write_csv(const QueueSimulator& sim, const Options& opt, bool rule4) {
                                               static_cast<double>(r[m].valued_by_depth[d][h])
                                         : 0.0;
                 std::fprintf(f, ",%.4f", mean);
+            }
+            for (std::size_t h = 0; h < 3; ++h) {
+                const double mean = r[m].valued_by_depth[d][h]
+                                        ? r[m].value_halfspreads[d][h] /
+                                              static_cast<double>(r[m].valued_by_depth[d][h])
+                                        : 0.0;
+                std::fprintf(f, ",%.6f", mean);
             }
             for (std::size_t h = 0; h < 3; ++h) {
                 std::fprintf(f, ",%llu", (unsigned long long)r[m].valued_by_depth[d][h]);
@@ -209,8 +266,8 @@ int main(int argc, char** argv) {
     if (opt.path.empty()) {
         std::fprintf(stderr,
                      "usage: %s [--seed N] [--interarrival-ms N] [--max-life-s N]\n"
-                     "          [--out DIR] [--venue NAME] [--date YYYY-MM-DD] "
-                     "<session-file>\n",
+                     "          [--universe N] [--out DIR] [--venue NAME] "
+                     "[--date YYYY-MM-DD]\n          <session-file>\n",
                      argv[0]);
         return 2;
     }
@@ -223,10 +280,15 @@ int main(int argc, char** argv) {
                 (unsigned long long)opt.interarrival_ms);
     std::printf("max order life %llu s\n", (unsigned long long)opt.max_life_s);
 
+    std::string busiest = "?";
+    const std::vector<std::uint16_t> universe = pick_universe(mf, opt.universe, busiest);
+    std::printf("universe       %zu busiest symbols (busiest %s)\n", universe.size(),
+                busiest.c_str());
+
     // Both arms of rule 4, from the same seed, so the two runs place the same
     // orders and differ only in the rule.
     for (const bool rule4 : {false, true}) {
-        const QueueSimulator sim = run_once(mf, opt, rule4);
+        const QueueSimulator sim = run_once(mf, opt, universe, rule4);
         print_summary(sim, rule4);
         write_csv(sim, opt, rule4);
     }
