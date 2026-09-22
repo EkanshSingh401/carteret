@@ -48,6 +48,10 @@ add_executable(test_messages tests/test_messages.cpp)
 target_link_libraries(test_messages PRIVATE carteret)
 add_test(NAME messages COMMAND test_messages)
 
+add_executable(test_dispatch tests/test_dispatch.cpp)
+target_link_libraries(test_dispatch PRIVATE carteret)
+add_test(NAME dispatch COMMAND test_dispatch)
+
 # Writes a synthetic session and censuses it back, which catches framing
 # regressions without requiring a multi-gigabyte download in CI.
 add_test(NAME roundtrip
