@@ -26,7 +26,8 @@ if(CARTERET_ASAN)
 endif()
 
 # libFuzzer ships with upstream Clang, not with Apple Clang. The fuzz preset
-# therefore requires a toolchain override on macOS.
+# therefore requires a toolchain override on macOS; tools/fuzz.sh picks a
+# suitable compiler and is the supported way to run a campaign.
 option(CARTERET_FUZZ "Build libFuzzer targets" OFF)
 
 option(CARTERET_BENCH "Build the benchmark harness" OFF)
@@ -51,6 +52,17 @@ add_test(NAME messages COMMAND test_messages)
 add_executable(test_dispatch tests/test_dispatch.cpp)
 target_link_libraries(test_dispatch PRIVATE carteret)
 add_test(NAME dispatch COMMAND test_dispatch)
+
+if(CARTERET_FUZZ)
+  # Sanitizers are not optional here: a fuzzer without them finds only inputs
+  # that crash outright and misses the out-of-bounds read this target exists
+  # to look for.
+  add_executable(fuzz_frame tests/fuzz_frame.cpp)
+  target_link_libraries(fuzz_frame PRIVATE carteret)
+  target_compile_options(fuzz_frame PRIVATE
+    -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
+  target_link_options(fuzz_frame PRIVATE -fsanitize=fuzzer,address,undefined)
+endif()
 
 # Writes a synthetic session and censuses it back, which catches framing
 # regressions without requiring a multi-gigabyte download in CI.
