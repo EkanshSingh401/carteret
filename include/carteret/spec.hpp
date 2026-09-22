@@ -348,9 +348,16 @@ inline constexpr std::size_t kPriceVariation = 49;     // 1 alpha
 
 // 'N' Retail Price Improvement Indicator (20)
 //
-// NASDAQ's Retail Price Improvement program ended on 31 December 2014, so this
-// message is expected at zero or near-zero counts in the sample sessions. A
-// nonzero count is worth investigating rather than assuming.
+// This message is commonly described as obsolete on the grounds that NASDAQ's
+// Retail Price Improvement program ended on 31 December 2014. That is not what
+// the data shows. 20190130.BX_ITCH_50 carries 8,301,264 of them -- 10.0% of the
+// session -- across 7,217 symbols, spanning 08:00 to 19:00, using all four
+// documented InterestFlag values ('A' 530,735, 'B' 2,121,573, 'N' 3,620,049,
+// 'S' 2,028,907), and concentrated in liquid names. RITCH independently counts
+// the same total, so this is the feed's content and not a decode artifact.
+//
+// BX operates its own retail program. Whether the NASDAQ venue's sessions also
+// carry this message is untested here; see docs/correctness.md.
 namespace rpii {
 inline constexpr std::size_t kStock = 11;        // 8 alpha
 inline constexpr std::size_t kInterestFlag = 19; // 1 alpha, 'B'|'S'|'A'|'N'
