@@ -5,25 +5,31 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-if(NOT CMAKE_BUILD_TYPE)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
 add_compile_options(-Wall -Wextra -Wpedantic -Wshadow -Wconversion)
 
-# -march=native is OFF by default and should stay off for any number you
-# publish: it makes the binary non-portable and the result irreproducible on
-# anyone else's machine. Turn it on only as a labelled experiment.
-option(CARTERET_NATIVE "Build with -march=native (NOT for published numbers)" OFF)
+# -march=native produces a binary that is not portable and a result that cannot
+# be reproduced on another machine, so it stays off for anything published. It
+# exists only as a labelled experiment.
+option(CARTERET_NATIVE "Build with -march=native (excluded from published results)" OFF)
 if(CARTERET_NATIVE)
   add_compile_options(-march=native)
 endif()
 
-option(CARTERET_ASAN "AddressSanitizer + UBSan build" OFF)
+option(CARTERET_ASAN "AddressSanitizer and UndefinedBehaviorSanitizer build" OFF)
 if(CARTERET_ASAN)
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address,undefined)
 endif()
+
+# libFuzzer ships with upstream Clang, not with Apple Clang. The fuzz preset
+# therefore requires a toolchain override on macOS.
+option(CARTERET_FUZZ "Build libFuzzer targets" OFF)
+
+option(CARTERET_BENCH "Build the benchmark harness" OFF)
 
 add_library(carteret INTERFACE)
 target_include_directories(carteret INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -38,8 +44,8 @@ add_executable(test_wire tests/test_wire.cpp)
 target_link_libraries(test_wire PRIVATE carteret)
 add_test(NAME wire COMMAND test_wire)
 
-# Round trip: write a synthetic session, census it back. Catches framing
-# regressions without needing a 13 GB download in CI.
+# Writes a synthetic session and censuses it back, which catches framing
+# regressions without requiring a multi-gigabyte download in CI.
 add_test(NAME roundtrip
   COMMAND ${CMAKE_COMMAND}
     -DGEN=$<TARGET_FILE:gen_synthetic>
