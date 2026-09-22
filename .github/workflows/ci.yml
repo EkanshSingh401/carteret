@@ -3,23 +3,54 @@ on: [push, pull_request]
 
 jobs:
   build-and-test:
+    name: ${{ matrix.compiler }} / ${{ matrix.preset }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        config: [release, sanitize]
+        compiler: [gcc, clang]
+        preset: [release, asan]
     steps:
       - uses: actions/checkout@v4
-      - name: configure
+      - name: select compiler
         run: |
-          if [ "${{ matrix.config }}" = "sanitize" ]; then
-            cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCARTERET_ASAN=ON
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            echo "CC=clang"   >> "$GITHUB_ENV"
+            echo "CXX=clang++" >> "$GITHUB_ENV"
           else
-            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+            echo "CC=gcc"   >> "$GITHUB_ENV"
+            echo "CXX=g++"  >> "$GITHUB_ENV"
           fi
+      - name: configure
+        run: cmake --preset ${{ matrix.preset }}
       - name: build
-        run: cmake --build build -j
+        run: cmake --build --preset ${{ matrix.preset }} -j
       - name: test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --preset ${{ matrix.preset }}
+
+  fuzz-smoke:
+    name: fuzz smoke (60s)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # A short campaign from a seeded corpus is a regression check, not a
+      # search. Long campaigns are run manually with tools/fuzz.sh and their
+      # results recorded in docs/correctness.md.
+      - name: fuzz
+        env:
+          CXX: clang++
+        run: tools/fuzz.sh 60
+
+  format:
+    name: clang-format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: check formatting
+        run: |
+          clang-format --version
+          find include src tests tools bench -type f \( -name '*.hpp' -o -name '*.cpp' \) \
+            | xargs --no-run-if-empty clang-format --dry-run --Werror
 
 # CI covers correctness only. A shared runner has no core isolation, no
 # frequency control and unknown co-tenants, so it cannot produce an
