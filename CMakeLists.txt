@@ -66,11 +66,13 @@ add_executable(census         src/census.cpp)
 add_executable(replay        src/replay.cpp)
 add_executable(determinism   src/determinism.cpp)
 add_executable(export_micro  src/export_micro.cpp)
+add_executable(queue_study   src/queue_study.cpp)
 add_executable(gen_synthetic  tools/gen_synthetic.cpp)
 target_link_libraries(census        PRIVATE carteret)
 target_link_libraries(replay       PRIVATE carteret)
 target_link_libraries(determinism  PRIVATE carteret)
 target_link_libraries(export_micro PRIVATE carteret)
+target_link_libraries(queue_study  PRIVATE carteret)
 target_link_libraries(gen_synthetic PRIVATE carteret)
 
 if(CARTERET_BENCH)
@@ -114,6 +116,10 @@ add_test(NAME sha256 COMMAND test_sha256)
 add_executable(test_moldudp64 tests/test_moldudp64.cpp)
 target_link_libraries(test_moldudp64 PRIVATE carteret_testing)
 add_test(NAME moldudp64 COMMAND test_moldudp64)
+
+add_executable(test_queue_sim tests/test_queue_sim.cpp)
+target_link_libraries(test_queue_sim PRIVATE carteret_testing)
+add_test(NAME queue_sim COMMAND test_queue_sim)
 
 # Determinism: regenerate the synthetic session and check both hashes against
 # the committed golden values. Regenerating rather than committing the session
