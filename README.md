@@ -24,12 +24,20 @@ origin of the TotalView feed.
 benchmark host. Nothing timed on the development host or in CI is published;
 see `docs/benchmarks.md`.*
 
-**Status: in progress.** The wire layer, framing, specification tables, field
-layout audit, typed views for all 23 message types, the handler-templated
-parser, the fuzz target, the message census, the reference book, the fast book
-and the differential harness are implemented and passing. The benchmark
-harness, the microstructure analysis and the queue simulator are not yet
-written.
+**Status: in progress.** Implemented and passing: the wire layer and framing,
+the specification tables with a compile-time field-layout audit, typed views
+for all 23 message types, the handler-templated parser, the fuzz target, the
+message census, the reference book, the fast book, the differential harness,
+the determinism hashes, the MoldUDP64 feed layer, the microstructure export
+and analysis, and the queue-position simulator and bias study.
+
+Outstanding: the benchmark harness has been built and smoke-tested but has
+produced **no published number**, because that requires the x86_64 Linux host.
+The Stage 8 study is drafted and gated but **unregistered**: the author
+chooses the primary hypothesis, completes the power analysis on development
+sessions, commits `docs/preregistration.md`, and writes that commit's hash
+into `research/heldout.lock`. The held-out sessions have not been
+downloaded.
 
 ## Limitations
 
@@ -404,16 +412,32 @@ include/carteret/
   wire.hpp            BinaryFILE framing, big-endian decode
   messages.hpp        zero-copy typed views, one per message type
   parser.hpp          handler-templated framing loop and dispatch
+  book_types.hpp      the vocabulary both books share
+  reference_book.hpp  the simple book: differential oracle and baseline
+  fast_book.hpp       flat levels, bitmap BBO, pooled intrusive FIFO
+  order_index.hpp     open-addressed index, hash as a template policy
+  hash_policy.hpp     identity, multiply-shift, std::hash
+  differential.hpp    message-by-message comparison of the two books
+  determinism.hpp     event-stream and book-state hashes
+  moldudp64.hpp       packet framing, gap detection, line arbitration
+  queue_sim.hpp       synthetic orders and the four queue models
+  sha256.hpp          in-tree, for the determinism hashes
   mapped_file.hpp     read-only mmap
-src/census.cpp        per-type message census (correctness layer 2)
-tools/                census comparison, data fetch, machine check, fuzz driver
-tests/                unit, fixture, differential and fuzz targets
-bench/                benchmark harness and run scripts
-research/             Python analysis scripts
-docs/design.md        numbered design decision records
-docs/benchmarks.md    chronological experiment log
+src/
+  census.cpp          per-type message census (correctness layer 2)
+  replay.cpp          differential replay over a session (layer 4)
+  determinism.cpp     event-stream and book-state hashes (layer 5)
+  export_micro.cpp    microstructure aggregates
+  export_features.cpp signal features and labels
+  queue_study.cpp     the queue-position bias study
+bench/                benchmark harness, fenced timer, Linux runner
+tools/                census comparison, data fetch, machine check, fuzzing
+tests/                unit, fixture, differential, determinism and fuzz targets
+research/             Python analysis; run_heldout.sh and its lock
+docs/design.md        31 numbered design decision records
+docs/benchmarks.md    structural measurements and the experiment log
 docs/correctness.md   the five verification layers
-docs/data.md          available sessions, venues, provenance
+docs/data.md          sessions, venues, provenance, study split
 docs/preregistration.md
 docs/figures/         committed figures; never market data
 ```
