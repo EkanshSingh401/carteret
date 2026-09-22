@@ -13,19 +13,22 @@ origin of the TotalView feed.
 
 | | |
 |---|---|
-| Messages replayed | — |
-| Throughput | — |
+| Messages parsed | 82,841,542 (`20190130.BX_ITCH_50`, 2.42 GB) |
+| Parser verified against | `RITCH::count_messages()`, exact on all 22 types it reports |
+| Fuzzing | 408M executions under ASan and UBSan, no findings |
 | Book update p50 / p99.9 | — |
-| Verified against | — |
+| Throughput | — |
 | Machine | — |
 
-*This table stays empty until the numbers exist. Latency figures come from the
-x86_64 Linux benchmark host only; see `docs/benchmarks.md`.*
+*Latency and throughput stay empty until they are measured on the x86_64 Linux
+benchmark host. Nothing timed on the development host or in CI is published;
+see `docs/benchmarks.md`.*
 
 **Status: in progress.** The wire layer, framing, specification tables, field
 layout audit, typed views for all 23 message types, the handler-templated
-parser, the fuzz target and the message census are implemented and passing.
-The order book, order index, benchmark harness and queue simulator are not yet
+parser, the fuzz target, the message census, the reference book, the fast book
+and the differential harness are implemented and passing. The benchmark
+harness, the microstructure analysis and the queue simulator are not yet
 written.
 
 ## Limitations

@@ -103,7 +103,25 @@ edit-run loop short enough to iterate on.
 | 2020-01-31 | `GIS/BX Jan 2020/S013120-v50-bx.txt.gz` | 0.87 GB |
 | 2020-03-02 | `Nasdaq BX ITCH/March 20/S030220-v50-bx.txt.gz` | 1.50 GB |
 
-2019-01-30 is the project's primary correctness session.
+2019-01-30 is the project's primary correctness session. Measured after
+fetching, on 2026-09-22:
+
+| | |
+|---|---|
+| Unpacked | 2,422,694,511 bytes |
+| Messages | 82,841,542 |
+| Book-affecting (`A F E C X D U`) | 74,182,680 (89.5%) |
+| Framing | length-prefixed, **no zero-length terminator** |
+| First / last timestamp | 03:06:49 / 19:05:00 |
+| Types present | `S R H Y L V A F E C X D U P B N` (16 of 23) |
+| Types absent | `I J K Q W h O` |
+| `N` (RPII) | 8,301,264 — 10.0% of the session |
+
+Per-type counts agree exactly with `RITCH::count_messages()`; see
+`docs/correctness.md`. The absent types mean this session establishes nothing
+about the `I`, `J`, `K`, `Q`, `W`, `h` or `O` layouts, whose only coverage is
+the byte fixtures. BX runs no opening or closing cross, which accounts for `I`
+and `Q`.
 
 ## PSX
 
