@@ -185,12 +185,12 @@ Consequences, stated rather than worked around:
 - This is re-checked whenever a session is fetched. If the checksums become
   retrievable, the verification results are recorded in the tables above.
 
-## Resuming a download, and how curl can report success on a third of a file
+## Continuing an interrupted download, and how curl can report success on a third of a file
 
 The archive drops connections mid-transfer: fetching
 `12302019.NASDAQ_ITCH50.gz` (3,524,013,057 bytes) failed once with a
-connection reset at 29% and once with a stall at 38%. Resuming is therefore
-necessary, and it needs care.
+connection reset at 29% and once with a stall at 38%. Continuing a partial
+transfer is therefore necessary, and it needs care.
 
 **Measured on 2026-09-22:**
 
@@ -203,16 +203,16 @@ necessary, and it needs care.
 
 So the server does honour range requests, but only on `GET`; it answers `HEAD`
 with a `Range` header as though the range were unsatisfiable. A probe for
-resume support must therefore use `GET`, or it will conclude that resuming is
-impossible when it is not.
+range support must therefore use `GET`, or it will conclude that continuing a
+partial transfer is impossible when it is not.
 
-**The failure that matters is separate from that.** On the first resumed
+**The failure that matters is separate from that.** On the first such
 attempt, curl was configured with `--continue-at -` together with `--retry`
-and a slow-transfer timeout. It resumed correctly, transferred to 38.5%,
-timed out, retried — and then immediately printed `100.0%` and **exited zero,
-with the file back at exactly the byte offset it had resumed from**, 29% of
-the session. The bytes fetched after the resume point were discarded and the
-transfer was declared complete.
+and a slow-transfer timeout. It continued correctly from the partial file,
+transferred to 38.5%, timed out, retried — and then immediately printed
+`100.0%` and **exited zero, with the file back at exactly the byte offset it
+had started from**, 29% of the session. The bytes fetched after that offset
+were discarded and the transfer was declared complete.
 
 `curl` exiting zero is therefore not evidence that a file is whole.
 `tools/fetch_data.sh` checks the downloaded size against the advertised

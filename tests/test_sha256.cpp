@@ -34,7 +34,7 @@ void expect(const std::string& in, const char* want, const char* label) {
 }
 
 // FIPS 180-4 examples, plus the empty input and the one-million-byte case that
-// exercises the 64-bit length field beyond a single block.
+// pushes the 64-bit length field beyond a single block.
 void test_published_vectors() {
     expect("", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "empty");
     expect("abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "abc");

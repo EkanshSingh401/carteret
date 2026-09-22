@@ -216,7 +216,7 @@ inline constexpr std::size_t kCollarExtension = 31; // 4 int
 namespace op_halt {
 inline constexpr std::size_t kStock = 11;      // 8 alpha
 inline constexpr std::size_t kMarketCode = 19; // 1 alpha, 'Q' NASDAQ | 'B' BX | 'X' PSX
-inline constexpr std::size_t kHaltAction = 20; // 1 alpha, 'H' halted | 'T' resumed
+inline constexpr std::size_t kHaltAction = 20; // 1 alpha, 'H' halted | 'T' halt lifted
 } // namespace op_halt
 
 // 'A' Add Order, no MPID attribution (36)
