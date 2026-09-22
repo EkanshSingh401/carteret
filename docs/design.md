@@ -802,3 +802,85 @@ from the timed region, which is stated in every benchmark entry.
 
 **Evidence.** Allocation freedom is asserted in debug builds and checked under
 the sanitizer preset over a full session.
+
+---
+
+## 025 — The zero-prefixed framing variant is detected, not accommodated
+
+**Status:** in force.
+
+**Context.** `ex20101224.TEST_ITCH_50`, the fixture bundled with the RITCH R
+package and the target of the Stage 1 fast census gate, carries the 2-byte
+length prefix field for all 12,012 of its messages and leaves every one of them
+zero. The prefix is present and unfilled, so the length must come from the type
+byte. Sessions from the NASDAQ archive are unaffected: `20190130.BX_ITCH_50`
+begins `00 0C 53 …`, a correct prefix for a 12-byte System Event.
+
+The two forms cannot be read under one rule. In the prefixed form a zero prefix
+is the end-of-session marker; in this variant it introduces a message. The same
+two bytes mean opposite things.
+
+**Decision.** `Framing` names the two forms. `detect_framing()` walks up to 64
+messages under each hypothesis and returns the one that stays consistent;
+ambiguity resolves to `LengthPrefixed`. `FrameReader` takes the form
+explicitly, and the census reports which form a file used.
+
+**Alternatives considered.**
+- *Fall back to the type-implied length whenever the prefix is zero.* Makes
+  end-of-session unrepresentable in the prefixed form, so a truncated session
+  would be read past its terminator into whatever follows.
+- *Convert the fixture to prefixed form before censusing it.* Moves the problem
+  into a preprocessing step that the gate then depends on, and makes the gate a
+  test of the converter.
+- *Refuse the variant and choose a different fast gate.* The RITCH fixture is
+  the only independently-counted file small enough to gate on in under a
+  second.
+
+**Consequences.** The zero-prefixed reader has no recovery path. Without an
+independent length, an unknown type byte leaves no safe distance to skip, so
+the reader counts it and reports a truncation rather than guessing. That
+asymmetry is a property of a format that does not carry its own lengths, and it
+is why every result in this repository is produced from the prefixed form. The
+detector costs one pass over at most 64 messages, once per file.
+
+**Evidence.** Both forms and the detector are covered in
+`tests/test_wire.cpp`. The fixture's framing was confirmed by walking it under
+each hypothesis: the zero-prefixed walk consumes exactly 465,048 bytes in
+12,012 messages, matching the file size and RITCH's count exactly. The real
+session's prefixes were confirmed by inspection of its first bytes.
+
+---
+
+## 026 — Typed views hold one pointer and decode on access
+
+**Status:** in force.
+
+**Context.** A handler for Add Order typically reads four fields; a handler
+counting messages reads none. Materialising a decoded struct per message pays
+for every field regardless.
+
+**Decision.** Each message type is a struct holding a single `const unsigned
+char*` into the mapped buffer, with one accessor per field that decodes on
+call. Views are passed by value, are trivially copyable, and are asserted to be
+pointer-sized. They are never stored: a view is valid only while the buffer it
+points into lives.
+
+**Alternatives considered.**
+- *Decode into a struct of native-endian fields.* Costs every field on every
+  message, and the struct has to be laid out and kept in step with the wire
+  format by hand — a second transcription with no audit.
+- *A variant over all 23 types.* Adds a discriminator the type byte already
+  carries, and a visit the switch already performs.
+- *Return fields through a generic `get<Field>()`.* Equivalent code generation,
+  worse call sites, and it loses the per-type documentation the accessors
+  carry.
+
+**Consequences.** A handler that reads the same field twice decodes it twice,
+unless it binds the result to a local; that is the caller's choice to make, and
+the decodes are one load and one byte-reversal (record 002). Views must not
+outlive the buffer, which is enforced by convention rather than by the type
+system — the parser never hands a view to anything that could store it.
+
+**Evidence.** `static_assert(sizeof(AddOrder) == sizeof(const unsigned char*))`
+and the trivially-copyable assertions in `messages.hpp`. Per-field decode cost
+is record 002.
