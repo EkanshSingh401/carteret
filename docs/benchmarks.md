@@ -57,7 +57,81 @@ Stated in every writeup that cites these numbers.
 - **No order entry, strategy or risk layer.**
 - **No kernel bypass.**
 
+## Structural measurements
+
+Counts that are deterministic properties of the code and the input, not of the
+machine: overflow rates, probe lengths, memory footprints, message inventories.
+Running them on the development host is legitimate because a different machine
+would produce the same numbers. They are kept in a separate section so that no
+reader mistakes one for a timing.
+
+Peak resident set size is reported because it is a property of the
+configuration rather than of the host's speed. It is not a latency figure and
+none of the wall-clock columns below are either: they run both book
+implementations at once, on an unpinned core.
+
+### S-001 — flat window width against overflow rate
+
+*Process note: no numeric prediction was recorded before this run. Record 018
+committed to sweeping window width against overflow rate but named no expected
+value, so there is nothing to score the result against. That is a lapse in the
+method this file sets out, and it is recorded rather than backfilled. The
+remaining experiments carry their predictions.*
+
+- Date: 2026-09-22
+- Session: `20190130.BX_ITCH_50`, 74,508,064 book-affecting messages
+- Build: Apple Clang 21.0.0, `-O2`, 24-byte order records, multiply-shift hash
+- Host: macOS development host. **Structural counts only. No timing here is
+  publishable**, and the wall-clock column is present only to show that the
+  configuration does not change the work done.
+- Verification: every row reported `RESULT: identical` against the reference
+  book, so the overflow path is semantically equivalent to the flat path at
+  every width.
+
+| Window (ticks) | Price span | Overflow hits | Overflow rate | Peak RSS |
+|---:|---:|---:|---:|---:|
+| 64 | $0.64 | 32,604,059 | 43.8% | 2,736 MB |
+| 128 | $1.28 | 29,452,557 | 39.5% | 2,758 MB |
+| 256 | $2.56 | 25,174,798 | 33.8% | 2,797 MB |
+| 512 | $5.12 | 19,877,475 | 26.7% | 2,889 MB |
+| 1024 | $10.24 | 12,479,804 | 16.7% | 3,065 MB |
+| 2048 | $20.48 | 4,709,891 | 6.3% | 3,374 MB |
+| 4096 | $40.96 | 1,117,049 | 1.5% | 4,036 MB |
+
+Sub-cent prices account for 131,243 of the overflow hits at every width, since
+no cents-indexed window can hold them (record 005). They are a floor of 0.18%
+and not the explanation for anything above it.
+
+**Interpretation, and it is not favourable to the design.** The overflow rate
+at the default 256-tick window is 33.8%: a third of all orders miss the
+structure the fast path exists for. The rate falls slowly up to 512 ticks and
+then steeply, which says the miss is not a thin tail of stale far-from-market
+orders but a broad distribution the window is simply too narrow to cover.
+
+The cause is in record 018's design: the window origin is fixed at the
+symbol's first whole-cent price and never moves. A symbol whose price drifts
+over a session walks out of its own window, and a high-priced symbol has an
+intraday range wider than 256 cents to begin with. The window does not follow
+the price, so the overflow rate is a measure of intraday range rather than of
+how far orders sit from the inside.
+
+Reaching a single-digit overflow rate by widening alone costs 2,048 levels per
+side per symbol — 98 KB per symbol, and about 640 MB of level arrays across
+the 6,678 symbols that are ever two-sided. 4,096 ticks reaches 1.5% and costs
+1.3 GB of level arrays, nearly half the process. That is a large price for a
+structure whose purpose was to be small and hot: at 4,096 ticks the level
+array is far larger than any cache, so the widening that removes the overflow
+also removes the locality the flat array was chosen for.
+
+**This is a design finding, not a tuning result.** The candidates are: recentre
+the window on the inside when the price drifts; size the window per symbol from
+its price level rather than using one constant; or index relative to a moving
+reference price instead of an absolute base. Each is a change to record 018 and
+gets its own record and its own prediction before it is measured. **The
+latency consequence of an overflow hit has not been measured**, so the cost of
+33.8% is currently unknown — it is a structural fact in search of a price.
+
 ## Log
 
-*(Empty. The first entry is written from a run on the Linux benchmark host, per
-Stage 4. No entry is written from the development host.)*
+*(Empty. The first timing entry is written from a run on the Linux benchmark
+host, per Stage 4. No timing is written from the development host.)*
