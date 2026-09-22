@@ -52,7 +52,18 @@ duration, executions, corpus size, and any input that was added to the corpus.
 
 | Date | Duration | Executions | Corpus | Findings |
 |---|---|---:|---:|---|
-| *(pending Stage 1)* | | | | |
+| 2026-09-22 | 601 s | 407,989,301 | 56 seeds → 550 | none |
+
+Run on the macOS development host with Homebrew Clang 23.1.1 at
+679k executions per second, under AddressSanitizer and
+UndefinedBehaviorSanitizer. No crash, no timeout, no leak, and no artifact
+written. The corpus grew from 56 seeded inputs to 550, adding 4,873 units over
+the campaign.
+
+A campaign that finds nothing bounds the defect rate rather than proving
+absence, and it covers only what the seeded corpus and the coverage feedback
+reached. It says nothing about whether a correctly-parsed field means what the
+book thinks it means.
 
 ---
 
