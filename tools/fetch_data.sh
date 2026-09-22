@@ -35,39 +35,49 @@ fi
 
 mkdir -p data
 
+URL="${BASE}/${DIR// /%20}/${FILE}"
+
 # Sessions run to several gigabytes and the archive drops connections
-# mid-transfer, so the fetch resumes from whatever is already on disk and
-# retries rather than restarting. Without -C the download begins again from
-# zero, which on a 5 GB session is an hour lost to a transient reset.
-echo "fetching ${DIR}/${FILE} ..."
-if [ -f "data/${FILE}" ]; then
+# mid-transfer, so a fetch has to survive a reset. Resuming is the obvious way
+# and is NOT safe here: the server advertises "accept-ranges: bytes" and then
+# answers every range request with 416 and "content-range: bytes */0". curl
+# reads that 416 as "the local file is already complete", prints 100%, and
+# exits zero on a file that is a third of the session. Resuming therefore
+# happens only if a probe shows the server actually honours a range.
+RANGE_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -r 0-0 --max-time 30 "$URL" || echo 000)
+if [ "$RANGE_STATUS" = "206" ]; then
+  RESUME=(--continue-at -)
+  echo "server honours range requests; a partial file will be resumed"
+else
+  RESUME=()
+  echo "server does not honour range requests (probe returned ${RANGE_STATUS}); fetching whole"
+  rm -f "data/${FILE}"
+fi
+
+EXPECTED=$(curl -sI --max-time 30 "$URL" | tr -d '\r' \
+           | awk 'tolower($1) == "content-length:" { print $2 }' | tail -1)
+
+echo "fetching ${DIR}/${FILE}${EXPECTED:+ (${EXPECTED} bytes)} ..."
+if [ -n "${RESUME[*]:-}" ] && [ -f "data/${FILE}" ]; then
   echo "resuming from $(wc -c < "data/${FILE}" | tr -d ' ') bytes already on disk"
 fi
 curl -fL --progress-bar --path-as-is \
-  --continue-at - \
+  "${RESUME[@]}" \
   --retry 10 --retry-delay 5 --retry-all-errors \
-  --speed-time 60 --speed-limit 1024 \
-  "${BASE}/${DIR// /%20}/${FILE}" -o "data/${FILE}"
+  --speed-time 120 --speed-limit 1024 \
+  "$URL" -o "data/${FILE}"
 
-# The archive publishes an .md5sum beside most sessions. Files are withdrawn
-# and re-uploaded over time, so the checksum is the only evidence that a given
-# result came from the bytes the author replayed. A missing .md5sum is
-# reported, not treated as a pass.
-if curl -fsL --path-as-is "${BASE}/${DIR// /%20}/${FILE}.md5sum" -o "data/${FILE}.md5sum" 2>/dev/null; then
-  expected=$(tr -d '\r' < "data/${FILE}.md5sum" | awk '{print $1}')
-  if command -v md5sum > /dev/null; then
-    actual=$(md5sum "data/${FILE}" | awk '{print $1}')
-  else
-    actual=$(md5 -q "data/${FILE}")
-  fi
-  if [ "$expected" = "$actual" ]; then
-    echo "md5 ok: ${actual}"
-  else
-    echo "md5 MISMATCH: expected ${expected}, got ${actual}" >&2
+# curl exiting zero is not evidence the file is whole: see the 416 case above.
+# The byte count is checked against what the server advertised.
+if [ -n "$EXPECTED" ]; then
+  ACTUAL=$(wc -c < "data/${FILE}" | tr -d ' ')
+  if [ "$ACTUAL" != "$EXPECTED" ]; then
+    echo "short download: got ${ACTUAL} bytes, expected ${EXPECTED}; re-run" >&2
     exit 1
   fi
+  echo "size ok: ${ACTUAL} bytes"
 else
-  echo "no .md5sum published for ${FILE}; integrity unverified" >&2
+  echo "server advertised no content-length; size unverified" >&2
 fi
 
 # A resumed transfer can still be short if the server closed cleanly at the

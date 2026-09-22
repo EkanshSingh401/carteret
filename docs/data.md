@@ -185,6 +185,26 @@ Consequences, stated rather than worked around:
 - This is re-checked whenever a session is fetched. If the checksums become
   retrievable, the verification results are recorded in the tables above.
 
+## The archive rejects range requests it advertises
+
+`emi.nasdaq.com` answers a `HEAD` with `accept-ranges: bytes` and then answers
+every actual range request with **HTTP 416** and `content-range: bytes */0`.
+Checked on 2026-09-22 against `12302019.NASDAQ_ITCH50.gz`.
+
+This matters because the archive also drops connections mid-transfer: a
+NASDAQ session fetch failed twice, once with a connection reset at 29% and
+once with a stall at 38%. The obvious response — resume with `curl -C -` — is
+unsafe against this server. curl reads the 416 as "the local file is already
+complete", prints 100%, and **exits zero on a file a third of the session
+long**.
+
+`tools/fetch_data.sh` therefore probes range support with a one-byte request
+and resumes only on a 206. It then checks the downloaded size against the
+advertised `content-length` and tests the gzip stream before unpacking, since
+`gunzip` on a truncated stream yields a plausible prefix of a session rather
+than failing at the start. A short download would otherwise surface much later
+as a wrong message count with no obvious cause.
+
 ## Provenance
 
 The archive is a live directory listing, not a versioned dataset. Files have
