@@ -5,7 +5,7 @@ explains *why* the project exists, this file is the working reference: what the
 hot path may and may not do, what correct-but-surprising behavior looks like,
 and which beliefs are still hypotheses.
 
-`PREREGISTRATION.md` references the queue-simulator fill rules in section 4 by
+`docs/preregistration.md` references the queue-simulator fill rules in section 4 by
 name. Because a pre-registration is only meaningful against a committed,
 versioned definition, **changes to section 4 after the registration commit must
 be called out in the study writeup.**

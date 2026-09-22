@@ -43,7 +43,7 @@ Stated up front, because it is what makes everything above it credible.
 
 ## Design notes
 
-[`DESIGN.md`](DESIGN.md) carries the hot-path rules, the correct-but-surprising
+[`docs/design.md`](docs/design.md) carries the hot-path rules, the correct-but-surprising
 behaviors not to "fix", the queue-simulator fill rules, and the claims that are
 still hypotheses until measured.
 
@@ -95,7 +95,7 @@ src/census.cpp                     per-type message census (week 1 gate)
 tools/gen_synthetic.cpp            deterministic test session writer
 tools/machine_check.sh             refuses to let you publish a bad number
 tests/test_wire.cpp                byte fixtures + framing tests
-DESIGN.md                          hot-path rules, fill rules, open hypotheses
+docs/design.md                     hot-path rules, fill rules, open hypotheses
 ```
 
 ## Wire format notes

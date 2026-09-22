@@ -24,4 +24,4 @@ jobs:
 # NOTE: CI runs correctness only. It never publishes a latency number -- a
 # shared GitHub runner has no core isolation, no frequency control and noisy
 # neighbours, so any timing it produced would be meaningless. Benchmarks are a
-# manual run on a named machine, logged in BENCHMARKS.md.
+# manual run on a named machine, logged in docs/benchmarks.md.

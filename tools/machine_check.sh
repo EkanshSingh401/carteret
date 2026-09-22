@@ -3,7 +3,7 @@
 # produce one.
 #
 # Run this BEFORE every benchmark run and paste its output at the top of the
-# BENCHMARKS.md entry. A number without the machine that produced it is not a
+# docs/benchmarks.md entry. A number without the machine that produced it is not a
 # number, and this script is how you stop yourself forgetting.
 #
 #   usage: tools/machine_check.sh
@@ -73,7 +73,7 @@ echo
 if [ "$fail" -eq 0 ]; then
   echo "Clean. Numbers from this machine are defensible."
 else
-  echo "NOT clean. You can still run, but say so in BENCHMARKS.md and do not"
+  echo "NOT clean. You can still run, but say so in docs/benchmarks.md and do not"
   echo "put a p99.9 from this machine on a resume. Fix the WARNs first:"
   echo "  sudo cpupower frequency-set -g performance"
   echo "  echo 1 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo"

@@ -91,7 +91,7 @@ A predictive signal has no P&L until it is a strategy. Specify:
   reaches it, and eats adverse selection.
 - **Entry and exit rules**, order size, holding horizon, and inventory limit.
 - **For a maker:** fills come from the queue simulator under the fill rules in
-  DESIGN.md §4, with exact MBO queue position. Unfilled quotes are unfilled.
+  docs/design.md §4, with exact MBO queue position. Unfilled quotes are unfilled.
 
 ## 7. Cost model
 
