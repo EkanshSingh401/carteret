@@ -185,25 +185,42 @@ Consequences, stated rather than worked around:
 - This is re-checked whenever a session is fetched. If the checksums become
   retrievable, the verification results are recorded in the tables above.
 
-## The archive rejects range requests it advertises
+## Resuming a download, and how curl can report success on a third of a file
 
-`emi.nasdaq.com` answers a `HEAD` with `accept-ranges: bytes` and then answers
-every actual range request with **HTTP 416** and `content-range: bytes */0`.
-Checked on 2026-09-22 against `12302019.NASDAQ_ITCH50.gz`.
+The archive drops connections mid-transfer: fetching
+`12302019.NASDAQ_ITCH50.gz` (3,524,013,057 bytes) failed once with a
+connection reset at 29% and once with a stall at 38%. Resuming is therefore
+necessary, and it needs care.
 
-This matters because the archive also drops connections mid-transfer: a
-NASDAQ session fetch failed twice, once with a connection reset at 29% and
-once with a stall at 38%. The obvious response — resume with `curl -C -` — is
-unsafe against this server. curl reads the 416 as "the local file is already
-complete", prints 100%, and **exits zero on a file a third of the session
-long**.
+**Measured on 2026-09-22:**
 
-`tools/fetch_data.sh` therefore probes range support with a one-byte request
-and resumes only on a 206. It then checks the downloaded size against the
-advertised `content-length` and tests the gzip stream before unpacking, since
-`gunzip` on a truncated stream yields a plausible prefix of a session rather
-than failing at the start. A short download would otherwise surface much later
-as a wrong message count with no obvious cause.
+| Request | Response |
+|---|---|
+| `HEAD` | 200, `content-length: 3524013057`, `accept-ranges: bytes` |
+| `HEAD` with `Range` | **416**, `content-range: bytes */0` |
+| `GET` with `Range: bytes=0-0` | 206, `content-range: bytes 0-0/3524013057` |
+| `GET` with a mid-file `Range` | 206, correct `content-range` |
+
+So the server does honour range requests, but only on `GET`; it answers `HEAD`
+with a `Range` header as though the range were unsatisfiable. A probe for
+resume support must therefore use `GET`, or it will conclude that resuming is
+impossible when it is not.
+
+**The failure that matters is separate from that.** On the first resumed
+attempt, curl was configured with `--continue-at -` together with `--retry`
+and a slow-transfer timeout. It resumed correctly, transferred to 38.5%,
+timed out, retried — and then immediately printed `100.0%` and **exited zero,
+with the file back at exactly the byte offset it had resumed from**, 29% of
+the session. The bytes fetched after the resume point were discarded and the
+transfer was declared complete.
+
+`curl` exiting zero is therefore not evidence that a file is whole.
+`tools/fetch_data.sh` checks the downloaded size against the advertised
+`content-length` and re-runs until it matches, and tests the gzip stream
+before unpacking. The gzip test is the backstop: `gunzip` on a truncated
+stream produces a plausible prefix of a session rather than failing at the
+start, so a short download would otherwise surface much later as a wrong
+message count with no obvious cause.
 
 ## Provenance
 
