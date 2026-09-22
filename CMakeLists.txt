@@ -109,6 +109,10 @@ add_executable(test_sha256 tests/test_sha256.cpp)
 target_link_libraries(test_sha256 PRIVATE carteret_testing)
 add_test(NAME sha256 COMMAND test_sha256)
 
+add_executable(test_moldudp64 tests/test_moldudp64.cpp)
+target_link_libraries(test_moldudp64 PRIVATE carteret_testing)
+add_test(NAME moldudp64 COMMAND test_moldudp64)
+
 # Determinism: regenerate the synthetic session and check both hashes against
 # the committed golden values. Regenerating rather than committing the session
 # also checks that gen_synthetic is itself deterministic.
