@@ -1,0 +1,16 @@
+# Held-out run lock.
+#
+# research/run_heldout.sh refuses to run until this file names a commit that:
+#   - is an ancestor of HEAD, and
+#   - contains a docs/preregistration.md identical to the one in the working
+#     tree.
+#
+# The author writes that hash here, by hand, in a commit of his own, after
+# choosing the primary hypothesis and completing the pre-registration. The
+# point is that the registration is fixed and public before any held-out data
+# is fetched; a hash written by the same process that runs the study would
+# establish nothing.
+#
+# format: a single line, "commit <40-hex-sha>"
+#
+# UNSET. The held-out sessions in docs/data.md have not been downloaded.
