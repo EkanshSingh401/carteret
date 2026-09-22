@@ -301,10 +301,10 @@ public:
         std::size_t bad = 0;
         for (std::size_t locate = 0; locate < symbols_.size(); ++locate) {
             const FastSymbol& sym = symbols_[locate];
-            if (sym.base_cents < 0) continue;
             for (const FastSide* s : {&sym.bid, &sym.ask}) {
-                if (s->levels.empty()) continue;
-                for (std::size_t i = 0; i < kWindowTicks; ++i) {
+                // The window may be unallocated while the overflow map is
+                // populated, so the overflow levels are checked either way.
+                for (std::size_t i = 0; i < s->levels.size(); ++i) {
                     const FastLevel& lvl = s->levels[i];
                     const bool bit = (s->occupied.words[i >> 6] >> (i & 63)) & 1ULL;
                     // The occupancy bit must agree with the level exactly, or
@@ -577,12 +577,15 @@ private:
                                               unsigned char side) const noexcept {
         if (locate >= symbols_.size()) return {false, 0};
         const FastSymbol& sym = symbols_[locate];
-        if (sym.base_cents < 0) return {false, 0};
         const FastSide& s = (side == kBuy) ? sym.bid : sym.ask;
 
         bool have = false;
         Price out = 0;
-        if (!s.occupied.empty()) {
+        // The window origin is unset until the symbol's first whole-cent
+        // price. A symbol whose first order is sub-cent has an empty window
+        // and a populated overflow map, so the overflow side must be consulted
+        // regardless of whether the window exists.
+        if (sym.base_cents >= 0 && !s.occupied.empty()) {
             const std::size_t i = (side == kBuy) ? s.occupied.highest() : s.occupied.lowest();
             if (i < kWindowTicks) {
                 out = static_cast<Price>((sym.base_cents + static_cast<std::int64_t>(i)) * 100);

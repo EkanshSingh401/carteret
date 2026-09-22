@@ -238,6 +238,52 @@ void test_harness_detects_a_planted_difference() {
     CHECK(r.fifo != f.fifo);     // and the queue-order comparison
 }
 
+// A symbol whose FIRST order carries a sub-cent price leaves the flat window
+// unallocated, because the window origin is taken from the first whole-cent
+// price. The order still rests, in the overflow map, and still sets the
+// inside. Found by the differential harness on 20190130.BX_ITCH_50 at message
+// 8753: the fast book reported no bid for a symbol the reference book had one
+// for. The synthetic flow reached sub-cent prices but never as a symbol's
+// first order, which is why this case needs naming rather than generating.
+void test_first_order_at_a_sub_cent_price() {
+    FlowGenerator g(13);
+    g.add(1, 1, kBuy, 1500050, 100);  // half a cent: no window can index it
+    g.add(1, 2, kSell, 1500150, 200); // likewise on the other side
+    carteret::test::frame_end(g.buf);
+
+    FastBookConfig cfg;
+    cfg.max_orders = 1024;
+    cfg.max_symbols = 16;
+    cfg.index_hint = 1024;
+
+    Differential<> d(cfg, 0);
+    Parser<Differential<>> parser(d);
+    parser.run({g.buf.data(), g.buf.size()});
+
+    if (d.divergence().found) d.report(stderr);
+    CHECK(!d.divergence().found);
+    CHECK(d.compare_everything());
+    CHECK(d.fast().has_bid(1));
+    CHECK(d.fast().best_bid(1) == 1500050);
+    CHECK(d.fast().has_ask(1));
+    CHECK(d.fast().best_ask(1) == 1500150);
+    CHECK(d.fast().counters().sub_cent_prices == 2);
+    CHECK(d.fast().check_invariants() == 0);
+
+    // And the window still works once a whole-cent price arrives afterwards.
+    FlowGenerator g2(17);
+    g2.add(1, 1, kBuy, 1500050, 100);
+    g2.add(1, 2, kBuy, 1510000, 300);
+    carteret::test::frame_end(g2.buf);
+    Differential<> d2(cfg, 0);
+    Parser<Differential<>> p2(d2);
+    p2.run({g2.buf.data(), g2.buf.size()});
+    if (d2.divergence().found) d2.report(stderr);
+    CHECK(!d2.divergence().found);
+    CHECK(d2.compare_everything());
+    CHECK(d2.fast().best_bid(1) == 1510000);
+}
+
 // The same flow through the harness must be reported as clean, which is the
 // other half of the check above.
 void test_harness_reports_agreement() {
@@ -265,6 +311,7 @@ void test_harness_reports_agreement() {
 int main() {
     test_harness_detects_a_planted_difference();
     test_harness_reports_agreement();
+    test_first_order_at_a_sub_cent_price();
 
     run_policy<IdentityHash>(IdentityHash::name, 1, 40000);
     run_policy<MultiplyShiftHash>(MultiplyShiftHash::name, 2, 40000);
