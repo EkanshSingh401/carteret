@@ -1,23 +1,15 @@
 # Carteret
 
+[![ci](https://github.com/EkanshSingh401/carteret/actions/workflows/ci.yml/badge.svg)](https://github.com/EkanshSingh401/carteret/actions/workflows/ci.yml)
+
 A NASDAQ TotalView-ITCH 5.0 feed handler and market-by-order limit order book
-in C++20, with a nanosecond-resolution benchmark harness and a layered
-correctness argument.
+in C++20, with a benchmark harness, a five-layer correctness argument, a
+queue-position bias study, and a pre-registered predictive study.
 
 Named for the New Jersey data centre the ITCH 5.0 specification names as the
 origin of the TotalView feed.
 
-> **Status: scaffold.** The wire layer, framing, spec tables and test harness
-> are here and pass. The order book, order index and queue simulator are not
-> written yet. See *What is deliberately missing* below.
-
----
-
 ## Results
-
-*(Leave this section empty until the numbers are real. Then lead with the
-result, the machine, and the correctness claim, in that order, in the first
-five lines. A screener who opens this repo reads exactly that far.)*
 
 | | |
 |---|---|
@@ -27,162 +19,176 @@ five lines. A screener who opens this repo reads exactly that far.)*
 | Verified against | — |
 | Machine | — |
 
-## What this does not do
+*This table stays empty until the numbers exist. Latency figures come from the
+x86_64 Linux benchmark host only; see `docs/benchmarks.md`.*
 
-Stated up front, because it is what makes everything above it credible.
+**Status: in progress.** The wire layer, framing, specification tables, field
+layout audit and test harness are implemented and passing. The order book,
+order index, benchmark harness and queue simulator are not yet written.
+
+## Limitations
+
+Stated before the results, because they are what makes the results meaningful.
 
 - **No wire path.** No NIC, no kernel network stack, no kernel bypass. The
   benchmark measures book-update cost, not wire-to-book latency.
+- **Throughput, not responsiveness.** Replay from a file has no arrival
+  process and no queueing, so the numbers say nothing about behaviour under
+  load.
 - **Single-threaded.** Sharding by stock locate is the obvious parallelisation
-  and is not done here.
+  and is out of scope.
 - **Hidden liquidity is invisible.** `P` messages report non-displayed
-  executions after the fact; those orders never appear in the book, so fills
+  executions after the fact; those orders never enter the book, so fills
   against hidden liquidity are unmodelled.
 - **Replay cannot react.** Any simulated order assumes zero market impact,
   which is defensible only for small orders.
+- **The price axis is in cents**, correct for the 2017-2020 sessions used here
+  and not for post-amendment tick sizes. See `docs/design.md` record 005.
+- **Out of scope:** matching engine, strategy and order-entry layer, web
+  interface, containerisation.
 
-## Design notes
+## Prior art
 
-[`docs/design.md`](docs/design.md) carries the hot-path rules, the correct-but-surprising
-behaviors not to "fix", the queue-simulator fill rules, and the claims that are
-still hypotheses until measured.
+Reconstructing exact FIFO queue position from market-by-order data is **not
+novel**. HftBacktest ships an `L3FIFOQueueModel`, and its Level-3 tutorial
+builds L2 data from L3 to compare the two backtests on crypto futures. This
+project implements a known model.
+
+The contribution claimed here is narrower: **the quantified fill-rate and
+time-to-fill bias of each market-by-price approximation against exact queue
+position, on US-equity ITCH sessions, with the fill rules stated explicitly**,
+broken out by queue depth at entry and by symbol. See `docs/design.md` records
+020 and 021.
+
+The pre-registered study is **predictive** (interval *t* predicts interval
+*t+1*). Cont, Kukanov and Stoikov (2014) report a **contemporaneous** R² of
+approximately 65% over 10-second windows. The two are not comparable and are
+never presented as though they were; see `docs/design.md` record 023.
+
+## Correctness
+
+Five layers, each proving something different and each naming what it does not
+prove. `docs/correctness.md` carries the detail and the per-session results.
+
+| Layer | Proves | Does not prove |
+|---|---|---|
+| 1. Byte fixtures, tiling audit, fuzz | Field offsets and framing | Anything about the book |
+| 2. Census against an independent counter | The framing loop walks the file correctly | Field decode |
+| 3. LOBSTER row-by-row replay | Book logic against an independent system | The ITCH parser; queue composition within a level |
+| 4. Differential replay against the reference book | The fast book matches the obvious one | That the obvious one is right |
+| 5. Continuous invariants and determinism hashes | Internal consistency; that a rerun is the same run | Agreement with the venue |
+
+The reference book — `std::map`, `std::unordered_map`, `std::list` — is
+permanent, not a stepping stone. It is both the differential oracle and the
+speedup baseline.
+
+### Wire format
+
+NASDAQ BinaryFILE precedes each message with a 2-byte big-endian length; a zero
+length marks end of session. `FrameReader` treats the prefix as authoritative
+for advancing and additionally checks it against the specification length for
+known types in one table lookup. A frame whose length disagrees, or whose type
+is unknown, is skipped by its prefix length and counted, never parsed, so that
+one malformed frame cannot desynchronise the rest of the session
+(`docs/design.md` record 001).
+
+Multi-byte fields are decoded with `memcpy` plus `__builtin_bswap`, never a
+pointer cast: the 64-bit order reference at offset 11 is unaligned, and the
+cast is both an unaligned load and a strict-aliasing violation. Timestamp and
+tracking number come from a single 8-byte load at offset 3. Generated assembly
+and the command that produced it are in `docs/design.md` record 002.
+
+### Specification behaviour that reconstructions get wrong
+
+All of the following are documented inline in `spec.hpp` at the relevant field.
+
+1. `E`, `C` and `X` carry **cumulative deductions**, not absolute sizes. An
+   order reaching zero displayed shares is removed even without a `D`.
+2. `U` carries **no side, stock or attribution**; all three are retained from
+   the original Add. It mints a new reference and loses queue priority
+   unconditionally, including when the price is unchanged.
+3. `E` has **no price field**; the resting order's price applies. `C` carries
+   its own price and a Printable flag.
+4. `P` has **no book effect**. Its order reference has been zero since December
+   2010 and its side field hardcoded `'B'` since 14 July 2014, so trade sign
+   cannot be read from it.
+5. `B` and `Q` have no book effect either, and **`B` and `D` can arrive after
+   the end-of-system-hours event**.
+6. Order references are **day-unique but not sequential** — the guarantee that
+   they increase was removed in February 2009 — so a flat array indexed by
+   reference is unsafe.
+7. Stock Locate codes are **session-scoped**. Cross-session tooling keys on the
+   symbol.
+8. `V` (MWCB Decline Level) uses **Price(8)**, not Price(4).
+9. `K` (IPO Quoting Period Update) carries `ReleaseTime` in **seconds** since
+   midnight, not nanoseconds, and its Stock Locate is documented as always 0.
+10. `Q` (Cross Trade) may legitimately report **zero shares**.
+
+## Data
+
+Free, large, and redistribution-restricted, so `data/` is gitignored and
+sessions are fetched, never committed:
+
+```sh
+tools/fetch_data.sh                             # BX 2019-01-30, ~1.1 GB packed
+./build/release/census data/20190130.BX_ITCH_50
+tools/census_vs_ritch.sh data/20190130.BX_ITCH_50
+```
+
+`docs/data.md` lists every available session with its venue, date and size, and
+records which the study treats as development and which as held out. It also
+records that `20170130.BX_ITCH_50` is no longer served — sessions are withdrawn
+from the archive over time, which is why every result names its session and
+every fetch verifies a checksum.
+
+BX carries roughly a fifth of a NASDAQ session's messages, which makes it the
+right target for correctness iteration. BX is taker-maker and NASDAQ is
+maker-taker, so the two are never pooled in a cost-inclusive result
+(`docs/design.md` record 022).
 
 ## Build
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-ctest --test-dir build --output-on-failure
+cmake --preset release
+cmake --build --preset release
+ctest --preset release
 ```
 
-Sanitizer build (run this over a full session before believing anything):
+Sanitizers, over a full session before any result is believed:
 
 ```sh
-cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug -DCARTERET_ASAN=ON
-cmake --build build-san -j && ctest --test-dir build-san --output-on-failure
+cmake --preset asan && cmake --build --preset asan && ctest --preset asan
 ```
+
+Presets: `release`, `asan`, `fuzz`, `bench`. Everything builds warning-free
+under GCC 13+ and Clang with libc++, at
+`-Wall -Wextra -Wpedantic -Wshadow -Wconversion`. `-march=native` stays off for
+anything published.
 
 ### macOS
 
-Everything except benchmarking works on a Mac. Two differences:
+Correctness work runs on macOS unchanged. Two differences:
 
-- **Sanitizers** work with Apple Clang as-is.
-- **libFuzzer** does not ship with Apple Clang. Use Homebrew LLVM for the
-  fuzzer only: `brew install llvm`, then configure with
+- **libFuzzer** does not ship with Apple Clang. `brew install llvm`, then
+  configure the `fuzz` preset with
   `-DCMAKE_CXX_COMPILER=$(brew --prefix llvm)/bin/clang++`.
-- **Latency numbers** need x86 Linux with core isolation and `perf`. Run
-  `tools/machine_check.sh` to see why.
-
-## Data
-
-Free, large, and redistribution-restricted, so it is gitignored and fetched:
-
-```sh
-tools/fetch_data.sh                 # BX session, ~54M messages
-./build/census data/20170130.BX_ITCH_50
-```
-
-Start with BX. Same protocol, a fifth of the messages of a NASDAQ day, so the
-edit-run loop is seconds rather than minutes.
+- **Latency numbers** require x86_64 Linux with core isolation and `perf`.
+  `tools/machine_check.sh` reports whether a host qualifies and refuses to
+  pretend otherwise.
 
 ## Layout
 
 ```
-include/carteret/spec.hpp          message types, lengths, field offsets
-include/carteret/wire.hpp          BinaryFILE framing, big-endian decode
-include/carteret/mapped_file.hpp   read-only mmap
-src/census.cpp                     per-type message census (week 1 gate)
-tools/gen_synthetic.cpp            deterministic test session writer
-tools/machine_check.sh             refuses to let you publish a bad number
-tests/test_wire.cpp                byte fixtures + framing tests
-docs/design.md                     hot-path rules, fill rules, open hypotheses
+include/carteret/     public headers
+src/                  library and tool sources
+tools/                census comparison, data fetch, machine check, fuzz driver
+tests/                unit, fixture, differential and fuzz targets
+bench/                benchmark harness and run scripts
+research/             Python analysis scripts
+docs/design.md        numbered design decision records
+docs/benchmarks.md    chronological experiment log
+docs/correctness.md   the five verification layers
+docs/data.md          available sessions, venues, provenance
+docs/preregistration.md
+docs/figures/         committed figures; never market data
 ```
-
-## Wire format notes
-
-NASDAQ BinaryFILE: each message sits behind a **2-byte big-endian length
-prefix**, and a **zero-length prefix marks end of session**.
-
-`FrameReader` treats the prefix as authoritative for advancing, and
-additionally checks it against the spec length for known types in one table
-lookup. A frame whose length disagrees, or whose type is unknown, is skipped by
-its prefix length and counted — never parsed. That one rule is what stops a
-single malformed frame from desynchronising the rest of the session.
-
-### Why `memcpy` and not `reinterpret_cast`
-
-The 64-bit order reference sits at offset 11 in every order message, which is
-not 8-byte aligned. Casting a pointer into the buffer to `const uint64_t*` is
-undefined behaviour twice over: an unaligned load, and a strict-aliasing
-violation. It happens to work on x86 and it is still wrong.
-
-`memcpy` into a local plus `__builtin_bswap64` costs nothing. Verified on
-GCC 13.3, `-O2`:
-
-```asm
-probe(unsigned char const*):
-        mov     rax, QWORD PTR 11[rdi]
-        bswap   rax
-        ret
-```
-
-Two instructions. Re-verify this on your own compiler rather than trusting the
-listing above.
-
-## The seven spec traps
-
-Where reconstructions silently go wrong. All seven are documented inline in
-`spec.hpp` at the relevant field.
-
-1. `E`/`C`/`X` are **cumulative deductions**, not absolute sizes. When displayed
-   shares reach zero the order is dead and must be removed even without a `D`.
-2. `U` carries **no side, stock or attribution** — retain them from the original
-   Add. It mints a new reference and loses queue priority.
-3. `E` has **no price field**; use the resting order's price. `C` carries its own
-   price plus a Printable flag.
-4. `P` (Trade) has **no book effect**. Its order reference has been zero since
-   Dec 2010 and its side hardcoded `'B'` since 14 July 2014.
-5. `B` (Broken Trade) has no book effect either, and `E`/`C`/`D` can arrive
-   *after* the end-of-system-hours event.
-6. Order references are **day-unique but not sequential** — a flat array indexed
-   by reference is unsafe; you need a hash.
-7. Locate codes are **day-scoped**. Cross-session tooling keys on the symbol.
-
-## Correctness
-
-Five layers, each proving something different, each naming what it does *not*
-prove.
-
-| Layer | Proves | Does not prove |
-|---|---|---|
-| 1. Byte fixtures + fuzz | Field offsets and framing | Anything about the book |
-| 2. Message census vs published counts | The parser walks the file correctly | Field decode |
-| 3. LOBSTER row-by-row replay | Book logic against an independent system | The ITCH parser; queue composition within a level |
-| 4. Differential vs `std::map` reference | The fast book matches the obvious one | That the obvious one is right |
-| 5. Continuous invariants | Internal consistency per message | Agreement with reality |
-
-Plus a determinism gate: hash the reconstructed event stream and the
-end-of-session book state, commit the hashes, and fail CI on any unexplained
-change. That is what makes "replay-exact" a claim with teeth.
-
-## What is deliberately missing
-
-The order book, the order index, the prefetch experiment, and the queue
-position simulator are **not** in this scaffold, and that is on purpose.
-
-Those are the parts an interviewer will push on until they find the edge of
-what you actually understand, and there is no version of this project that
-works if the answer is "someone else wrote that part." The scaffold covers what
-nobody interviews on: build files, the spec transcription, framing, and a test
-harness. Everything that is actually yours to defend is still yours to write.
-
-Suggested order:
-
-1. Census matches a published third-party count, exactly. **Stop here if it
-   doesn't.**
-2. Naive `std::map` reference book. Slow on purpose.
-3. Fast book: flat level array, two-level bitmap for BBO, intrusive FIFO,
-   pooled orders, open-addressed order index.
-4. Differential test, fast against naive, every message of every session.
-5. Benchmark harness, then the optimization log.
-6. Queue position simulator and the market-by-price comparison.

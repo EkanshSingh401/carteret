@@ -1,161 +1,804 @@
-# Design notes
+# Design decision records
 
-The rules and predictions this project is built against. Where the spec doc
-explains *why* the project exists, this file is the working reference: what the
-hot path may and may not do, what correct-but-surprising behavior looks like,
-and which beliefs are still hypotheses.
+Numbered records, each with the context that forced a choice, the choice, the
+alternatives rejected, the cost and failure modes accepted, and the evidence —
+a measurement or a specification citation — that justifies it. Records are
+append-only: a superseded record is marked superseded and keeps its number.
 
-`docs/preregistration.md` references the queue-simulator fill rules in section 4 by
-name. Because a pre-registration is only meaningful against a committed,
-versioned definition, **changes to section 4 after the registration commit must
-be called out in the study writeup.**
+`docs/preregistration.md` cites record 020 (queue-simulator fill rules) by
+number. A pre-registration is only meaningful against a committed, versioned
+definition, so any change to record 020 after the registration commit must be
+reported in the study writeup.
 
----
-
-## 1. Hot-path rules
-
-Applies to the parser, the book, and anything that runs per message:
-
-- **Zero heap allocation after warmup.** Arena or pool everything.
-- No `std::function`, no `std::string`, no `shared_ptr`, no virtual dispatch.
-  `string_view` over the mapped buffer for symbols.
-- **Integer ticks only. Never floating point for money.** Float money is how
-  backtests lie by fractions of a cent. Tick size is display metadata, never
-  arithmetic.
-- The parser is **templated on its handler**, not built on an abstract base
-  class. The dispatch switch runs hundreds of millions of times per session; an
-  indirect call the branch predictor cannot resolve and the inliner cannot see
-  through is not acceptable there.
-- Prefer `mmap` + sequential access over buffered reads.
+Status values: **in force** (implemented), **committed** (decided, not yet
+implemented), **hypothesis** (stated as a prediction, awaiting measurement).
 
 ---
 
-## 2. Things that look like bugs and are not
+## 001 — BinaryFILE framing: prefix authoritative, spec length cross-checked
 
-Count and log these. Do not "fix" them:
+**Status:** in force.
 
-- **Crossed or locked books** around halts and auctions. They legitimately
-  occur. Count and log them; do not assert.
-- **Cross Trade (`Q`) reporting zero shares** when order interest was
-  insufficient.
-- **Orphaned modifies** referencing orders that were never added, at session
-  boundaries. Count and report; do not crash.
-- **Hidden liquidity never appearing in the book.** `P` reports it after the
-  fact by design. Fills against it are unmodelled and that is documented.
+**Context.** NASDAQ BinaryFILE precedes each message with a 2-byte big-endian
+length and terminates the session with a zero length. The message type byte
+also implies a length, since all 23 ITCH 5.0 types are fixed-width. Two
+independent sources of truth for the same quantity can disagree, and the
+handling of that disagreement determines whether a single corrupt frame costs
+one message or the remainder of the session.
+
+**Decision.** The prefix alone advances the cursor. For a known type the prefix
+is additionally compared against `kMsgLen[type]` in one table lookup. A frame
+whose type is unknown, or whose length disagrees with the table, is consumed by
+its prefix length, counted, and never decoded.
+
+**Alternatives considered.**
+- *Type-implied length advances the cursor.* An unknown type byte then leaves
+  no way to resynchronise, because the reader does not know how far to skip.
+- *No cross-check.* A frame of the wrong length would be decoded, reading
+  fields from the wrong offsets and producing plausible-looking garbage that no
+  downstream layer can distinguish from valid data.
+- *Abort on disagreement.* Loses the remainder of a session over one frame and
+  removes the ability to quantify how often the condition occurs.
+
+**Consequences.** Cost is one array load and one comparison per message on the
+hot path. The table is 256 bytes and stays resident. Failure mode: a corrupt
+*prefix* still desynchronises the reader, because nothing else is authoritative
+for the cursor; the reader will then report a run of unknown types or a
+truncation rather than silently misparsing. The two counters
+(`FrameReader::unknown()` and `::mismatch()`) are the observable signal, and the
+census reports both.
+
+**Evidence.** Specification section 1 (BinaryFILE framing) for the prefix and
+the zero terminator; sections 1.1-1.8 for the fixed widths. Checked by
+`tests/test_wire.cpp::test_framing`, which interleaves a wrong-length `D`, an
+unknown type byte, and a valid `D` and asserts that both counters increment and
+the valid message is still decoded.
 
 ---
 
-## 3. Tick size
+## 002 — Field decode by memcpy and byte swap, not by pointer cast
 
-Penny ticks are correct for the 2017–2020 sample sessions, which is why the
-price axis indexes in cents. The 2024 Reg NMS Rule 612 amendments introduce a
-half-penny tick for tick-constrained stocks; compliance was set for 3 November
-2025 and has been delayed to November 2026. Do not silently "modernise" the
-axis — if it ever changes, it is a deliberate, documented change.
+**Status:** in force.
+
+**Context.** The 64-bit order reference sits at offset 11 of every order
+message. Message bodies are not themselves aligned in the mapped file, and
+offset 11 is not a multiple of 8 in any case.
+
+**Decision.** Every multi-byte field is read with `std::memcpy` into a local of
+the target type followed by `__builtin_bswap{16,32,64}`. The timestamp and
+tracking number are read together: the 2-byte tracking number at offset 3 and
+the 6-byte timestamp at offset 5 are exactly 8 contiguous bytes, so one 8-byte
+load at offset 3 plus one swap yields the timestamp in the low 48 bits and the
+tracking number in the high 16.
+
+**Alternatives considered.**
+- *`reinterpret_cast<const std::uint64_t*>(p + 11)`.* Undefined behaviour twice
+  over: an unaligned load, and an access to an object of one type through a
+  glvalue of another. It executes correctly on x86 and on ARMv8 for ordinary
+  loads, which is what makes it durable — the defect surfaces only under
+  optimisation, under a sanitizer, or on a target with strict alignment.
+- *A packed struct overlaid on the buffer.* Still an aliasing violation, and
+  it makes the field layout implicit rather than checkable.
+- *Copying six timestamp bytes into a zeroed `uint64_t`.* Costs a second load;
+  see the evidence below.
+
+**Consequences.** No portability or correctness cost. The layout is expressed
+as named offsets in `spec.hpp` rather than as a struct, so the tiling audit
+(record 003) can check it at compile time. Failure mode: an incorrect offset
+constant is not caught by the type system, which is why every type has a
+byte-level fixture.
+
+**Evidence.** Measured on this repository's development host, Apple Clang
+21.0.0, `-O2`, arm64:
+
+```
+clang++ -std=c++20 -O2 -Iinclude -S probe.cpp
+
+probe_ref:                  probe_ts:                          probe_tr:
+  ldur x8, [x0, #11]          ldur x8, [x0, #3]                  ldur x8, [x0, #3]
+  rev  x0, x8                 and  x8, x8, #0xffffffffffff0000   rev  x8, x8
+  ret                         rev  x0, x8                        lsr  x0, x8, #48
+                              ret                                ret
+```
+
+One load and one byte-reversal for the 64-bit reference. For the timestamp the
+compiler folds the 48-bit mask to a pre-swap clear of the low 16 bits, giving
+three instructions and a single load. The rejected copy-six-bytes form compiles
+to five instructions and two loads on the same compiler:
+
+```
+ts_copy6:
+  ldurh w8, [x0, #9]
+  ldur  w9, [x0, #5]
+  orr   x8, x9, x8, lsl #32
+  rev   x8, x8
+  lsr   x0, x8, #16
+  ret
+```
+
+The x86-64 listing has not been reproduced on this host and is not quoted here;
+it is regenerated and recorded when the benchmark host is available. Whenever a
+decode helper changes, the generated assembly is regenerated and this record
+updated.
 
 ---
 
-## 4. Claims that must be measured before they are written down
+## 003 — Field layout audited at compile time by a tiling check
 
-Several things in this project's own design documents were initially stated as
-fact and turned out to be hypotheses. Treat everything in this section as a
-prediction to test, and never let one of them into the README, a commit
-message, or a resume line until a measurement backs it.
+**Status:** in force.
 
-### The memory bottleneck is a hypothesis
+**Context.** `spec.hpp` transcribes 23 tables of offsets and lengths by hand.
+A single wrong integer produces field values that are wrong but well-formed,
+and byte-level fixtures only catch the fields a fixture happens to assert.
 
-The naive story is "the order pool and index are ~100MB, don't fit L3, so every
-E/X/D/U takes an LLC miss." That ignores **order lifetimes**. A large share of
-cancels hit orders added milliseconds earlier. With a **LIFO free list**, the
-pool slot reused by the next Add is the one just freed, so short-lived orders
-likely stay hot in cache end to end.
+**Decision.** Each message type declares a `Field{offset, length}` array
+covering every field of its body. A `constexpr` function `tiles()` returns true
+only if the fields, in order, cover `[start, end)` with no gap and no overlap.
+`static_assert` applies it to the common header over `[0, 11)` and to each
+message body over `[11, kMsgLen[type])`.
 
-The **hash index** is where locality plausibly dies: a good hash deliberately
-scatters recent references across the whole table.
+**Alternatives considered.**
+- *Fixtures alone.* They check the fields the author remembered to assert; a
+  gap between two correctly-asserted fields is invisible.
+- *A runtime check at startup.* Catches the same errors later, and costs a test
+  run rather than a compile.
+- *Generating the offsets from a table.* Removes the transcription risk but
+  moves the specification out of the header, where it is read alongside the
+  decode code.
 
-Before writing any prefetch code, measure LLC misses **attributed three ways**:
+**Consequences.** The build fails on any offset that does not tile, which
+includes most single-digit transcription errors. It does not catch two
+compensating errors, a field with the right extent and the wrong name, or a
+wrong *type* (integer versus Price(4)). Those remain the fixtures' job.
 
-- **by structure** — pool vs index vs level array vs bitmap. `perf mem record`
-  samples load latency with the data address; map addresses to each
-  structure's range.
-- **by message type** — E, C, X, D, U separately.
-- **by order age** — time since the referenced order's Add, bucketed
-  (<1 ms, 1–10 ms, 10–100 ms, 100 ms–1 s, >1 s). For exact per-message counts,
-  read the LLC-miss counter with `rdpmc` around each message.
+**Evidence.** The check was verified to be load-bearing by perturbing one
+offset and confirming the build fails before reverting; see
+`docs/correctness.md`.
 
-A legitimate outcome is "half the misses aren't there." If so, that finding is
-the result and the prefetch story gets rewritten around it.
+---
 
-### Hash choice has a locality twist
+## 004 — Integer ticks for money throughout
 
-Order references are day-unique, and the spec's guarantee that they increase
-was removed in February 2009 — but in practice they are *roughly* increasing.
-Identity-mod on roughly increasing refs places recent orders in nearby slots,
-so it may beat multiply-shift on **cache behavior** while distributing worse.
+**Status:** in force.
 
-Performance may exploit rough monotonicity. **Correctness must never depend on
-it**: probing and wraparound must be correct for arbitrary refs. Measure miss
-rate and probe length for each hash, not just wall time.
+**Context.** ITCH Price(4) is an unsigned 32-bit integer with four implied
+decimal places; Price(8) is the 64-bit form. A reconstruction that converts to
+floating point for arithmetic accumulates representation error in quantities
+that are exact on the wire.
 
-### Order struct size: predict the straddle before measuring it
+**Decision.** Prices stay integral end to end in C++: Price(4) as `uint32_t`,
+Price(8) as `uint64_t`, and the level axis indexed in cents. No floating-point
+type appears in any price or notional computation. Conversion to a decimal
+representation happens once, at the boundary where data is exported for
+analysis.
 
-64 is not a multiple of 24. From a 64-byte-aligned pool base, a 24-byte order
-averages 2.67 per line and **2 of every 8 (25%) straddle two cache lines**; an
-access touching fields on both halves can cost two misses. A 32-byte order
-fits exactly two per line with **zero straddling**.
+**Alternatives considered.**
+- *`double` for prices.* Exact for the integers in range, but arithmetic on
+  derived quantities (mid, spread, notional) is not, and the error is
+  systematically signed in ways that flatter a backtest.
+- *A fixed-point wrapper type.* Equivalent arithmetic with added API surface;
+  the raw integer is already the specification's representation.
 
-Prediction to record *before* the experiment: 24 bytes wins on density for the
-old-order population; 32 bytes wins on straddle; the straddle penalty shows up
-mainly on cold (old) orders, because young orders under a LIFO free list have
-both lines hot. Log the measured result against the prediction either way.
+**Consequences.** Any quantity that is genuinely fractional — a mid price at a
+half-tick, a per-share fee — is represented in a finer integer unit and the
+unit is named at the definition site. Failure mode: mixing units silently. The
+axis unit is fixed by record 005 and asserted rather than inferred.
 
-### Queue simulator fill rules
+**Evidence.** Specification, Data Types: "Price(4) ... an unsigned integer with
+4 implied decimal places", maximum 200000.0000 (`0x77359400`), encoded in
+`kMaxPrice4`.
 
-Tracking the ahead-count is not enough; the simulator must say **when the
-synthetic order fills**. The synthetic order is not in the real book, so real
-flow continues as if it were absent. Rules, for a synthetic bid of size q at
-price p:
+---
 
-1. **Execution of a real order ahead of you** at p: deduct its executed shares
-   from the ahead-count.
-2. **Execution of a real order behind you** at p — including any execution at p
-   once the ahead-count is zero: the aggressor must have consumed everything in
-   front of that order, which includes you. **You fill.** This is the same rule
-   HftBacktest's L3 FIFO model uses.
-3. **Trade-through**: any execution on your side at a price worse than p (for a
-   bid, a resting bid below p) means the aggressor walked through your level.
-   **You fill.**
-4. **Non-displayed prints (`P`)** at exactly p: on NASDAQ displayed interest has
-   priority over non-displayed at the same price, which suggests displayed
-   interest at p — including you — was exhausted. But `P`'s side field has been
-   hardcoded `'B'` since July 2014, so the aggressor side is unknown, and
-   midpoint-peg prints trade between ticks. **This is a modeling decision, not
-   a fact.** Choose a rule, document it, and report results with and without it.
-5. **No-impact accounting**: when you fill, the named real order still executes
-   in the replay, so liquidity is double counted. Negligible for small q; state
-   it.
+## 005 — The price axis indexes in cents, not half-cents
 
-The market-by-price models all see the same trade volume at p. They differ in
-how they attribute *cancels* — ahead of you or behind you — which moves the
-ahead-count at a different rate. The fill rules above are what convert that
-attribution difference into a fill-time difference, so they have to be written
-down explicitly or the comparison means nothing.
+**Status:** in force.
 
-### Prior art for the queue work
+**Context.** The 2024 Reg NMS Rule 612 amendments introduce a half-penny
+minimum increment for tick-constrained NMS stocks. Compliance was set for
+3 November 2025 and has been delayed to November 2026.
 
-Exact FIFO queue position from market-by-order data is **not new**. HftBacktest
-ships an `L3FIFOQueueModel`, and its Level-3 tutorial builds L2 data from L3 to
-compare the two backtests on crypto futures. Do not describe the MBO simulator
-as novel anywhere.
+**Decision.** The flat level array indexes in whole cents. This is correct for
+the 2017-2020 sessions this project uses, in which the minimum increment is one
+cent for stocks priced at or above $1.00.
 
-The defensible contribution is narrower: **the quantified fill-rate and
-time-to-fill bias of each market-by-price approximation against exact queue
-position, on real US-equity ITCH sessions, with the fill rules explicit**,
-broken out by queue depth and symbol.
+**Alternatives considered.**
+- *Index in half-cents now.* Doubles the level array for no gain on this data,
+  and doubles the cache footprint of the structure the BBO search walks.
+- *Index in the raw Price(4) unit (hundredths of a cent).* A 10000x larger
+  axis; unusable as a flat array.
 
-### Venue fees differ in sign
+**Consequences.** Sub-penny prices that do occur — retail price improvement,
+midpoint prints at a half cent — do not land on an index. Those arrive as `P`
+messages, which have no book effect (record 007), so the displayed book is
+unaffected. Failure mode: applying this code to post-amendment data without
+changing the axis would round half-cent displayed quotes. The axis unit is
+therefore a deliberate, documented property and not an implementation detail to
+be modernised in passing.
 
-NASDAQ runs maker-taker. **BX runs taker-maker**: it pays credits to liquidity
-takers and charges providers (see SR-BX-2017, covering the period of the free
-BX session). Never pool BX with NASDAQ sessions in any cost-inclusive result.
-BX remains fine for engineering and correctness work.
+**Evidence.** Rule 612 as amended, adopting release 34-99929 (2024); compliance
+date extension. Session dates are recorded in `docs/data.md`.
+
+---
+
+## 006 — The parser is templated on its handler
+
+**Status:** committed.
+
+**Context.** Dispatch runs once per message, on the order of 2.7 x 10^8 times
+for a NASDAQ session. The handler is known at compile time in every use in this
+repository: census, reference book, fast book, differential harness, queue
+simulator.
+
+**Decision.** `Parser<Handler>` takes the handler as a template parameter and
+dispatches on the type byte with a `switch`. The handler supplies an overload
+per message type; unhandled types are absorbed by a defaulted catch-all.
+
+**Alternatives considered.**
+- *An abstract base class with virtual `on_*` methods.* An indirect call per
+  message that the inliner cannot see through and the indirect branch predictor
+  must learn; it also forces the typed view to be materialised even when the
+  handler ignores the field.
+- *`std::function` callbacks.* Adds an allocation at registration, a second
+  indirection, and defeats inlining identically.
+- *A function-pointer table indexed by type byte.* Removes the switch's range
+  check but keeps the indirect call.
+
+**Consequences.** Every handler instantiates its own copy of the parser, so
+translation units grow and compile time rises. Handlers cannot be selected at
+runtime, which this repository never needs. Failure mode: none for correctness.
+
+**Evidence.** Pending. The dispatch cost is measured against a virtual-call
+variant in `docs/benchmarks.md` when the benchmark host is available; the
+claim that it matters is a hypothesis until then.
+
+---
+
+## 007 — Feed conditions that look like defects are counted, never repaired
+
+**Status:** in force for what exists; committed for the book.
+
+**Context.** Several conditions in a correctly reconstructed ITCH book violate
+textbook invariants. Asserting on them turns a valid session into a crash;
+silently repairing them destroys the evidence that they occurred.
+
+**Decision.** Each of the following is counted, attributed to a symbol and a
+timestamp, and reported at end of session. None is corrected and none is
+asserted against.
+
+- **Crossed and locked books** around auctions and halts.
+- **Cross Trade (`Q`) with zero shares**, which the specification permits when
+  order interest was insufficient.
+- **Orphaned modifies** — `E`, `C`, `X`, `D` or `U` naming a reference with no
+  live Add — at session boundaries.
+- **Absence of hidden liquidity.** Non-displayed interest never enters the
+  book; `P` reports its executions after the fact.
+- **`B` and `D` arriving after the `E` end-of-system-hours event.**
+
+**Alternatives considered.**
+- *Assert.* Loses sessions and produces no measurement of frequency.
+- *Repair — synthesise the missing Add, uncross the book.* Produces a book that
+  is self-consistent and not the venue's, which is the failure the differential
+  layer exists to detect.
+
+**Consequences.** Downstream analysis must handle a crossed book rather than
+assume it away. The counts themselves are a result: `docs/correctness.md`
+reports them per session, and a change in their rate between sessions is a
+signal that something in the reconstruction changed.
+
+**Evidence.** Specification sections 1.4.4 (Cross Trade, zero-share case),
+1.4.1 (Trade, non-displayable), and the System Event Message table.
+
+---
+
+## 008 — `E`, `C` and `X` deduct cumulatively; zero shares removes the order
+
+**Status:** committed.
+
+**Context.** Order Executed, Order Executed With Price and Order Cancel carry a
+share count that is a *decrement*, not a new total. Order Replace, by contrast,
+carries a new total.
+
+**Decision.** `E`, `C` and `X` subtract their share count from the resting
+order's displayed quantity. An order reaching zero displayed shares is removed
+from the book immediately, without waiting for a `D`, because no `D` is
+guaranteed to follow.
+
+**Alternatives considered.**
+- *Treat the count as a new total.* Produces monotonically wrong depth on every
+  partially-executed order.
+- *Remove only on `D`.* Leaves zero-quantity orders resting at the front of the
+  queue, which corrupts both depth and every queue-position calculation behind
+  them.
+
+**Consequences.** The book must tolerate a later `D` or `X` naming an already
+removed reference; that is one of the orphan classes in record 007.
+
+**Evidence.** Specification sections 1.4.1 (Order Executed: "the number of
+shares executed"), 1.4.3 (Order Cancel: "the number of shares being removed"),
+and 1.4.5 (Order Replace carries the new total).
+
+---
+
+## 009 — `U` retains side, stock and attribution, and loses queue priority
+
+**Status:** committed.
+
+**Context.** Order Replace carries an old reference, a new reference, a new
+total quantity and a new price. It carries no side, no stock symbol and no
+attribution.
+
+**Decision.** The three absent fields are retained from the original Add. The
+new reference supersedes the old for every later message. The order is placed
+at the **back** of the FIFO queue at its new price, even when the price is
+unchanged.
+
+**Alternatives considered.**
+- *Retain queue position when the price is unchanged.* Incorrect: the venue
+  treats a replace as a cancel and a new entry, so priority is lost
+  unconditionally. Assuming otherwise inflates every simulated fill rate.
+- *Look the side up from the trading state or the BBO.* Guesswork, wrong for
+  orders away from the inside.
+
+**Consequences.** The order index must resolve the old reference before the new
+one is inserted, so a replace is two index operations rather than one. This is
+visible per-type in the benchmark breakdown.
+
+**Evidence.** Specification section 1.4.5.
+
+---
+
+## 010 — `E` uses the resting order's price; `C` carries its own
+
+**Status:** committed.
+
+**Context.** Order Executed has no price field. Order Executed With Price has
+an execution price and a Printable flag.
+
+**Decision.** An `E` executes at the price of the order it names, read from the
+book. A `C` executes at its own `ExecPrice`; when Printable is `N` the
+execution is not published to the consolidated tape but the book effect is
+identical.
+
+**Alternatives considered.**
+- *Use the BBO as the execution price for `E`.* Wrong for any execution away
+  from the inside, which is exactly the population a queue study cares about.
+
+**Consequences.** Trade reconstruction depends on the book being correct at the
+moment of the execution, so an error in the book propagates into the trade
+record rather than being caught independently.
+
+**Evidence.** Specification sections 1.4.1 and 1.4.2.
+
+---
+
+## 011 — `P`, `Q` and `B` have no book effect
+
+**Status:** committed.
+
+**Context.** Trade (non-cross), Cross Trade and Broken Trade are time-and-sales
+messages. Applying them to the book double-counts every execution already
+reported by `E` and `C`.
+
+**Decision.** None of the three modifies the book. `P`'s order reference has
+been zero since December 2010 and its side field has been hardcoded `'B'`
+regardless of the resting side since 14 July 2014, so neither field is used for
+anything, including trade signing.
+
+**Alternatives considered.**
+- *Sign trades from `P.Side`.* Produces a trade-sign series that is constant,
+  and an imbalance feature built on it is noise.
+- *Infer the aggressor side by comparing the print to the prevailing BBO.* A
+  defensible estimator, but an estimator; if used it is named as one and its
+  error rate reported.
+
+**Consequences.** Executions against non-displayed liquidity are observable in
+time and sales and absent from the book, which is the limitation stated in
+README.md and in record 020 rule 4.
+
+**Evidence.** Specification sections 1.4.1 (Trade), 1.4.4 (Cross Trade), 1.4.6
+(Broken Trade), and the field notes on `P`.
+
+---
+
+## 012 — Order references are day-unique and not sequential
+
+**Status:** committed.
+
+**Context.** The specification's guarantee that order reference numbers
+increase was removed in February 2009. In practice the references in a session
+are roughly increasing, but nothing enforces it.
+
+**Decision.** The order index is a hash table. Correctness does not depend on
+any ordering property of references: probing, wraparound and deletion are
+correct for arbitrary 64-bit values. Performance work may exploit rough
+monotonicity (record 016); correctness may not.
+
+**Alternatives considered.**
+- *A flat array indexed by reference.* Requires the references to be dense and
+  bounded, which they are not.
+- *A flat array indexed by `reference - session_minimum`.* Requires knowing the
+  minimum before the first message and assumes density; a single outlying
+  reference sizes the array for the session.
+
+**Consequences.** Every order message costs a hash lookup. This is the
+structure record 015 identifies as the most likely locality problem.
+
+**Evidence.** Specification, Order Reference Number field note.
+
+---
+
+## 013 — Locate codes are session-scoped; cross-session tooling keys on symbol
+
+**Status:** committed.
+
+**Context.** Stock Locate is assigned per session by the venue. The same code
+denotes different symbols on different days, and the same symbol takes
+different codes.
+
+**Decision.** Within a session, the locate code is the index into per-symbol
+state, which is what it is for. Anything that spans sessions — the data
+catalogue, the microstructure export, the study's feature files — keys on the
+eight-character symbol resolved from that session's Stock Directory messages.
+
+**Alternatives considered.**
+- *Key everything on symbol.* Costs a string comparison or a symbol-table
+  lookup on the hot path for no in-session benefit.
+
+**Consequences.** Every session must be read from its own `R` messages before
+its locate codes mean anything, which makes the Stock Directory pass mandatory
+rather than optional.
+
+**Evidence.** Specification section 1.2.1.
+
+---
+
+## 014 — The reference book is permanent
+
+**Status:** committed.
+
+**Context.** A differential test needs an oracle. An oracle that is deleted
+once the fast implementation passes cannot detect a regression introduced
+afterwards.
+
+**Decision.** The `std::map` / `std::unordered_map` / `std::list`
+implementation stays in the repository indefinitely. It is written for
+transparency rather than speed, implements every semantic rule in records 007
+through 013, and serves as both the differential oracle and the speedup
+baseline.
+
+**Alternatives considered.**
+- *An external reference implementation.* Introduces a dependency whose
+  semantics must themselves be verified, and whose disagreements are harder to
+  attribute.
+- *Delete it after the fast book passes.* Removes the regression detector at
+  the moment it starts being useful.
+
+**Consequences.** Two implementations of every semantic rule must be kept in
+step, which doubles the cost of a semantic change and is the point: a change
+applied to only one of them is caught by the differential harness.
+
+**Evidence.** Structural; no measurement applies.
+
+---
+
+## 015 — Memory behaviour is attributed before it is optimised
+
+**Status:** hypothesis.
+
+**Context.** The intuitive account is that the order pool and index total on
+the order of 100 MB, exceed L3, and therefore cost a last-level miss on every
+`E`, `C`, `X`, `D` and `U`. That account ignores order lifetimes: a large
+fraction of cancels name orders added milliseconds earlier, and with a LIFO
+free list the pool slot reused by the next Add is the one just freed, so
+short-lived orders may stay resident end to end.
+
+**Decision.** No prefetch or layout change is written before last-level misses
+are attributed three ways: by structure (pool, index, level arrays, bitmaps —
+each mapped into its own region so sampled load addresses resolve), by message
+type, and by the age of the referenced order (buckets: <1 ms, 1-10 ms,
+10-100 ms, 100 ms-1 s, >1 s).
+
+**Alternatives considered.**
+- *Prefetch first, measure after.* Produces a change that cannot be attributed
+  and a speedup that cannot be explained.
+
+**Consequences.** The attribution infrastructure — separate `mmap` regions, a
+`perf mem` script, a per-message `rdpmc` counter — costs more than the
+optimisation it gates. A legitimate outcome is that a large share of the
+predicted misses do not exist, in which case that finding replaces the
+optimisation.
+
+**Evidence.** None yet. This record is a prediction; `docs/benchmarks.md`
+carries the result.
+
+---
+
+## 016 — Hash policy is a template parameter, chosen by measurement
+
+**Status:** hypothesis.
+
+**Context.** Order references are roughly increasing (record 012). Identity
+modulo the table size maps nearby references to nearby slots, which distributes
+worse than a mixing hash but may behave better in cache. A mixing hash
+deliberately scatters recent references across the whole table, which is where
+locality plausibly dies.
+
+**Decision.** The open-addressed order index takes its hash as a template
+policy. Three policies are implemented and compared: identity-mod,
+multiply-shift, and `std::hash`. The comparison reports miss rate and mean
+probe length, not wall time alone, so that a win can be attributed.
+
+**Alternatives considered.**
+- *Pick one and justify it in prose.* The direction of the effect is not
+  predictable from first principles, which is the reason for the experiment.
+
+**Consequences.** The index is templated, so the book is templated, so every
+consumer names a policy. The default is recorded once the measurement exists.
+
+**Evidence.** None yet. Prediction recorded in `docs/benchmarks.md` before the
+experiment runs.
+
+---
+
+## 017 — Order struct size is a compile-time switch, 24 or 32 bytes
+
+**Status:** hypothesis.
+
+**Context.** A cache line is 64 bytes, which is not a multiple of 24. From a
+64-byte-aligned pool base, 24-byte orders average 2.67 per line and two of
+every eight — 25% — straddle a line boundary, so an access touching fields on
+both sides can cost two misses. A 32-byte order packs exactly two per line and
+never straddles.
+
+**Decision.** The order record's size is a compile-time switch. Both variants
+are built and measured; neither is assumed.
+
+**Alternatives considered.**
+- *Pick 24 for density.* Density helps the cold, old-order population; the
+  straddle hurts the same population. The net is not predictable.
+- *Pad to 64.* Wastes half the pool's capacity for one-per-line access.
+
+**Consequences.** Field widths are constrained by the smaller variant, so the
+24-byte layout dictates what an order can carry.
+
+**Prediction, recorded before measurement.** 24 bytes wins on density for the
+old-order population; 32 bytes wins on straddle; the straddle penalty appears
+mainly on cold orders, because young orders under a LIFO free list have both
+lines resident already.
+
+**Evidence.** The 25% straddle figure is arithmetic: with stride 24 from an
+aligned base, offsets modulo 64 cycle through 0, 24, 48, 8, 32, 56, 16, 40 with
+period 8; the records starting at 48 and 56 cross a boundary. The performance
+consequence is a hypothesis.
+
+---
+
+## 018 — Level storage is a flat cents-indexed array with an overflow map
+
+**Status:** committed.
+
+**Context.** Per-symbol price activity concentrates in a narrow band around the
+inside, but a session contains orders far outside it, including stale limit
+orders and auction-only interest.
+
+**Decision.** A flat array of levels covers a per-symbol window in cents. Prices
+outside the window go to an overflow map. Overflow hits are counted, and the
+window size is swept against the resulting overflow rate as a logged
+experiment.
+
+**Alternatives considered.**
+- *A flat array covering the full price range.* 20 million cents per symbol;
+  unusable.
+- *A map for everything.* The reference book's structure, kept as the baseline
+  rather than the implementation.
+- *A window with no overflow path.* Silently drops orders outside it, which is
+  a correctness failure that the differential harness would catch and that
+  should not be possible in the first place.
+
+**Consequences.** Two code paths for level lookup, and the overflow path must
+be semantically identical to the fast path or the differential harness
+diverges.
+
+**Evidence.** Window size against overflow rate is measured; see
+`docs/benchmarks.md`.
+
+---
+
+## 019 — Best bid and offer are tracked with a two-level bitmap
+
+**Status:** committed.
+
+**Context.** Finding the best price after a level empties means scanning for
+the nearest occupied index. A linear scan over a wide window is unbounded in
+the worst case, which lands in the latency tail.
+
+**Decision.** Occupancy is summarised by a two-level bitmap over the level
+array: a word-level bitmap and a summary bitmap over those words. The best
+price is found with a count-leading-zeros or count-trailing-zeros instruction
+at each level, bounding the search to two word scans.
+
+**Alternatives considered.**
+- *Cache the BBO index and scan linearly from it.* Fast in the common case
+  where the inside moves one tick, unbounded when a level empties and the next
+  is far away.
+- *A heap or ordered set of occupied prices.* Logarithmic with a pointer chase
+  per step, and an allocation per level transition.
+
+**Consequences.** Two bitmap words must be updated on every transition of a
+level between empty and occupied. The bitmaps are their own `mmap` region so
+that record 015's attribution can separate their misses from the level array's.
+
+**Evidence.** Bounded search is structural. The cost against the cached-index
+alternative is measured.
+
+---
+
+## 020 — Queue-simulator fill rules
+
+**Status:** committed. **Cited by `docs/preregistration.md`; changes after the
+registration commit must be reported in the study writeup.**
+
+**Context.** Tracking the number of shares ahead of a synthetic order is not
+sufficient to simulate it. The simulator must state when the synthetic order
+*fills*. The synthetic order is not in the real book, so real order flow
+continues exactly as if it were absent, and the fill condition has to be
+inferred from the behaviour of the orders that are present.
+
+**Decision.** For a synthetic bid of size *q* at price *p*:
+
+1. **Execution of a real order ahead, at *p*.** Deduct its executed shares from
+   the ahead-count. No fill.
+2. **Execution of a real order behind, at *p*** — including any execution at
+   *p* once the ahead-count has reached zero. The aggressor consumed everything
+   in front of that order, which includes the synthetic order. **Fill.**
+3. **Trade-through.** Any execution on the same side at a price worse than *p*
+   — for a bid, a resting bid below *p* — means the aggressor walked through
+   the synthetic order's level. **Fill.**
+4. **Non-displayed print (`P`) at exactly *p*.** On NASDAQ, displayed interest
+   has priority over non-displayed at the same price, which suggests displayed
+   interest at *p* was exhausted. But `P`'s side field has been hardcoded `'B'`
+   since July 2014 (record 011), so the aggressor side is unknown, and
+   midpoint-pegged prints trade between ticks. **This is a modelling choice,
+   not an inference from the specification.** Results are reported both with
+   the rule enabled and with it disabled.
+5. **No-impact accounting.** When the synthetic order fills, the real order
+   that triggered the fill still executes in the replay, so liquidity at *p* is
+   double counted by *q*. Negligible for one round lot; stated rather than
+   corrected.
+
+**Alternatives considered.**
+- *Fill only on rule 3.* Understates fill rates badly, since most fills at a
+  level occur without a trade-through.
+- *Fill probabilistically on volume at *p*.* Discards the exact position that
+  market-by-order data provides, which is the point of the comparison.
+- *Remove rule 4 entirely.* Defensible, and is precisely the "disabled" arm
+  that is reported alongside.
+
+**Consequences.** The market-by-price approximations all observe the same
+traded volume at *p*; they differ in whether they attribute a *cancel* to the
+shares ahead of or behind the synthetic order, which moves the ahead-count at
+different rates. Rules 1 through 3 are what convert that attribution difference
+into a difference in fill time, so the comparison is meaningless unless they
+are fixed in advance. That is why this record is versioned and cited by number.
+
+**Evidence.** Rule 2 matches the fill condition used by HftBacktest's
+`L3FIFOQueueModel` (record 021). Rules 1 and 3 follow from price-time priority.
+Rule 4 is labelled a modelling choice and reported both ways. Each rule has a
+unit test driven by a hand-written event script.
+
+---
+
+## 021 — Prior art: exact queue position is not novel; the bias table is the contribution
+
+**Status:** in force.
+
+**Context.** Reconstructing exact FIFO queue position from market-by-order data
+is established practice. HftBacktest ships an `L3FIFOQueueModel`, and its
+Level-3 tutorial constructs L2 data from L3 to compare the two backtests on
+crypto futures.
+
+**Decision.** The simulator is described as an implementation of a known model,
+in README.md and here. The claimed contribution is narrower and is stated as
+such: the quantified fill-rate and time-to-fill bias of each market-by-price
+approximation against exact queue position, on US-equity ITCH sessions, with
+the fill rules of record 020 made explicit, broken out by queue depth at entry
+and by symbol.
+
+**Alternatives considered.** None; this is a factual statement about the
+literature.
+
+**Consequences.** The result stands or falls on the bias measurement, not on
+the simulator.
+
+**Evidence.** HftBacktest documentation, `L3FIFOQueueModel` and the Level-3
+tutorial. Synthetic order placement follows Moallemi and Yuan on the value of
+queue position.
+
+---
+
+## 022 — BX and NASDAQ are never pooled in a cost-inclusive result
+
+**Status:** in force.
+
+**Context.** NASDAQ operates a maker-taker schedule: it pays a rebate to
+liquidity providers and charges a fee to takers. BX operates taker-maker: it
+pays takers and charges providers. Maker and taker P&L therefore change sign
+between the two venues.
+
+**Decision.** No result that includes fees or rebates pools sessions from the
+two venues. The study names a single venue. BX remains the primary target for
+engineering and correctness work, because it carries roughly 54M messages
+against a NASDAQ session's ~270M.
+
+**Alternatives considered.**
+- *Pool and control for venue with a dummy variable.* Assumes a common slope
+  and differing intercept, which is not what a sign flip in the fee is.
+
+**Consequences.** The study's power is bounded by the number of sessions from
+one venue; this is an input to the power analysis in
+`docs/preregistration.md`.
+
+**Evidence.** SR-BX-2017 fee filings covering the period of the free BX
+session; NASDAQ price list archived for the session dates, cited by date in
+`docs/preregistration.md`.
+
+---
+
+## 023 — The study is predictive, and is not comparable to a contemporaneous R²
+
+**Status:** in force.
+
+**Context.** Cont, Kukanov and Stoikov (2014) regress 10-second mid-price
+changes on order flow imbalance measured over the *same* 10 seconds, across 50
+US stocks, and report an average R² of approximately 65%. That is a
+decomposition of a price move into the flow that constituted it.
+
+**Decision.** This study asks whether a feature measured over interval *t*
+predicts the mid-price change over interval *t+1*. The two quantities are never
+compared, reported side by side as if commensurable, or cited in support of one
+another. Predictive R² on this data is expected to be a small fraction of one
+percent.
+
+**Alternatives considered.** None; conflating the two would be an error rather
+than a choice.
+
+**Consequences.** The headline number this study can produce is small by
+construction, and the interesting question is whether what remains survives
+costs. The decision rules in `docs/preregistration.md` are written against that
+expectation.
+
+**Evidence.** Cont, Kukanov and Stoikov, "The Price Impact of Order Book
+Events", *Journal of Financial Econometrics* 12(1), 2014.
+
+---
+
+## 024 — Hot-path constraints
+
+**Status:** in force.
+
+**Context.** The constraints below are applied uniformly rather than decided
+per site, so that a violation is a review question rather than a judgement
+call.
+
+**Decision.** On any path that runs per message:
+
+- No heap allocation after warmup. Pools and arenas are sized during
+  initialisation.
+- No `std::function`, `std::string`, `shared_ptr`, or virtual dispatch.
+  `std::string_view` over the mapped buffer carries symbols.
+- Integer ticks only (record 004).
+- The parser is templated on its handler (record 006).
+- `mmap` with sequential access, rather than buffered reads.
+- Single-threaded. Sharding by stock locate is the obvious parallelisation and
+  is out of scope.
+
+**Alternatives considered.** Relaxing any one of these for a specific call site
+is possible and would be recorded as its own decision; none has been needed.
+
+**Consequences.** Error handling on the hot path cannot allocate or throw, so
+it reports through counters (record 007). Warmup cost is paid once and excluded
+from the timed region, which is stated in every benchmark entry.
+
+**Evidence.** Allocation freedom is asserted in debug builds and checked under
+the sanitizer preset over a full session.

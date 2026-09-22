@@ -5,7 +5,7 @@
 // back, which turns the hand-built byte fixtures into a round trip.
 //
 // The order flow is not a market model: arrival times, sizes and prices are
-// drawn from flat distributions and no book is maintained. It exercises the
+// drawn from flat distributions and no book is maintained. It drives the
 // framing and decode paths only, and is not a source of latency numbers or
 // microstructure conclusions.
 //
