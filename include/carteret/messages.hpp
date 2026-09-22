@@ -37,7 +37,9 @@ struct SystemEvent : Header {
     // 'O' start of messages, 'S' start of system hours, 'Q' start of market
     // hours, 'M' end of market hours, 'E' end of system hours, 'C' end of
     // messages. 'B' and 'D' can still arrive after 'E'.
-    [[nodiscard]] unsigned char event_code() const noexcept { return p[off::sysevent::kEventCode]; }
+    [[nodiscard]] unsigned char event_code() const noexcept {
+        return p[off::sysevent::kEventCode];
+    }
 };
 
 // 'R' Stock Directory
@@ -103,12 +105,16 @@ struct RegSHO : Header {
     [[nodiscard]] std::string_view stock() const noexcept {
         return alpha(p + off::regsho::kStock, 8);
     }
-    [[nodiscard]] unsigned char action() const noexcept { return p[off::regsho::kRegSHOAction]; }
+    [[nodiscard]] unsigned char action() const noexcept {
+        return p[off::regsho::kRegSHOAction];
+    }
 };
 
 // 'L' Market Participant Position
 struct MarketParticipant : Header {
-    [[nodiscard]] std::string_view mpid() const noexcept { return alpha(p + off::mpart::kMPID, 4); }
+    [[nodiscard]] std::string_view mpid() const noexcept {
+        return alpha(p + off::mpart::kMPID, 4);
+    }
     [[nodiscard]] std::string_view stock() const noexcept {
         return alpha(p + off::mpart::kStock, 8);
     }
@@ -185,16 +191,24 @@ struct OperationalHalt : Header {
     [[nodiscard]] std::string_view stock() const noexcept {
         return alpha(p + off::op_halt::kStock, 8);
     }
-    [[nodiscard]] unsigned char market_code() const noexcept { return p[off::op_halt::kMarketCode]; }
-    [[nodiscard]] unsigned char halt_action() const noexcept { return p[off::op_halt::kHaltAction]; }
+    [[nodiscard]] unsigned char market_code() const noexcept {
+        return p[off::op_halt::kMarketCode];
+    }
+    [[nodiscard]] unsigned char halt_action() const noexcept {
+        return p[off::op_halt::kHaltAction];
+    }
 };
 
 // 'A' Add Order, no MPID attribution
 struct AddOrder : Header {
-    [[nodiscard]] std::uint64_t order_ref() const noexcept { return be64(p + off::add::kOrderRef); }
+    [[nodiscard]] std::uint64_t order_ref() const noexcept {
+        return be64(p + off::add::kOrderRef);
+    }
     [[nodiscard]] unsigned char side() const noexcept { return p[off::add::kSide]; }
     [[nodiscard]] std::uint32_t shares() const noexcept { return be32(p + off::add::kShares); }
-    [[nodiscard]] std::string_view stock() const noexcept { return alpha(p + off::add::kStock, 8); }
+    [[nodiscard]] std::string_view stock() const noexcept {
+        return alpha(p + off::add::kStock, 8);
+    }
     [[nodiscard]] std::uint32_t price() const noexcept { return be32(p + off::add::kPrice); }
 };
 
@@ -205,11 +219,15 @@ struct AddOrderMpid : Header {
         return be64(p + off::add_mpid::kOrderRef);
     }
     [[nodiscard]] unsigned char side() const noexcept { return p[off::add_mpid::kSide]; }
-    [[nodiscard]] std::uint32_t shares() const noexcept { return be32(p + off::add_mpid::kShares); }
+    [[nodiscard]] std::uint32_t shares() const noexcept {
+        return be32(p + off::add_mpid::kShares);
+    }
     [[nodiscard]] std::string_view stock() const noexcept {
         return alpha(p + off::add_mpid::kStock, 8);
     }
-    [[nodiscard]] std::uint32_t price() const noexcept { return be32(p + off::add_mpid::kPrice); }
+    [[nodiscard]] std::uint32_t price() const noexcept {
+        return be32(p + off::add_mpid::kPrice);
+    }
     [[nodiscard]] std::string_view attribution() const noexcept {
         return alpha(p + off::add_mpid::kAttribution, 4);
     }
@@ -218,7 +236,9 @@ struct AddOrderMpid : Header {
 // 'E' Order Executed. No price field; the resting order's price applies.
 // executed_shares() is a decrement, not a new total.
 struct OrderExecuted : Header {
-    [[nodiscard]] std::uint64_t order_ref() const noexcept { return be64(p + off::exec::kOrderRef); }
+    [[nodiscard]] std::uint64_t order_ref() const noexcept {
+        return be64(p + off::exec::kOrderRef);
+    }
     [[nodiscard]] std::uint32_t executed_shares() const noexcept {
         return be32(p + off::exec::kExecutedShares);
     }
@@ -239,7 +259,9 @@ struct OrderExecutedPrice : Header {
     [[nodiscard]] std::uint64_t match_number() const noexcept {
         return be64(p + off::exec_price::kMatchNumber);
     }
-    [[nodiscard]] unsigned char printable() const noexcept { return p[off::exec_price::kPrintable]; }
+    [[nodiscard]] unsigned char printable() const noexcept {
+        return p[off::exec_price::kPrintable];
+    }
     [[nodiscard]] std::uint32_t exec_price() const noexcept {
         return be32(p + off::exec_price::kExecPrice);
     }
@@ -258,7 +280,9 @@ struct OrderCancel : Header {
 
 // 'D' Order Delete
 struct OrderDelete : Header {
-    [[nodiscard]] std::uint64_t order_ref() const noexcept { return be64(p + off::del::kOrderRef); }
+    [[nodiscard]] std::uint64_t order_ref() const noexcept {
+        return be64(p + off::del::kOrderRef);
+    }
 };
 
 // 'U' Order Replace. Carries no side, stock or attribution; all three are
@@ -271,8 +295,12 @@ struct OrderReplace : Header {
     [[nodiscard]] std::uint64_t new_order_ref() const noexcept {
         return be64(p + off::replace::kNewOrderRef);
     }
-    [[nodiscard]] std::uint32_t shares() const noexcept { return be32(p + off::replace::kShares); }
-    [[nodiscard]] std::uint32_t price() const noexcept { return be32(p + off::replace::kPrice); }
+    [[nodiscard]] std::uint32_t shares() const noexcept {
+        return be32(p + off::replace::kShares);
+    }
+    [[nodiscard]] std::uint32_t price() const noexcept {
+        return be32(p + off::replace::kPrice);
+    }
 };
 
 // 'P' Trade, non-cross. No book effect. order_ref() has been zero since
@@ -283,7 +311,9 @@ struct Trade : Header {
         return be64(p + off::trade::kOrderRef);
     }
     [[nodiscard]] unsigned char side() const noexcept { return p[off::trade::kSide]; }
-    [[nodiscard]] std::uint32_t shares() const noexcept { return be32(p + off::trade::kShares); }
+    [[nodiscard]] std::uint32_t shares() const noexcept {
+        return be32(p + off::trade::kShares);
+    }
     [[nodiscard]] std::string_view stock() const noexcept {
         return alpha(p + off::trade::kStock, 8);
     }
@@ -295,7 +325,9 @@ struct Trade : Header {
 
 // 'Q' Cross Trade. No book effect. Zero shares is a valid report.
 struct CrossTrade : Header {
-    [[nodiscard]] std::uint64_t shares() const noexcept { return be64(p + off::cross::kShares); }
+    [[nodiscard]] std::uint64_t shares() const noexcept {
+        return be64(p + off::cross::kShares);
+    }
     [[nodiscard]] std::string_view stock() const noexcept {
         return alpha(p + off::cross::kStock, 8);
     }
@@ -305,7 +337,9 @@ struct CrossTrade : Header {
     [[nodiscard]] std::uint64_t match_number() const noexcept {
         return be64(p + off::cross::kMatchNumber);
     }
-    [[nodiscard]] unsigned char cross_type() const noexcept { return p[off::cross::kCrossType]; }
+    [[nodiscard]] unsigned char cross_type() const noexcept {
+        return p[off::cross::kCrossType];
+    }
 };
 
 // 'B' Broken Trade. No book effect; can arrive after end of system hours.
@@ -326,12 +360,18 @@ struct Noii : Header {
     [[nodiscard]] unsigned char imbalance_direction() const noexcept {
         return p[off::noii::kImbalanceDirection];
     }
-    [[nodiscard]] std::string_view stock() const noexcept { return alpha(p + off::noii::kStock, 8); }
-    [[nodiscard]] std::uint32_t far_price() const noexcept { return be32(p + off::noii::kFarPrice); }
+    [[nodiscard]] std::string_view stock() const noexcept {
+        return alpha(p + off::noii::kStock, 8);
+    }
+    [[nodiscard]] std::uint32_t far_price() const noexcept {
+        return be32(p + off::noii::kFarPrice);
+    }
     [[nodiscard]] std::uint32_t near_price() const noexcept {
         return be32(p + off::noii::kNearPrice);
     }
-    [[nodiscard]] std::uint32_t ref_price() const noexcept { return be32(p + off::noii::kRefPrice); }
+    [[nodiscard]] std::uint32_t ref_price() const noexcept {
+        return be32(p + off::noii::kRefPrice);
+    }
     [[nodiscard]] unsigned char cross_type() const noexcept { return p[off::noii::kCrossType]; }
     [[nodiscard]] unsigned char price_variation() const noexcept {
         return p[off::noii::kPriceVariation];
@@ -341,7 +381,9 @@ struct Noii : Header {
 // 'N' Retail Price Improvement Indicator. The program ended 2014-12-31, so
 // near-zero counts are expected in the sample sessions.
 struct Rpii : Header {
-    [[nodiscard]] std::string_view stock() const noexcept { return alpha(p + off::rpii::kStock, 8); }
+    [[nodiscard]] std::string_view stock() const noexcept {
+        return alpha(p + off::rpii::kStock, 8);
+    }
     [[nodiscard]] unsigned char interest_flag() const noexcept {
         return p[off::rpii::kInterestFlag];
     }

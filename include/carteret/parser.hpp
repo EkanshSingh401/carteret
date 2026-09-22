@@ -48,12 +48,12 @@ namespace detail {
 
 // Calls h.on(v) when the handler declares that overload, and compiles to
 // nothing when it does not.
-template <class H, class V>
+template<class H, class V>
 [[gnu::always_inline]] inline void offer(H& h, V v) noexcept {
     if constexpr (requires { h.on(v); }) h.on(v);
 }
 
-template <class V>
+template<class V>
 [[gnu::always_inline]] inline V view(const unsigned char* p) noexcept {
     V v{};
     v.p = p;
@@ -62,7 +62,7 @@ template <class V>
 
 } // namespace detail
 
-template <class Handler>
+template<class Handler>
 class Parser {
 public:
     explicit Parser(Handler& h) noexcept : h_(h) {}
