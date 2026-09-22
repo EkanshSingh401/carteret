@@ -19,11 +19,20 @@ public:
         fd_ = ::open(path.c_str(), O_RDONLY);
         if (fd_ < 0) throw std::runtime_error("open failed: " + path);
         struct stat st{};
-        if (::fstat(fd_, &st) != 0) { ::close(fd_); throw std::runtime_error("fstat failed"); }
+        if (::fstat(fd_, &st) != 0) {
+            ::close(fd_);
+            throw std::runtime_error("fstat failed");
+        }
         size_ = static_cast<std::size_t>(st.st_size);
-        if (size_ == 0) { ::close(fd_); throw std::runtime_error("empty file: " + path); }
+        if (size_ == 0) {
+            ::close(fd_);
+            throw std::runtime_error("empty file: " + path);
+        }
         void* p = ::mmap(nullptr, size_, PROT_READ, MAP_PRIVATE, fd_, 0);
-        if (p == MAP_FAILED) { ::close(fd_); throw std::runtime_error("mmap failed"); }
+        if (p == MAP_FAILED) {
+            ::close(fd_);
+            throw std::runtime_error("mmap failed");
+        }
         data_ = static_cast<const unsigned char*>(p);
         // Replay is strictly sequential. The benefit of this hint is unmeasured
         // and is expected to be nil on a warm page cache; docs/benchmarks.md
@@ -39,7 +48,9 @@ public:
     MappedFile(const MappedFile&) = delete;
     MappedFile& operator=(const MappedFile&) = delete;
 
-    [[nodiscard]] std::span<const unsigned char> bytes() const noexcept { return {data_, size_}; }
+    [[nodiscard]] std::span<const unsigned char> bytes() const noexcept {
+        return {data_, size_};
+    }
     [[nodiscard]] std::size_t size() const noexcept { return size_; }
 
 private:
@@ -48,4 +59,4 @@ private:
     std::size_t size_ = 0;
 };
 
-}  // namespace carteret
+} // namespace carteret

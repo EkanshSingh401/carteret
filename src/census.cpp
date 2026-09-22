@@ -20,7 +20,10 @@
 using namespace carteret;
 
 int main(int argc, char** argv) {
-    if (argc < 2) { std::fprintf(stderr, "usage: %s <session-file>\n", argv[0]); return 2; }
+    if (argc < 2) {
+        std::fprintf(stderr, "usage: %s <session-file>\n", argv[0]);
+        return 2;
+    }
 
     MappedFile mf(argv[1]);
     FrameReader rd(mf.bytes());
@@ -35,9 +38,12 @@ int main(int argc, char** argv) {
     MsgView m;
     for (;;) {
         const FrameStatus st = rd.next(m);
-        if (st == FrameStatus::EndOfSession) { saw_end = true; break; }
+        if (st == FrameStatus::EndOfSession) {
+            saw_end = true;
+            break;
+        }
         if (st == FrameStatus::Truncated) break;
-        if (st != FrameStatus::Ok) continue;   // skipped and counted by the reader
+        if (st != FrameStatus::Ok) continue; // skipped and counted by the reader
 
         ++counts[m.type()];
         ++total;
@@ -62,14 +68,15 @@ int main(int argc, char** argv) {
     std::printf("last ts           %llu ns\n", (unsigned long long)last_ts);
     std::printf("\nper type:\n");
     for (std::size_t t = 0; t < counts.size(); ++t) {
-        if (counts[t]) std::printf("  %c  %12llu\n", static_cast<int>(t), (unsigned long long)counts[t]);
+        if (counts[t])
+            std::printf("  %c  %12llu\n", static_cast<int>(t), (unsigned long long)counts[t]);
     }
 
     // Not a benchmark. This is wall-clock time on an unpinned core with the page
     // cache in an arbitrary state; it confirms the run completed and nothing
     // more. Published latency figures come from the benchmark harness on an
     // isolated core, per docs/benchmarks.md.
-    std::printf("\n[not a benchmark] %.2fs wall, %.1f M msg/s\n",
-                secs, secs > 0 ? (double)total / secs / 1e6 : 0.0);
+    std::printf("\n[not a benchmark] %.2fs wall, %.1f M msg/s\n", secs,
+                secs > 0 ? (double)total / secs / 1e6 : 0.0);
     return 0;
 }

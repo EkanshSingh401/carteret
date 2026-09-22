@@ -46,7 +46,7 @@ void putalpha(std::vector<unsigned char>& b, const char* s, std::size_t n) {
 void header(std::vector<unsigned char>& b, char type, std::uint16_t locate, std::uint64_t ts) {
     b.push_back(static_cast<unsigned char>(type));
     put16(b, locate);
-    put16(b, 0);          // tracking number
+    put16(b, 0); // tracking number
     put48(b, ts);
 }
 // Frame and emit: 2-byte big-endian length, then body.
@@ -57,7 +57,7 @@ void emit(std::FILE* f, const std::vector<unsigned char>& body) {
     std::fwrite(body.data(), 1, body.size(), f);
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
     if (argc < 3) {
@@ -66,14 +66,18 @@ int main(int argc, char** argv) {
     }
     const std::string out = argv[1];
     const std::uint64_t n = std::strtoull(argv[2], nullptr, 10);
-    const std::uint32_t seed = (argc > 3) ? static_cast<std::uint32_t>(std::strtoul(argv[3], nullptr, 10)) : 42u;
+    const std::uint32_t seed =
+        (argc > 3) ? static_cast<std::uint32_t>(std::strtoul(argv[3], nullptr, 10)) : 42u;
 
     std::FILE* f = std::fopen(out.c_str(), "wb");
-    if (!f) { std::perror("fopen"); return 1; }
+    if (!f) {
+        std::perror("fopen");
+        return 1;
+    }
 
     std::mt19937 rng(seed);
     std::vector<unsigned char> b;
-    std::uint64_t ts = 34200ULL * 1000000000ULL;   // 09:30:00
+    std::uint64_t ts = 34200ULL * 1000000000ULL; // 09:30:00
     std::uint64_t next_ref = 1;
     std::vector<std::uint64_t> live;
     live.reserve(1024);
@@ -81,18 +85,27 @@ int main(int argc, char** argv) {
     const char* syms[] = {"AAPL", "MSFT", "INTC"};
 
     // 'S' start of messages
-    b.clear(); header(b, 'S', 0, ts); b.push_back('O'); emit(f, b);
+    b.clear();
+    header(b, 'S', 0, ts);
+    b.push_back('O');
+    emit(f, b);
 
     // 'R' stock directory, one per symbol
     for (std::uint16_t i = 0; i < 3; ++i) {
-        b.clear(); header(b, 'R', static_cast<std::uint16_t>(i + 1), ts);
+        b.clear();
+        header(b, 'R', static_cast<std::uint16_t>(i + 1), ts);
         putalpha(b, syms[i], 8);
-        b.push_back('Q'); b.push_back('N');
+        b.push_back('Q');
+        b.push_back('N');
         put32(b, 100);
-        b.push_back('N'); b.push_back('C');
+        b.push_back('N');
+        b.push_back('C');
         putalpha(b, "", 2);
-        b.push_back('P'); b.push_back('N'); b.push_back('N');
-        b.push_back('1'); b.push_back('N');
+        b.push_back('P');
+        b.push_back('N');
+        b.push_back('N');
+        b.push_back('1');
+        b.push_back('N');
         put32(b, 1);
         b.push_back('N');
         emit(f, b);
@@ -103,36 +116,47 @@ int main(int argc, char** argv) {
         const std::uint16_t locate = static_cast<std::uint16_t>(1 + rng() % 3);
         const std::uint32_t roll = static_cast<std::uint32_t>(rng() % 100);
 
-        if (roll < 45 || live.empty()) {                  // Add
+        if (roll < 45 || live.empty()) { // Add
             const std::uint64_t ref = next_ref++;
-            b.clear(); header(b, 'A', locate, ts);
+            b.clear();
+            header(b, 'A', locate, ts);
             put64(b, ref);
             b.push_back((rng() % 2) ? 'B' : 'S');
             put32(b, static_cast<std::uint32_t>(100 * (1 + rng() % 10)));
             putalpha(b, syms[locate - 1], 8);
-            put32(b, static_cast<std::uint32_t>(1000000 + (rng() % 20000) * 100));    // Price(4), penny ticks
+            put32(b, static_cast<std::uint32_t>(1000000 + (rng() % 20000) *
+                                                              100)); // Price(4), penny ticks
             emit(f, b);
             live.push_back(ref);
         } else {
             const std::size_t idx = static_cast<std::size_t>(rng()) % live.size();
             const std::uint64_t ref = live[idx];
-            if (roll < 60) {                              // Execute
-                b.clear(); header(b, 'E', locate, ts);
-                put64(b, ref); put32(b, 100); put64(b, i + 1);
+            if (roll < 60) { // Execute
+                b.clear();
+                header(b, 'E', locate, ts);
+                put64(b, ref);
+                put32(b, 100);
+                put64(b, i + 1);
                 emit(f, b);
-            } else if (roll < 70) {                       // Partial cancel
-                b.clear(); header(b, 'X', locate, ts);
-                put64(b, ref); put32(b, 100);
+            } else if (roll < 70) { // Partial cancel
+                b.clear();
+                header(b, 'X', locate, ts);
+                put64(b, ref);
+                put32(b, 100);
                 emit(f, b);
-            } else if (roll < 90) {                       // Delete
-                b.clear(); header(b, 'D', locate, ts);
+            } else if (roll < 90) { // Delete
+                b.clear();
+                header(b, 'D', locate, ts);
                 put64(b, ref);
                 emit(f, b);
-                live[idx] = live.back(); live.pop_back();
-            } else {                                      // Replace
+                live[idx] = live.back();
+                live.pop_back();
+            } else { // Replace
                 const std::uint64_t nref = next_ref++;
-                b.clear(); header(b, 'U', locate, ts);
-                put64(b, ref); put64(b, nref);
+                b.clear();
+                header(b, 'U', locate, ts);
+                put64(b, ref);
+                put64(b, nref);
                 put32(b, static_cast<std::uint32_t>(100 * (1 + rng() % 10)));
                 put32(b, static_cast<std::uint32_t>(1000000 + (rng() % 20000) * 100));
                 emit(f, b);
@@ -142,7 +166,10 @@ int main(int argc, char** argv) {
     }
 
     // 'S' end of messages, then the zero-length end-of-session marker.
-    b.clear(); header(b, 'S', 0, ts); b.push_back('C'); emit(f, b);
+    b.clear();
+    header(b, 'S', 0, ts);
+    b.push_back('C');
+    emit(f, b);
     unsigned char zero[2] = {0, 0};
     std::fwrite(zero, 1, 2, f);
 

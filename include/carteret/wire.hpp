@@ -85,12 +85,14 @@ inline std::string_view alpha(const unsigned char* p, std::size_t n) noexcept {
 
 struct MsgView {
     const unsigned char* data = nullptr;
-    std::uint16_t        len  = 0;
+    std::uint16_t len = 0;
 
-    [[nodiscard]] unsigned char   type()   const noexcept { return data[off::kType]; }
-    [[nodiscard]] std::uint16_t   locate() const noexcept { return be16(data + off::kStockLocate); }
-    [[nodiscard]] std::uint64_t   ts()     const noexcept { return timestamp(data); }
-    [[nodiscard]] std::uint16_t   track()  const noexcept { return tracking(data); }
+    [[nodiscard]] unsigned char type() const noexcept { return data[off::kType]; }
+    [[nodiscard]] std::uint16_t locate() const noexcept {
+        return be16(data + off::kStockLocate);
+    }
+    [[nodiscard]] std::uint64_t ts() const noexcept { return timestamp(data); }
+    [[nodiscard]] std::uint16_t track() const noexcept { return tracking(data); }
 };
 
 // ---------------------------------------------------------------------------
@@ -108,10 +110,10 @@ struct MsgView {
 
 enum class FrameStatus : unsigned char {
     Ok,
-    EndOfSession,     // zero-length prefix
-    Truncated,        // prefix or body runs past the end of the buffer
-    LengthMismatch,   // known type, wrong length; skipped and counted
-    UnknownType,      // not an ITCH 5.0 type; skipped and counted
+    EndOfSession,   // zero-length prefix
+    Truncated,      // prefix or body runs past the end of the buffer
+    LengthMismatch, // known type, wrong length; skipped and counted
+    UnknownType,    // not an ITCH 5.0 type; skipped and counted
 };
 
 class FrameReader {
@@ -131,24 +133,30 @@ public:
         pos_ += 2 + len;
 
         const unsigned char t = body[off::kType];
-        const std::uint8_t  expect = kMsgLen[t];
-        if (expect == 0) { ++unknown_; return FrameStatus::UnknownType; }
-        if (expect != len) { ++mismatch_; return FrameStatus::LengthMismatch; }
+        const std::uint8_t expect = kMsgLen[t];
+        if (expect == 0) {
+            ++unknown_;
+            return FrameStatus::UnknownType;
+        }
+        if (expect != len) {
+            ++mismatch_;
+            return FrameStatus::LengthMismatch;
+        }
 
         out.data = body;
-        out.len  = len;
+        out.len = len;
         return FrameStatus::Ok;
     }
 
-    [[nodiscard]] std::size_t offset()   const noexcept { return pos_; }
-    [[nodiscard]] std::uint64_t unknown()  const noexcept { return unknown_; }
+    [[nodiscard]] std::size_t offset() const noexcept { return pos_; }
+    [[nodiscard]] std::uint64_t unknown() const noexcept { return unknown_; }
     [[nodiscard]] std::uint64_t mismatch() const noexcept { return mismatch_; }
 
 private:
     std::span<const unsigned char> buf_;
-    std::size_t   pos_      = 0;
-    std::uint64_t unknown_  = 0;
+    std::size_t pos_ = 0;
+    std::uint64_t unknown_ = 0;
     std::uint64_t mismatch_ = 0;
 };
 
-}  // namespace carteret
+} // namespace carteret
