@@ -225,6 +225,51 @@ static void test_zero_prefixed_unknown_type_is_terminal() {
 // Detection must not mistake one form for the other. A real session begins
 // with a prefix equal to the type-implied length; the RITCH fixture begins
 // with a zero prefix and a valid type byte.
+// NASDAQ's published sessions carry no zero-length terminator: they end with
+// the 'S' end-of-messages event and then the file ends. That is a well-formed
+// end, and only a buffer that stops part-way through a message is a
+// truncation.
+static void test_exhaustion_at_a_boundary_is_a_clean_end() {
+    std::vector<unsigned char> buf;
+    frame_with(buf, kMsgLen['A'], body_of('A'));
+    std::vector<unsigned char> sysev = body_of('S');
+    sysev[11] = 'C'; // end of messages
+    frame_with(buf, kMsgLen['S'], sysev);
+    // No terminator.
+
+    FrameReader rd({buf.data(), buf.size()});
+    MsgView m;
+    CHECK(rd.next(m) == FrameStatus::Ok);
+    CHECK(rd.next(m) == FrameStatus::Ok);
+    CHECK(rd.next(m) == FrameStatus::EndOfSession);
+    CHECK(rd.offset() == buf.size());
+
+    // A body cut short is still a truncation, so the relaxation above does not
+    // hide a genuinely damaged file.
+    std::vector<unsigned char> cut = buf;
+    cut.pop_back();
+    FrameReader rd2({cut.data(), cut.size()});
+    CHECK(rd2.next(m) == FrameStatus::Ok);
+    CHECK(rd2.next(m) == FrameStatus::Truncated);
+
+    // A dangling single byte is a truncation too.
+    std::vector<unsigned char> stub = buf;
+    stub.push_back(0);
+    FrameReader rd3({stub.data(), stub.size()});
+    CHECK(rd3.next(m) == FrameStatus::Ok);
+    CHECK(rd3.next(m) == FrameStatus::Ok);
+    CHECK(rd3.next(m) == FrameStatus::Truncated);
+
+    // The zero-length terminator is still accepted where it is present.
+    std::vector<unsigned char> terminated = buf;
+    terminated.push_back(0);
+    terminated.push_back(0);
+    FrameReader rd4({terminated.data(), terminated.size()});
+    CHECK(rd4.next(m) == FrameStatus::Ok);
+    CHECK(rd4.next(m) == FrameStatus::Ok);
+    CHECK(rd4.next(m) == FrameStatus::EndOfSession);
+}
+
 static void test_framing_detection() {
     std::vector<unsigned char> prefixed;
     frame_with(prefixed, kMsgLen['S'], body_of('S'));
@@ -256,6 +301,7 @@ int main() {
     test_framing();
     test_zero_prefixed_framing();
     test_zero_prefixed_unknown_type_is_terminal();
+    test_exhaustion_at_a_boundary_is_a_clean_end();
     test_framing_detection();
     test_length_table();
     if (failures == 0)

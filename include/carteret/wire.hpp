@@ -99,9 +99,12 @@ struct MsgView {
 // Framing
 // ---------------------------------------------------------------------------
 //
-// NASDAQ BinaryFILE precedes every message with a 2-byte big-endian length and
-// terminates the session with a zero length. Sessions downloaded from the
-// NASDAQ archive use this form.
+// NASDAQ BinaryFILE precedes every message with a 2-byte big-endian length.
+// The specification also describes a zero-length terminator, and the sessions
+// NASDAQ publishes do not write one -- they end with the 'S' end-of-messages
+// event and then the file ends. Both endings are accepted: a zero-length
+// prefix, and the buffer ending at a message boundary. A file that ends
+// part-way through a message is still reported as truncated.
 //
 // One file in circulation does not: ex20101224.TEST_ITCH_50, bundled with the
 // RITCH R package, carries the 2-byte prefix field for all 12,012 of its
@@ -131,7 +134,7 @@ enum class Framing : unsigned char {
 
 enum class FrameStatus : unsigned char {
     Ok,
-    EndOfSession,   // zero-length prefix, or exact exhaustion in the zero-prefixed form
+    EndOfSession,   // zero-length prefix, or the buffer ending at a message boundary
     Truncated,      // prefix or body runs past the end of the buffer
     LengthMismatch, // known type, prefix length disagrees; skipped and counted
     UnknownType,    // not an ITCH 5.0 type; skipped and counted
@@ -159,6 +162,13 @@ public:
 
 private:
     FrameStatus next_prefixed(MsgView& out) noexcept {
+        // A buffer ending exactly at a message boundary is a well-formed end.
+        // The specification describes a zero-length terminator, but the
+        // sessions NASDAQ publishes do not carry one: 20190130.BX_ITCH_50 ends
+        // with its 'S' end-of-messages event and then the file ends, with the
+        // reader's cursor on the final byte. Treating that as a truncation
+        // would mark every real session malformed.
+        if (pos_ == buf_.size()) return FrameStatus::EndOfSession;
         if (pos_ + 2 > buf_.size()) return FrameStatus::Truncated;
 
         const std::uint16_t len = be16(buf_.data() + pos_);
