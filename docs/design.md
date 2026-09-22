@@ -1143,3 +1143,64 @@ constructed inputs and numerically across all 174,216 rows of a feature
 export, where the maximum absolute difference was exactly zero. The sign
 identity was confirmed on the same rows: the two features share a sign in
 100% of them, and the tick form reproduces *QI × s/2* to within rounding.
+
+---
+
+## 032 — A session is complete when its last message is End of Messages
+
+**Status:** in force. Corrects a factual error in records 001 and 025 and in
+the code comments they describe; those records' decisions are unchanged.
+
+**Context.** The framing code, the README and `docs/correctness.md` all stated
+that the ITCH 5.0 specification describes a zero-length length-prefix
+terminating a session file. **It does not.** The specification guarantees one
+thing about the end of a session: System Event `'C'`, End of Messages, is the
+last message of the day. The zero-length prefix is a third-party description
+of how a BinaryFILE is packaged, and NASDAQ's published sessions do not write
+one.
+
+The error had a consequence beyond the wording. Treating "the file ended" as
+the terminator makes a truncated download indistinguishable from a complete
+session: every message in a prefix of a valid file parses, the framing
+consumes every byte, and the reader reaches the end cleanly. A session lost to
+a dropped connection would have been accepted silently — and connections to
+this archive do drop, repeatedly.
+
+**Decision.** Separate the two questions and answer them in different places.
+
+*Did the framing understand every byte?* A property of the bytes, decided by
+the reader. `FrameStatus` and `ParseEnd` report three distinct outcomes — an
+explicit zero-length prefix, clean exhaustion at a message boundary, and a
+truncation part-way through a message — and `ParseStats::trailing` carries the
+number of bytes left unread. None of the three is treated as evidence of
+completeness.
+
+*Is the session complete?* A property of the content, decided by the census:
+the last message must be System Event `'C'`. The census reports the final
+message and its event code, and its **exit status is nonzero unless the
+framing consumed everything and the last message is `'C'`**.
+
+**Alternatives considered.**
+- *Keep accepting a clean exhaustion as the terminator.* This is what was
+  wrong. It cannot distinguish a complete file from a prefix of one.
+- *Require a zero-length prefix.* Rejects every session NASDAQ publishes.
+- *Check only the `'C'` message and ignore trailing bytes.* Would accept a
+  file with a valid session followed by appended garbage, which is exactly the
+  corruption a bad continued transfer produced here (`docs/data.md`).
+
+**Consequences.** A file that legitimately lacks a closing `'C'` — an intraday
+capture, a deliberately partial extract — is now rejected by the census. That
+is the intended trade: such a file is not a session, and anything deriving a
+result from one should have to say so explicitly.
+
+**Evidence.** `20190130.BX_ITCH_50`: final message System Event `'C'`, framing
+exhausted at a message boundary, zero trailing bytes, SHA-256
+`d670c9dd0e2391a4007fa407668bfaaa9ded346f0804bb5d7b2a6c381bdcadd3`.
+
+The check is tested rather than trusted: `tests/roundtrip.cmake` generates a
+session with no final System Event via `gen_synthetic --no-end` — a
+well-formed prefix of a valid file — and fails if the census accepts it.
+`tools/fetch_data.sh` adds the byte-level checks that must hold before the
+content check is meaningful: the transfer length must equal the advertised
+`content-length`, and `gzip -t` must pass **with no output at all**, since
+macOS gzip exits 2 on trailing garbage while GNU gzip exits 0 with a warning.

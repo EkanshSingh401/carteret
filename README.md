@@ -103,8 +103,8 @@ records what was checked and what would close it.
 
 ### Wire format
 
-NASDAQ BinaryFILE precedes each message with a 2-byte big-endian length; a zero
-length marks end of session. `FrameReader` treats the prefix as authoritative
+NASDAQ BinaryFILE precedes each message with a 2-byte big-endian length.
+`FrameReader` treats the prefix as authoritative
 for advancing and additionally checks it against the specification length for
 known types in one table lookup. A frame whose length disagrees, or whose type
 is unknown, is skipped by its prefix length and counted, never parsed, so that
@@ -113,10 +113,24 @@ one malformed frame cannot desynchronise the rest of the session
 
 One file in circulation breaks that assumption: `ex20101224.TEST_ITCH_50`,
 bundled with the RITCH R package, carries the prefix field for all 12,012 of
-its messages and leaves every one zero. Since a zero prefix is the
-end-of-session marker in the prefixed form, the two cannot be read under one
-rule; the form is identified before the walk and reported by the census
-(`docs/design.md` record 025).
+its messages and leaves every one zero. Since a zero prefix otherwise closes a
+file, the two cannot be read under one rule; the form is identified before the
+walk and reported by the census (`docs/design.md` record 025).
+
+**How a session ends, and how to know it is complete.** The ITCH 5.0
+specification guarantees that System Event `'C'`, End of Messages, is the last
+message of the day. It says nothing about a zero-length prefix — that is a
+third-party description of the file packaging, and NASDAQ's own sessions do
+not write one. So a truncated download is a *well-formed prefix of a valid
+file*: every message parses, the framing consumes every byte, and nothing
+about the bytes says it is incomplete.
+
+The only thing that distinguishes it is the missing `'C'`. `census` therefore
+checks the final message and **exits nonzero if it is not End of Messages**,
+alongside the gzip and length checks in `tools/fetch_data.sh`. The round-trip
+test generates a session with no final System Event and requires the census to
+reject it, so the check cannot quietly stop working
+(`docs/design.md` record 032).
 
 Multi-byte fields are decoded with `memcpy` plus `__builtin_bswap`, never a
 pointer cast: the 64-bit order reference at offset 11 is unaligned, and the

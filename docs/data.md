@@ -134,7 +134,9 @@ fetching, on 2026-09-22:
 | Unpacked | 2,422,694,511 bytes |
 | Messages | 82,841,542 |
 | Book-affecting (`A F E C X D U`) | 74,182,680 (89.5%) |
-| Framing | length-prefixed, **no zero-length terminator** |
+| Framing | length-prefixed; ends on System Event `'C'`, no zero-length prefix |
+| Trailing bytes | 0 |
+| SHA-256 (unpacked) | `d670c9dd0e2391a4007fa407668bfaaa9ded346f0804bb5d7b2a6c381bdcadd3` |
 | First / last timestamp | 03:06:49 / 19:05:00 |
 | Types present | `S R H Y L V A F E C X D U P B N` (16 of 23) |
 | Types absent | `I J K Q W h O` |
@@ -176,6 +178,30 @@ existed".
   `10302018`, `12282018`, `05302019` (data file misfiled under PSX).
 - BX: `20180130`, `20180329`, `20180530`, `20180730`, `20180830`, `20181030`.
 - PSX: `20180130`, `20180329`, `20180530`, `20180730`, `20180830`, `20181030`.
+
+## Verifying a session
+
+The archive serves no usable checksum (below), so every session is verified
+locally and its digest recorded here. Four checks, in order, because each is
+only meaningful once the previous one holds:
+
+1. **Transfer length** equals the server's advertised `content-length`.
+   `curl` exiting zero does not establish this; see below.
+2. **`gzip -t` passes with no output.** Appended bytes are reported
+   inconsistently — macOS gzip exits 2 with "trailing garbage ignored", GNU
+   gzip exits 0 with the same warning — so both a nonzero exit and any output
+   are treated as failure.
+3. **The last message is System Event `'C'`, End of Messages.** This is the
+   only check that can detect a truncated session, because without a
+   zero-length terminator a truncated file is a well-formed prefix of a valid
+   one. `census` exits nonzero if it fails. See `docs/design.md` record 032.
+4. **SHA-256 recorded here**, computed twice: by `shasum` in
+   `tools/fetch_data.sh` and by the in-tree implementation in `census
+   --sha256`. Two independent implementations agreeing on the same bytes.
+
+| Session | SHA-256 (unpacked) | Verified |
+|---|---|---|
+| `20190130.BX_ITCH_50` | `d670c9dd0e2391a4007fa407668bfaaa9ded346f0804bb5d7b2a6c381bdcadd3` | 2026-09-22 |
 
 ## Checksums are listed but not served
 
