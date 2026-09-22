@@ -127,7 +127,9 @@ All of the following are documented inline in `spec.hpp` at the relevant field.
 ## Data
 
 Free, large, and redistribution-restricted, so `data/` is gitignored and
-sessions are fetched, never committed:
+sessions are fetched, never committed. Checksums are listed in the archive but
+not served, so `fetch_data.sh` reports integrity as unverified rather than
+skipping the check silently; see `docs/data.md`.
 
 ```sh
 tools/fetch_data.sh                             # BX 2019-01-30, ~1.1 GB packed

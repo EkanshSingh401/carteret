@@ -56,9 +56,8 @@ Maker-taker. The venue used by the pre-registered study
 
 The 2019-05-30 NASDAQ session is filed under the PSX directory; the matching
 `.md5sum` sits in the NASDAQ directory with no `.gz` beside it. The file is
-named `NASDAQ_ITCH50` and is treated as a NASDAQ session. Its checksum is
-verified against the NASDAQ-directory `.md5sum` before use, and the result of
-that check is recorded here when the session is first fetched.
+named `NASDAQ_ITCH50` and is treated as a NASDAQ session. Its checksum cannot
+be verified, for the reason in *Checksums are listed but not served* below.
 
 Assignment of these sessions to development and held-out sets happens in
 Stage 8, before any feature code is written, and is recorded in this table.
@@ -137,18 +136,35 @@ existed".
 - BX: `20180130`, `20180329`, `20180530`, `20180730`, `20180830`, `20181030`.
 - PSX: `20180130`, `20180329`, `20180530`, `20180730`, `20180830`, `20181030`.
 
+## Checksums are listed but not served
+
+The index lists a `.md5sum` beside almost every session. **Every one of those
+URLs returns HTTP 404**, checked on 2026-09-22 across NASDAQ, BX and both
+present and withdrawn sessions. The entries appear in the directory listing
+with plausible sizes (67-72 bytes) and cannot be retrieved.
+
+Consequences, stated rather than worked around:
+
+- `tools/fetch_data.sh` attempts the checksum, reports
+  `integrity unverified` when it is unavailable, and continues. It does not
+  silently skip the check and it does not treat a missing checksum as a pass.
+- No result in this repository can claim a checksum-verified input. What it
+  can claim is the determinism hash of its own reconstruction
+  (`docs/correctness.md`, layer 5), which establishes that two replays of the
+  same local bytes agree, not that those bytes are the ones NASDAQ published.
+- This is re-checked whenever a session is fetched. If the checksums become
+  retrievable, the verification results are recorded in the tables above.
+
 ## Provenance
 
 The archive is a live directory listing, not a versioned dataset. Files have
 been added and removed over the project's lifetime — the 2017 BX session is one
 casualty and the 2018 sessions are another. Consequences:
 
-1. Every fetched session's MD5 is checked against the `.md5sum` beside it, and
-   the result recorded before the session is used for anything.
-2. Every result names the session it came from by file name and date.
-3. This table records the index as of a stated date and is re-checked, not
+1. Every result names the session it came from by file name and date.
+2. This table records the index as of a stated date and is re-checked, not
    assumed, before each stage that consumes new sessions.
-4. Reproducing a result from this repository may require a session the archive
+3. Reproducing a result from this repository may require a session the archive
    no longer offers. Where that matters, the determinism hashes in
    `docs/correctness.md` at least establish that the session a result came from
    was byte-identical to the one the author replayed.
