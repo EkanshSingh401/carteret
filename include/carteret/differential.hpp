@@ -52,6 +52,8 @@ struct DifferentialStats {
     std::uint64_t level_comparisons = 0;
     std::uint64_t bbo_comparisons = 0;
     std::uint64_t full_comparisons = 0;
+    std::uint64_t invariant_checks = 0;
+    std::uint64_t invariant_violations = 0;
 };
 
 // Drives both books and compares them. Constructed with the fast book's
@@ -60,8 +62,20 @@ struct DifferentialStats {
 template<class HashPolicy = MultiplyShiftHash>
 class Differential {
 public:
-    explicit Differential(FastBookConfig cfg = {}, std::uint64_t full_compare_every = 1u << 20)
-        : fast_(cfg), full_every_(full_compare_every) {}
+    // invariant_every: how often the structural invariants of both books are
+    // checked during the replay. The check walks every level of every symbol,
+    // so it cannot run per message on a full session; debug builds default to
+    // a small interval and release builds to a large one. Zero checks only at
+    // the end. See docs/correctness.md, layer 5.
+#ifdef NDEBUG
+    static constexpr std::uint64_t kDefaultInvariantEvery = 1u << 24;
+#else
+    static constexpr std::uint64_t kDefaultInvariantEvery = 1u << 16;
+#endif
+
+    explicit Differential(FastBookConfig cfg = {}, std::uint64_t full_compare_every = 1u << 20,
+                          std::uint64_t invariant_every = kDefaultInvariantEvery)
+        : fast_(cfg), full_every_(full_compare_every), invariant_every_(invariant_every) {}
 
     // --- handler interface: apply to both, then compare --------------------
 
@@ -215,11 +229,28 @@ private:
     }
 
     void periodic(unsigned char type) {
+        (void)type;
+        if (invariant_every_ != 0 && stats_.messages % invariant_every_ == 0) {
+            check_invariants_now();
+        }
         if (full_every_ == 0) return;
         if (stats_.messages % full_every_ != 0) return;
         ++stats_.full_comparisons;
-        (void)type;
         compare_everything();
+    }
+
+    // Structural invariants are internal consistency, which is distinct from
+    // the two books agreeing: both could agree and both be self-inconsistent,
+    // and the comparison alone would not show it.
+    void check_invariants_now() {
+        if (div_.found) return;
+        ++stats_.invariant_checks;
+        const std::size_t rb = ref_.check_invariants();
+        const std::size_t fb = fast_.check_invariants();
+        stats_.invariant_violations += rb + fb;
+        if (rb || fb) {
+            record(0, 0, 0, 0, "invariant violations", std::to_string(rb), std::to_string(fb));
+        }
     }
 
     void compare_level(unsigned char type, std::uint16_t locate, unsigned char side,
@@ -326,6 +357,7 @@ private:
     Divergence div_;
     DifferentialStats stats_;
     std::uint64_t full_every_;
+    std::uint64_t invariant_every_;
 };
 
 } // namespace carteret

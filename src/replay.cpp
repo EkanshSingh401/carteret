@@ -5,7 +5,13 @@
 // message, then compares the entire book at end of session.
 //
 //   usage: replay [--hash identity|multiply-shift|std] [--full-every N]
-//                 [--max-orders N] [--max-symbols N] <session-file>
+//                 [--invariant-every N] [--max-orders N] [--max-symbols N]
+//                 <session-file>
+//
+// Structural invariants are checked every --invariant-every messages, which
+// defaults to a small interval in debug builds and a large one in release,
+// because the check walks every level of every symbol and cannot run per
+// message on a full session.
 //
 // Exit status is nonzero on any divergence, any invariant violation, or any
 // capacity exhaustion, so the tool is usable as a gate.
@@ -28,6 +34,7 @@ struct Options {
     std::string path;
     std::string hash = "multiply-shift";
     std::uint64_t full_every = 1u << 22;
+    std::uint64_t invariant_every = Differential<>::kDefaultInvariantEvery;
     FastBookConfig cfg;
 };
 
@@ -66,7 +73,7 @@ void print_counters(const ReferenceBook& ref, const FastCounters& f) {
 template<class Policy>
 int run(const Options& opt) {
     MappedFile mf(opt.path);
-    Differential<Policy> d(opt.cfg, opt.full_every);
+    Differential<Policy> d(opt.cfg, opt.full_every, opt.invariant_every);
     Parser<Differential<Policy>> parser(d);
 
     const auto t0 = std::chrono::steady_clock::now();
@@ -84,6 +91,9 @@ int run(const Options& opt) {
     std::printf("level compares    %llu\n", (unsigned long long)d.stats().level_comparisons);
     std::printf("BBO compares      %llu\n", (unsigned long long)d.stats().bbo_comparisons);
     std::printf("full compares     %llu\n", (unsigned long long)d.stats().full_comparisons);
+    std::printf("invariant checks  %llu  (every %llu messages)\n",
+                (unsigned long long)d.stats().invariant_checks,
+                (unsigned long long)opt.invariant_every);
     std::printf("unknown type      %llu\n", (unsigned long long)st.unknown);
     std::printf("length mismatch   %llu\n", (unsigned long long)st.mismatch);
     std::printf("end-of-session    %s\n",
@@ -132,6 +142,8 @@ int main(int argc, char** argv) {
             opt.hash = next("--hash");
         else if (std::strcmp(argv[i], "--full-every") == 0)
             opt.full_every = std::strtoull(next("--full-every"), nullptr, 10);
+        else if (std::strcmp(argv[i], "--invariant-every") == 0)
+            opt.invariant_every = std::strtoull(next("--invariant-every"), nullptr, 10);
         else if (std::strcmp(argv[i], "--max-orders") == 0)
             opt.cfg.max_orders = std::strtoull(next("--max-orders"), nullptr, 10);
         else if (std::strcmp(argv[i], "--max-symbols") == 0)
@@ -142,7 +154,8 @@ int main(int argc, char** argv) {
     if (opt.path.empty()) {
         std::fprintf(stderr,
                      "usage: %s [--hash identity|multiply-shift|std] [--full-every N]\n"
-                     "          [--max-orders N] [--max-symbols N] <session-file>\n",
+                     "          [--invariant-every N] [--max-orders N] [--max-symbols N]\n"
+                     "          <session-file>\n",
                      argv[0]);
         return 2;
     }
