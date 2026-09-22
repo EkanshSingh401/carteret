@@ -115,7 +115,7 @@ static void test_framing() {
     int ok = 0;
     for (;;) {
         const FrameStatus st = rd.next(m);
-        if (st == FrameStatus::EndOfSession) break;
+        if (st == FrameStatus::ZeroLengthPrefix) break;
         if (st == FrameStatus::Truncated) {
             CHECK(false && "unexpected truncation");
             break;
@@ -187,7 +187,8 @@ static void test_zero_prefixed_framing() {
     unsigned char types[3] = {0, 0, 0};
     for (;;) {
         const FrameStatus st = rd.next(m);
-        if (st == FrameStatus::EndOfSession) break;
+        // This form has no terminator of its own: it ends by exhaustion.
+        if (st == FrameStatus::Exhausted) break;
         if (st != FrameStatus::Ok) {
             CHECK(false && "unexpected status in the zero-prefixed form");
             break;
@@ -241,7 +242,7 @@ static void test_exhaustion_at_a_boundary_is_a_clean_end() {
     MsgView m;
     CHECK(rd.next(m) == FrameStatus::Ok);
     CHECK(rd.next(m) == FrameStatus::Ok);
-    CHECK(rd.next(m) == FrameStatus::EndOfSession);
+    CHECK(rd.next(m) == FrameStatus::Exhausted);
     CHECK(rd.offset() == buf.size());
 
     // A body cut short is still a truncation, so the relaxation above does not
@@ -267,7 +268,10 @@ static void test_exhaustion_at_a_boundary_is_a_clean_end() {
     FrameReader rd4({terminated.data(), terminated.size()});
     CHECK(rd4.next(m) == FrameStatus::Ok);
     CHECK(rd4.next(m) == FrameStatus::Ok);
-    CHECK(rd4.next(m) == FrameStatus::EndOfSession);
+    // The zero-length prefix is reported as itself, not folded together with
+    // exhaustion: they are different facts about the file.
+    CHECK(rd4.next(m) == FrameStatus::ZeroLengthPrefix);
+    CHECK(rd4.offset() == terminated.size());
 }
 
 static void test_framing_detection() {

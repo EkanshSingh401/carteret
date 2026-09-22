@@ -25,10 +25,13 @@
 
 namespace carteret {
 
-// How a replay ended.
+// How the INPUT ended. This is a statement about bytes, not about whether the
+// session is complete: that is decided by the last message being System Event
+// 'C', which the census checks. See wire.hpp.
 enum class ParseEnd : unsigned char {
-    EndOfSession, // zero-length prefix, the well-formed terminator
-    Truncated,    // ran off the end of the buffer without one
+    ZeroLengthPrefix, // an explicit zero-length prefix closed the file
+    Exhausted,        // the buffer ended exactly at a message boundary
+    Truncated,        // it ended part-way through a message
 };
 
 struct ParseStats {
@@ -36,11 +39,14 @@ struct ParseStats {
     std::uint64_t unknown = 0;    // type byte not in the ITCH 5.0 set
     std::uint64_t mismatch = 0;   // known type, prefix length disagrees
     std::size_t bytes = 0;        // consumed, including length prefixes
+    std::size_t trailing = 0;     // bytes after the last thing the reader understood
     ParseEnd end = ParseEnd::Truncated;
     Framing framing = Framing::LengthPrefixed; // which form the buffer used
 
+    // The framing walked the whole input and understood all of it. Says
+    // nothing about whether the session is complete.
     [[nodiscard]] bool clean() const noexcept {
-        return end == ParseEnd::EndOfSession && unknown == 0 && mismatch == 0;
+        return end != ParseEnd::Truncated && unknown == 0 && mismatch == 0 && trailing == 0;
     }
 };
 
@@ -82,8 +88,12 @@ public:
 
         for (;;) {
             const FrameStatus fs = rd.next(m);
-            if (fs == FrameStatus::EndOfSession) {
-                st.end = ParseEnd::EndOfSession;
+            if (fs == FrameStatus::ZeroLengthPrefix) {
+                st.end = ParseEnd::ZeroLengthPrefix;
+                break;
+            }
+            if (fs == FrameStatus::Exhausted) {
+                st.end = ParseEnd::Exhausted;
                 break;
             }
             if (fs == FrameStatus::Truncated) {
@@ -105,6 +115,7 @@ public:
         st.unknown = rd.unknown();
         st.mismatch = rd.mismatch();
         st.bytes = rd.offset();
+        st.trailing = buf.size() - rd.offset();
         return st;
     }
 

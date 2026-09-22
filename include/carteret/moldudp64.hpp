@@ -90,7 +90,10 @@ public:
 
         for (;;) {
             const FrameStatus st = rd.next(m);
-            if (st == FrameStatus::EndOfSession || st == FrameStatus::Truncated) break;
+            if (st != FrameStatus::Ok && st != FrameStatus::LengthMismatch &&
+                st != FrameStatus::UnknownType) {
+                break;
+            }
             if (st != FrameStatus::Ok) continue;
 
             if (in_packet == 0) packet = header_bytes(next_seq_);

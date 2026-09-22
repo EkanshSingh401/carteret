@@ -9,7 +9,12 @@
 // framing and decode paths only, and is not a source of latency numbers or
 // microstructure conclusions.
 //
-//   usage: gen_synthetic <out-file> <n-messages> [seed]
+//   usage: gen_synthetic <out-file> <n-messages> [seed] [--no-end]
+//
+// --no-end stops before the final System Event 'C', producing a file that is
+// a well-formed prefix of a valid session. That is what a truncated download
+// looks like, and it is what the round-trip test requires the census to
+// reject.
 
 #include "carteret/spec.hpp"
 
@@ -66,8 +71,14 @@ int main(int argc, char** argv) {
     }
     const std::string out = argv[1];
     const std::uint64_t n = std::strtoull(argv[2], nullptr, 10);
-    const std::uint32_t seed =
-        (argc > 3) ? static_cast<std::uint32_t>(std::strtoul(argv[3], nullptr, 10)) : 42u;
+    std::uint32_t seed = 42u;
+    bool write_end = true;
+    for (int a = 3; a < argc; ++a) {
+        if (std::strcmp(argv[a], "--no-end") == 0)
+            write_end = false;
+        else
+            seed = static_cast<std::uint32_t>(std::strtoul(argv[a], nullptr, 10));
+    }
 
     std::FILE* f = std::fopen(out.c_str(), "wb");
     if (!f) {
@@ -165,13 +176,21 @@ int main(int argc, char** argv) {
         }
     }
 
-    // 'S' end of messages, then the zero-length end-of-session marker.
-    b.clear();
-    header(b, 'S', 0, ts);
-    b.push_back('C');
-    emit(f, b);
-    unsigned char zero[2] = {0, 0};
-    std::fwrite(zero, 1, 2, f);
+    // System Event 'C', End of Messages, is what the specification guarantees
+    // as the last message of a session. The zero-length prefix after it is a
+    // file-packaging convention that NASDAQ's own sessions do not write; it is
+    // emitted here so the round trip covers that path too.
+    //
+    // --no-end stops before both, producing a well-formed prefix of a valid
+    // session, which is what a truncated download looks like.
+    if (write_end) {
+        b.clear();
+        header(b, 'S', 0, ts);
+        b.push_back('C');
+        emit(f, b);
+        unsigned char zero[2] = {0, 0};
+        std::fwrite(zero, 1, 2, f);
+    }
 
     std::fclose(f);
     std::fprintf(stderr, "wrote %s\n", out.c_str());

@@ -96,8 +96,11 @@ int run(const Options& opt) {
                 (unsigned long long)opt.invariant_every);
     std::printf("unknown type      %llu\n", (unsigned long long)st.unknown);
     std::printf("length mismatch   %llu\n", (unsigned long long)st.mismatch);
-    std::printf("end-of-session    %s\n",
-                st.end == ParseEnd::EndOfSession ? "yes" : "no  (truncated or malformed)");
+    std::printf("input ended       %s\n",
+                st.end == ParseEnd::ZeroLengthPrefix ? "zero-length prefix"
+                : st.end == ParseEnd::Exhausted      ? "buffer exhausted at a message boundary"
+                                                     : "TRUNCATED mid-message");
+    std::printf("trailing bytes    %zu\n", st.trailing);
     std::printf("live orders       ref %zu / fast %zu\n", d.reference().live_orders(),
                 d.fast().live_orders());
     std::printf("index load factor %.3f, mean probe %.3f\n", d.fast().index().load_factor(),
@@ -118,10 +121,11 @@ int run(const Options& opt) {
     // state, and both books running. See docs/benchmarks.md.
     std::printf("\n[not a benchmark] %.1fs wall for the differential replay\n", secs);
 
-    const bool ok =
-        !d.divergence().found && full_ok && ref_bad == 0 && fast_bad == 0 &&
-        st.end == ParseEnd::EndOfSession && d.fast().counters().pool_exhausted == 0 &&
-        d.fast().counters().index_failures == 0 && d.fast().counters().symbol_overflow == 0;
+    const bool ok = !d.divergence().found && full_ok && ref_bad == 0 && fast_bad == 0 &&
+                    st.end != ParseEnd::Truncated && st.trailing == 0 &&
+                    d.fast().counters().pool_exhausted == 0 &&
+                    d.fast().counters().index_failures == 0 &&
+                    d.fast().counters().symbol_overflow == 0;
     std::printf("%s\n", ok ? "RESULT: identical" : "RESULT: FAILED");
     return ok ? 0 : 1;
 }

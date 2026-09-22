@@ -100,11 +100,19 @@ struct MsgView {
 // ---------------------------------------------------------------------------
 //
 // NASDAQ BinaryFILE precedes every message with a 2-byte big-endian length.
-// The specification also describes a zero-length terminator, and the sessions
-// NASDAQ publishes do not write one -- they end with the 'S' end-of-messages
-// event and then the file ends. Both endings are accepted: a zero-length
-// prefix, and the buffer ending at a message boundary. A file that ends
-// part-way through a message is still reported as truncated.
+//
+// A zero-length prefix as a file terminator is NOT part of the ITCH 5.0
+// specification. The specification guarantees one thing about the end of a
+// session: System Event 'C', End of Messages, is the last message of the day.
+// The zero-length terminator is a third-party description of how the file is
+// packaged, and the sessions NASDAQ publishes do not write one -- they end
+// with the 'C' message and then the file ends.
+//
+// So this reader reports the two endings separately rather than treating them
+// as one. Neither is authoritative on its own: whether a file is complete is
+// decided by its last MESSAGE, which is a question about content and belongs
+// to the census, not to the framing loop. A file that ends part-way through a
+// message is still a truncation, which the framing loop can and does decide.
 //
 // One file in circulation does not: ex20101224.TEST_ITCH_50, bundled with the
 // RITCH R package, carries the 2-byte prefix field for all 12,012 of its
@@ -126,6 +134,10 @@ struct MsgView {
 // file format that does not carry its own lengths, and it is why the prefixed
 // form is the one every result in this repository is produced from. See
 // docs/design.md record 001.
+//
+// Detection is unaffected by the terminator question: it looks at whether the
+// first frames' prefixes match their types' lengths, not at how the file
+// ends.
 
 enum class Framing : unsigned char {
     LengthPrefixed, // 2-byte big-endian length before each message
@@ -134,10 +146,11 @@ enum class Framing : unsigned char {
 
 enum class FrameStatus : unsigned char {
     Ok,
-    EndOfSession,   // zero-length prefix, or the buffer ending at a message boundary
-    Truncated,      // prefix or body runs past the end of the buffer
-    LengthMismatch, // known type, prefix length disagrees; skipped and counted
-    UnknownType,    // not an ITCH 5.0 type; skipped and counted
+    ZeroLengthPrefix, // an explicit zero-length prefix
+    Exhausted,        // the buffer ended exactly at a message boundary
+    Truncated,        // prefix or body runs past the end of the buffer
+    LengthMismatch,   // known type, prefix length disagrees; skipped and counted
+    UnknownType,      // not an ITCH 5.0 type; skipped and counted
 };
 
 class FrameReader {
@@ -162,17 +175,20 @@ public:
 
 private:
     FrameStatus next_prefixed(MsgView& out) noexcept {
-        // A buffer ending exactly at a message boundary is a well-formed end.
-        // The specification describes a zero-length terminator, but the
-        // sessions NASDAQ publishes do not carry one: 20190130.BX_ITCH_50 ends
-        // with its 'S' end-of-messages event and then the file ends, with the
-        // reader's cursor on the final byte. Treating that as a truncation
-        // would mark every real session malformed.
-        if (pos_ == buf_.size()) return FrameStatus::EndOfSession;
+        // A buffer ending exactly at a message boundary is a well-formed end
+        // of input. 20190130.BX_ITCH_50 ends this way: its last message is the
+        // 'S' End of Messages event and then the file ends, with the reader's
+        // cursor on the final byte. Whether that file is COMPLETE is a
+        // separate question, answered by the last message rather than by the
+        // absence of bytes; see the header comment.
+        if (pos_ == buf_.size()) return FrameStatus::Exhausted;
         if (pos_ + 2 > buf_.size()) return FrameStatus::Truncated;
 
         const std::uint16_t len = be16(buf_.data() + pos_);
-        if (len == 0) return FrameStatus::EndOfSession;
+        if (len == 0) {
+            pos_ += 2;
+            return FrameStatus::ZeroLengthPrefix;
+        }
         if (pos_ + 2 + len > buf_.size()) return FrameStatus::Truncated;
 
         const unsigned char* body = buf_.data() + pos_ + 2;
@@ -197,7 +213,7 @@ private:
     FrameStatus next_zero_prefixed(MsgView& out) noexcept {
         // A message boundary at exactly the end of the buffer is how this
         // variant ends; it carries no terminator of its own.
-        if (pos_ == buf_.size()) return FrameStatus::EndOfSession;
+        if (pos_ == buf_.size()) return FrameStatus::Exhausted;
         if (pos_ + 3 > buf_.size()) return FrameStatus::Truncated;
 
         // The prefix field is expected to be zero. A nonzero value means the

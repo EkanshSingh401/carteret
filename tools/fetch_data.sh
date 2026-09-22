@@ -100,17 +100,62 @@ fi
 
 # A file of the right length can still be the wrong bytes, and gunzip on a
 # truncated stream produces a plausible prefix of a session rather than
-# failing at the start. Testing the stream turns that into a failure here
-# instead of a wrong message count much later.
+# failing at the start.
+#
+# Appended bytes are the shape of corruption a bad continued transfer produced
+# on this archive, and gzip reports them inconsistently: macOS gzip exits 2
+# with "trailing garbage ignored" on stderr, GNU gzip exits 0 with the same
+# warning. Both are checked -- a nonzero exit, and any output at all -- so the
+# result does not depend on which gzip is installed.
 echo "verifying the gzip stream ..."
-if ! gunzip -t "data/${FILE}"; then
+gz_err=$(gzip -t "data/${FILE}" 2>&1) || {
+  echo "$gz_err" >&2
   echo "gzip stream is corrupt; delete data/${FILE} and re-run" >&2
   exit 1
+}
+if [ -n "$gz_err" ]; then
+  echo "$gz_err" >&2
+  echo "gzip reported a warning, which on this archive has meant appended" >&2
+  echo "bytes from a bad transfer; delete data/${FILE} and re-run" >&2
+  exit 1
+fi
+echo "gzip ok, no trailing garbage"
+
+# Recorded in docs/data.md. The archive serves no checksum of its own (every
+# .md5sum URL 404s), so this is the only handle a later reader has on whether
+# they have the same bytes.
+if command -v shasum > /dev/null; then
+  echo "sha256 (.gz)      $(shasum -a 256 "data/${FILE}" | awk '{print $1}')"
+elif command -v sha256sum > /dev/null; then
+  echo "sha256 (.gz)      $(sha256sum "data/${FILE}" | awk '{print $1}')"
 fi
 
 echo "unpacking ..."
 gunzip -k "data/${FILE}"
 ls -lh data/
 echo
-echo "census:     ./build/release/census data/${FILE%.gz}"
-echo "comparison: tools/census_vs_ritch.sh data/${FILE%.gz}"
+SESSION="data/${FILE%.gz}"
+
+# The final integrity check is a content check, not a byte check. Since NASDAQ
+# writes no zero-length terminator, a truncated session is a well-formed
+# prefix of a valid one; the only thing that distinguishes it is that its last
+# message is not System Event 'C', End of Messages. The census decides that
+# and exits nonzero if it fails, so a bad file cannot get past this script.
+if [ -x ./build/release/census ]; then
+  echo
+  echo "verifying the session ..."
+  if ./build/release/census --sha256 "$SESSION" | sed -n '1,14p'; then
+    echo "session verified"
+  else
+    echo "SESSION FAILED VERIFICATION; do not use it" >&2
+    exit 1
+  fi
+else
+  echo
+  echo "census not built, so the session content is unverified. Build it and run:" >&2
+  echo "  ./build/release/census --sha256 $SESSION" >&2
+fi
+
+echo
+echo "comparison: tools/census_vs_ritch.sh $SESSION"
+echo "record the sha256 above in docs/data.md"

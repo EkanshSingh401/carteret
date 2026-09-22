@@ -100,7 +100,7 @@ void test_dispatch_covers_every_type() {
 
     CHECK(expected == 23);
     CHECK(st.dispatched == static_cast<std::uint64_t>(expected));
-    CHECK(st.end == ParseEnd::EndOfSession);
+    CHECK(st.end == ParseEnd::ZeroLengthPrefix);
     CHECK(st.clean());
 
     int dispatched_types = 0;
@@ -151,7 +151,7 @@ void test_dispatch_rejects_bad_frames() {
     CHECK(h.seen['D'] == 1);
     CHECK(h.seen['A'] == 1); // the frame after the bad ones still decoded
     CHECK(!st.clean());
-    CHECK(st.end == ParseEnd::EndOfSession);
+    CHECK(st.end == ParseEnd::ZeroLengthPrefix);
 }
 
 // A buffer with no end-of-session marker is reported as truncated rather than
