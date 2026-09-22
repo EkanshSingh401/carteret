@@ -23,8 +23,10 @@ origin of the TotalView feed.
 x86_64 Linux benchmark host only; see `docs/benchmarks.md`.*
 
 **Status: in progress.** The wire layer, framing, specification tables, field
-layout audit and test harness are implemented and passing. The order book,
-order index, benchmark harness and queue simulator are not yet written.
+layout audit, typed views for all 23 message types, the handler-templated
+parser, the fuzz target and the message census are implemented and passing.
+The order book, order index, benchmark harness and queue simulator are not yet
+written.
 
 ## Limitations
 
@@ -91,6 +93,13 @@ known types in one table lookup. A frame whose length disagrees, or whose type
 is unknown, is skipped by its prefix length and counted, never parsed, so that
 one malformed frame cannot desynchronise the rest of the session
 (`docs/design.md` record 001).
+
+One file in circulation breaks that assumption: `ex20101224.TEST_ITCH_50`,
+bundled with the RITCH R package, carries the prefix field for all 12,012 of
+its messages and leaves every one zero. Since a zero prefix is the
+end-of-session marker in the prefixed form, the two cannot be read under one
+rule; the form is identified before the walk and reported by the census
+(`docs/design.md` record 025).
 
 Multi-byte fields are decoded with `memcpy` plus `__builtin_bswap`, never a
 pointer cast: the 64-bit order reference at offset 11 is unaligned, and the
@@ -162,6 +171,12 @@ Sanitizers, over a full session before any result is believed:
 cmake --preset asan && cmake --build --preset asan && ctest --preset asan
 ```
 
+Fuzzing, which needs a Clang that ships libFuzzer:
+
+```sh
+tools/fuzz.sh 600      # seconds; seeds the corpus on first run
+```
+
 Presets: `release`, `asan`, `fuzz`, `bench`. Everything builds warning-free
 under GCC 13+ and Clang with libc++, at
 `-Wall -Wextra -Wpedantic -Wshadow -Wconversion`. `-march=native` stays off for
@@ -181,8 +196,13 @@ Correctness work runs on macOS unchanged. Two differences:
 ## Layout
 
 ```
-include/carteret/     public headers
-src/                  library and tool sources
+include/carteret/
+  spec.hpp            message types, lengths, field offsets, tiling audit
+  wire.hpp            BinaryFILE framing, big-endian decode
+  messages.hpp        zero-copy typed views, one per message type
+  parser.hpp          handler-templated framing loop and dispatch
+  mapped_file.hpp     read-only mmap
+src/census.cpp        per-type message census (correctness layer 2)
 tools/                census comparison, data fetch, machine check, fuzz driver
 tests/                unit, fixture, differential and fuzz targets
 bench/                benchmark harness and run scripts
