@@ -64,9 +64,11 @@ target_include_directories(carteret_testing INTERFACE ${CMAKE_CURRENT_SOURCE_DIR
 
 add_executable(census         src/census.cpp)
 add_executable(replay        src/replay.cpp)
+add_executable(determinism   src/determinism.cpp)
 add_executable(gen_synthetic  tools/gen_synthetic.cpp)
 target_link_libraries(census        PRIVATE carteret)
 target_link_libraries(replay       PRIVATE carteret)
+target_link_libraries(determinism  PRIVATE carteret)
 target_link_libraries(gen_synthetic PRIVATE carteret)
 
 if(CARTERET_BENCH)
@@ -102,6 +104,20 @@ add_test(NAME order_index COMMAND test_order_index)
 add_executable(test_differential tests/test_differential.cpp)
 target_link_libraries(test_differential PRIVATE carteret_testing)
 add_test(NAME differential COMMAND test_differential)
+
+add_executable(test_sha256 tests/test_sha256.cpp)
+target_link_libraries(test_sha256 PRIVATE carteret_testing)
+add_test(NAME sha256 COMMAND test_sha256)
+
+# Determinism: regenerate the synthetic session and check both hashes against
+# the committed golden values. Regenerating rather than committing the session
+# also checks that gen_synthetic is itself deterministic.
+add_test(NAME determinism
+  COMMAND ${CMAKE_COMMAND}
+    -DGEN=$<TARGET_FILE:gen_synthetic>
+    -DDET=$<TARGET_FILE:determinism>
+    -DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/tests/golden_hashes.txt
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/determinism.cmake)
 
 if(CARTERET_FUZZ)
   # Sanitizers are not optional here: a fuzzer without them finds only inputs
