@@ -902,27 +902,36 @@ to fire on 98.7% of those messages — both sides populated, across 6,678
 distinct symbols — and the smallest spread observed is a single Price(4) unit,
 one hundredth of a cent, so the book does reach the point of nearly touching.
 
-**Decision.** The counters stay, and their documented purpose changes. A
-single venue's own displayed book cannot lock or cross itself during
+**Decision.** The counters stay, their documented purpose changes, and a
+nonzero count now **fails the correctness gate**.
+
+A single venue's own displayed book cannot lock or cross itself during
 continuous trading: an incoming order that would cross executes against the
 resting side instead of resting. Locked and crossed markets are an inter-venue
-phenomenon, visible in the consolidated NBBO and not in one venue's book.
+phenomenon, visible in the consolidated quote and not in one venue's book.
 
 So a nonzero count here is evidence of a **reconstruction error** — a missed
 removal, a misapplied replace, a stale level — rather than a market condition.
-That is a more useful signal than the one the counter was introduced for, and
-it is checked on every session.
+`replay` exits nonzero on any such observation in either book, and says why.
+That is a stronger check than the one the counter was introduced for: it turns
+a class of book errors that no other layer detects into an immediate failure.
 
 **Alternatives considered.**
 - *Remove the counters, since they never fire.* Discards a cheap invariant
-  that would catch a whole class of book errors.
-- *Assert on a crossed book.* Record 007's reasoning still applies: an auction
-  or halt in a session not yet replayed, or a venue whose behaviour differs,
-  would lose the session rather than report a number. Counting is what allows
-  the expectation to be revised by data, which is what happened here.
+  that catches a whole class of book errors nothing else detects.
+- *Keep counting without failing.* This was the previous decision, and it was
+  too weak. A counter nobody is forced to look at is a counter that drifts
+  upward unnoticed.
+- *Assert inside the book.* The hot path does not throw (record 024), and an
+  assertion would lose the session rather than report which symbol and when.
+  Counting during the replay and failing at the end keeps the diagnosis.
 - *Keep describing them as expected around auctions.* The BX session contains
-  no auction messages at all (`I` and `Q` both zero), so it cannot speak to the
-  auction case either way. Claiming it as confirmation would overstate it.
+  no auction messages at all (`I` and `Q` both zero), so it cannot speak to
+  the auction case either way, and claiming it as confirmation would overstate
+  it. A NASDAQ session does run an opening and a closing cross, so it is the
+  real test of this decision; if a cross legitimately produces a locked book
+  in the displayed data, this record is revised with that evidence rather than
+  the gate being quietly relaxed.
 
 **Consequences.** The claim "this reconstruction never crossed" is meaningful
 only for single-venue displayed books on sessions with the same

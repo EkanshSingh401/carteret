@@ -123,6 +123,13 @@ add_executable(test_queue_sim tests/test_queue_sim.cpp)
 target_link_libraries(test_queue_sim PRIVATE carteret_testing)
 add_test(NAME queue_sim COMMAND test_queue_sim)
 
+# Pins every random draw. The CI matrix runs this under both compilers, which
+# is the point: an implementation-defined distribution would diverge between
+# them and this is what makes that visible.
+add_executable(test_rng_golden tests/test_rng_golden.cpp)
+target_link_libraries(test_rng_golden PRIVATE carteret_testing)
+add_test(NAME rng_golden COMMAND test_rng_golden)
+
 # Determinism: regenerate the synthetic session and check both hashes against
 # the committed golden values. Regenerating rather than committing the session
 # also checks that gen_synthetic is itself deterministic.

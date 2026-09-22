@@ -51,6 +51,7 @@
 #include "book_types.hpp"
 #include "messages.hpp"
 #include "reference_book.hpp"
+#include "sampling.hpp"
 
 #include <array>
 #include <cmath>
@@ -532,36 +533,7 @@ private:
         }
     }
 
-    // Sampling is written out rather than taken from <random>'s
-    // distributions. std::mt19937_64 is specified to produce one exact
-    // sequence, but the DISTRIBUTIONS are not: libstdc++ and libc++ consume
-    // its output differently, so the same seed places synthetic orders at
-    // different times under the two. That made this file's tests pass under
-    // Clang and fail under GCC, and it would have made the study's published
-    // numbers depend on which standard library produced them.
-    //
-    // Inverse-transform exponential: for u uniform on [0, 1),
-    // -mean * log(1 - u) is exponential with that mean. log1p(-u) is used
-    // rather than log(1 - u) because u can be small enough for the
-    // subtraction to lose precision.
-    [[nodiscard]] double uniform01() noexcept {
-        // 53 bits from the top of the draw: the standard construction for a
-        // double on [0, 1).
-        return static_cast<double>(rng_() >> 11) * 0x1.0p-53;
-    }
-
-    std::uint64_t sample_gap() {
-        const double gap =
-            -static_cast<double>(cfg_.mean_interarrival_ns) * std::log1p(-uniform01());
-        return static_cast<std::uint64_t>(gap) + 1u;
-    }
-
-    // Modulo reduction. Its bias is n / 2^64, far below any effect this study
-    // could resolve, and unlike std::uniform_int_distribution it is identical
-    // on every implementation.
-    [[nodiscard]] std::size_t pick(std::size_t n) noexcept {
-        return static_cast<std::size_t>(rng_() % n);
-    }
+    std::uint64_t sample_gap() { return rng_.exponential_ns(cfg_.mean_interarrival_ns); }
 
     // Places one synthetic order: a random symbol from those currently
     // two-sided, a random side, at the inside, one round lot.
@@ -576,7 +548,7 @@ private:
             ++skipped_;
             return;
         }
-        const std::uint16_t locate = two_sided_[pick(two_sided_.size())];
+        const std::uint16_t locate = two_sided_[rng_.pick(two_sided_.size())];
         const RefSymbol* sym = book_.symbol(locate);
         if (!sym || !sym->has_bid() || !sym->has_ask()) {
             ++skipped_;
@@ -585,7 +557,7 @@ private:
 
         SyntheticOrder o;
         o.locate = locate;
-        o.side = cfg_.force_side ? cfg_.force_side : ((rng_() & 1u) ? kBuy : kSell);
+        o.side = cfg_.force_side ? cfg_.force_side : (rng_.coin() ? kBuy : kSell);
         o.price = (o.side == kBuy) ? sym->best_bid() : sym->best_ask();
         o.size = cfg_.order_size;
         o.entered_ts = ts;
@@ -676,7 +648,7 @@ private:
     }
 
     QueueSimConfig cfg_;
-    std::mt19937_64 rng_;
+    Sampler rng_;
     ReferenceBook book_;
     std::vector<std::string> names_;
     std::vector<SyntheticOrder> live_;

@@ -123,11 +123,30 @@ int run(const Options& opt) {
     // state, and both books running. See docs/benchmarks.md.
     std::printf("\n[not a benchmark] %.1fs wall for the differential replay\n", secs);
 
+    // A single venue's own displayed book cannot lock or cross itself during
+    // continuous trading: an incoming order that would cross executes against
+    // the resting side instead of resting. Locked and crossed markets are an
+    // inter-venue phenomenon in the consolidated quote, not a property of one
+    // book. So a nonzero count here is a RECONSTRUCTION ERROR -- a missed
+    // removal, a misapplied replace, a stale level -- and it fails the gate.
+    // See docs/design.md record 027.
+    const RefCounters& rc = d.reference().counters();
+    const FastCounters& fc = d.fast().counters();
+    const bool no_crossing = rc.crossed_observations == 0 && rc.locked_observations == 0 &&
+                             fc.crossed_observations == 0 && fc.locked_observations == 0;
+
     const bool ok = !d.divergence().found && full_ok && ref_bad == 0 && fast_bad == 0 &&
-                    st.end != ParseEnd::Truncated && st.trailing == 0 &&
-                    d.fast().counters().pool_exhausted == 0 &&
-                    d.fast().counters().index_failures == 0 &&
-                    d.fast().counters().symbol_overflow == 0;
+                    no_crossing && st.end != ParseEnd::Truncated && st.trailing == 0 &&
+                    fc.pool_exhausted == 0 && fc.index_failures == 0 && fc.symbol_overflow == 0;
+    if (!no_crossing) {
+        std::fprintf(stderr,
+                     "\nLOCKED OR CROSSED BOOK: %llu crossed, %llu locked observations.\n"
+                     "A single venue's own book cannot lock or cross itself, so this is a\n"
+                     "reconstruction error rather than a market condition. See\n"
+                     "docs/design.md record 027.\n",
+                     (unsigned long long)(rc.crossed_observations + fc.crossed_observations),
+                     (unsigned long long)(rc.locked_observations + fc.locked_observations));
+    }
     std::printf("%s\n", ok ? "RESULT: identical" : "RESULT: FAILED");
     return ok ? 0 : 1;
 }
