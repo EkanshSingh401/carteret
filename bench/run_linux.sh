@@ -5,10 +5,21 @@
 # It refuses to run anywhere else, because a number from the wrong host is
 # worse than no number: it looks like a measurement.
 #
-#   usage: bench/run_linux.sh <session-file> [output-dir]
+#   usage: bench/run_linux.sh <session-file-or-name> [output-dir]
+#
+# The argument may be a path to an unpacked session, or the name of one in the
+# NASDAQ archive -- the benchmark host is not the development host and will not
+# already have the data, so the script fetches and verifies it through the same
+# path everything else uses. A benchmark against a truncated session would be a
+# measurement of a shorter file rather than an obviously wrong number.
 #
 # Writes a docs/benchmarks.md-ready block to <output-dir>/entry.md, with the
-# machine check embedded, and the raw run output beside it.
+# machine check and the session verification embedded, and the raw run output
+# beside it.
+#
+# The machine check runs first and its exit status is binding: the script
+# refuses to run at all unless the host is clean, and BENCH_REQUIRE_CLEAN=0 is
+# the only way past that, which marks the entry unpublishable.
 #
 # Before running, and recorded in the entry either way:
 #   sudo cpupower frequency-set -g performance
@@ -17,12 +28,14 @@
 #   offline the SMT sibling of the bench core
 set -euo pipefail
 
-SESSION="${1:?usage: bench/run_linux.sh <session-file> [output-dir]}"
+SESSION_ARG="${1:?usage: bench/run_linux.sh <session-file-or-name> [output-dir]}"
 OUT="${2:-results/$(date -u +%Y%m%dT%H%M%SZ)}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CORE="${BENCH_CORE:-2}"
 RUNS="${BENCH_RUNS:-5}"
 WARMUP="${BENCH_WARMUP:-2000000}"
+
+cd "$ROOT"
 
 if [ "$(uname -s)" != "Linux" ] || [ "$(uname -m)" != "x86_64" ]; then
   echo "This script runs only on x86_64 Linux. On any other host the harness is" >&2
@@ -31,17 +44,68 @@ if [ "$(uname -s)" != "Linux" ] || [ "$(uname -m)" != "x86_64" ]; then
   exit 2
 fi
 
+mkdir -p "$OUT"
+
+# --- 1. the machine, first, and its verdict is binding ---------------------
+#
+# A latency figure is only interpretable alongside the host that produced it,
+# so the machine state is captured before anything else and embedded in the
+# entry. The check's exit status decides whether this run may be labelled
+# publishable: 0 clean, 1 x86_64 Linux but not isolated, 2 not a benchmark
+# host.
+set +e
+"$ROOT/tools/machine_check.sh" > "$OUT/machine.txt" 2>&1
+MACHINE_STATUS=$?
+set -e
+cat "$OUT/machine.txt"
+echo
+if [ "$MACHINE_STATUS" -eq 0 ]; then
+  PUBLISHABLE=1
+  echo "machine check: CLEAN. Results from this run may be published."
+else
+  PUBLISHABLE=0
+  echo "machine check: NOT CLEAN (exit ${MACHINE_STATUS})." >&2
+  echo "Any result would be marked unpublishable and no percentile from it" >&2
+  echo "could be quoted." >&2
+  if [ "${BENCH_REQUIRE_CLEAN:-1}" = "1" ]; then
+    echo >&2
+    echo "Refusing to run. Fix the conditions above, or set BENCH_REQUIRE_CLEAN=0" >&2
+    echo "to take an explicitly unpublishable measurement." >&2
+    exit 1
+  fi
+fi
+echo
+
+# --- 2. the data, fetched and verified by the same path as everything else --
+#
+# The benchmark host is not the development host, so it will not already have
+# the session. Fetching through tools/fetch_data.sh gives it the same length
+# check, gzip check and End of Messages check as any other use. Benchmarking a
+# truncated session would produce a measurement of a shorter file rather than
+# an obviously wrong number, which is much harder to notice.
+if [ -f "$SESSION_ARG" ]; then
+  SESSION="$SESSION_ARG"
+else
+  echo "session not present locally; fetching ${SESSION_ARG} ..."
+  "$ROOT/tools/fetch_data.sh" "$SESSION_ARG"
+  SESSION="data/${SESSION_ARG%.gz}"
+fi
+
 if [ ! -f "$SESSION" ]; then
   echo "no such session file: $SESSION" >&2
   exit 2
 fi
 
-mkdir -p "$OUT"
-
-# The machine state is captured first and embedded in the entry. A latency
-# figure is only interpretable alongside the host that produced it.
-"$ROOT/tools/machine_check.sh" > "$OUT/machine.txt" 2>&1 || true
-cat "$OUT/machine.txt"
+echo "verifying $SESSION ..."
+cmake -S "$ROOT" -B "$ROOT/build/release" -DCMAKE_BUILD_TYPE=RelWithDebInfo > /dev/null
+cmake --build "$ROOT/build/release" --target census -j > /dev/null
+if ! "$ROOT/build/release/census" --sha256 "$SESSION" > "$OUT/session.txt" 2>&1; then
+  cat "$OUT/session.txt" >&2
+  echo "session failed verification; not benchmarking against it" >&2
+  exit 1
+fi
+grep -E "file|bytes|sha256|messages|final message|complete session" "$OUT/session.txt"
+echo
 
 # Pinning is a hint on some systems and a guarantee on none, so the entry
 # records what was asked for rather than asserting it was honoured.
@@ -98,6 +162,20 @@ fi
   echo "  proposed the change; if none was recorded, say so)*"
   echo "- Session: \`$(basename "$SESSION")\`"
   echo "- Runs: $RUNS, warmup $WARMUP messages, pinned with: \`$PIN\`"
+  if [ "$PUBLISHABLE" -eq 1 ]; then
+    echo "- Machine check: **clean**. These numbers are publishable."
+  else
+    echo "- Machine check: **NOT CLEAN** (exit $MACHINE_STATUS). These numbers are"
+    echo "  **not publishable**; no percentile from them may be quoted."
+  fi
+  echo
+  echo "<details><summary>session</summary>"
+  echo
+  echo '```'
+  cat "$OUT/session.txt"
+  echo '```'
+  echo
+  echo "</details>"
   echo "- Compiler: \`$(${CXX:-g++} --version | head -1)\`"
   echo
   echo '<details><summary>machine</summary>'

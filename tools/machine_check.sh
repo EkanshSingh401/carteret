@@ -5,6 +5,11 @@
 # corresponding docs/benchmarks.md entry, because a latency figure is only
 # interpretable alongside the machine state that produced it.
 #
+# Exit status, so a script can act on it rather than a human reading prose:
+#   0  clean: measurements from this host are interpretable
+#   1  x86_64 Linux, but the isolation or timing conditions are not met
+#   2  not a benchmark host at all
+#
 #   usage: tools/machine_check.sh
 
 if [ "$(uname -s)" = "Darwin" ]; then
@@ -20,7 +25,7 @@ if [ "$(uname -s)" = "Darwin" ]; then
   echo "per tick, which is coarser than a book update."
   echo
   echo "Latency figures come from the x86_64 Linux benchmark host only."
-  exit 0
+  exit 2
 fi
 
 fail=0
@@ -68,8 +73,15 @@ echo "  THP        $thp"
 echo "  hugepages  $(cat /proc/sys/vm/nr_hugepages 2>/dev/null || echo n/a)"
 
 echo
+if [ "$(uname -m)" != "x86_64" ]; then
+  echo "Not x86_64: there is no invariant TSC to read, so no measurement from"
+  echo "this host is publishable."
+  exit 2
+fi
+
 if [ "$fail" -eq 0 ]; then
   echo "Clean. Measurements from this host are interpretable."
+  exit 0
 else
   echo "Not clean. A run is still possible, but the entry in docs/benchmarks.md"
   echo "must record the failing conditions and no tail percentile from this run"
@@ -78,5 +90,5 @@ else
   echo "  echo 1 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo"
   echo "  add to GRUB: isolcpus=2,3 nohz_full=2,3 rcu_nocbs=2,3"
   echo "  offline the SMT sibling of the bench core"
+  exit 1
 fi
-exit 0
