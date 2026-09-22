@@ -195,9 +195,24 @@ is consistently wrong hashes consistently.
 
 *Results.*
 
-| Session | Crossed | Locked | Zero-share `Q` | Orphaned modifies | Post-`E` `B`/`D` |
-|---|---:|---:|---:|---:|---:|
-| *(pending Stage 5)* | | | | | |
+| Session | Crossed | Locked | Zero-share `Q` | Orphaned modifies | Post-`E` book messages | Removed at zero |
+|---|---:|---:|---:|---:|---:|---:|
+| `20190130.BX_ITCH_50` | 0 | 0 | 0 | 0 | 155 | 1,012,543 |
+
+**Zero orphaned modifies over 74.5M book messages.** Every `E`, `C`, `X`, `D`
+and `U` in the session named a live order. The condition is real — it is
+documented at session boundaries — but it does not occur here.
+
+**Zero crossed and zero locked.** Not a dead counter: the check is in a
+position to fire on 98.7% of book-affecting messages, across 6,678 two-sided
+symbols, and the minimum spread observed is one Price(4) unit. A single
+venue's own displayed book cannot lock or cross itself during continuous
+trading, so these counters function as reconstruction-error detectors rather
+than market statistics. See `docs/design.md` record 027.
+
+**155 book-affecting messages after the `E` end-of-system-hours event**, out of
+223 messages of all types. The specification permits this and the book applies
+them; stopping at `E` would silently lose them.
 
 ---
 

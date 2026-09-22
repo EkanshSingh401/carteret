@@ -884,3 +884,53 @@ system — the parser never hands a view to anything that could store it.
 **Evidence.** `static_assert(sizeof(AddOrder) == sizeof(const unsigned char*))`
 and the trivially-copyable assertions in `messages.hpp`. Per-field decode cost
 is record 002.
+
+---
+
+## 027 — Crossed and locked counters are reconstruction-error detectors, not market statistics
+
+**Status:** in force. Amends the framing of record 007; that record's decision
+stands unchanged.
+
+**Context.** Record 007 treats crossed and locked books as legitimate
+conditions to be counted rather than repaired, on the expectation that they
+occur around halts and auctions. Replaying `20190130.BX_ITCH_50` produced
+**zero** of each over 74,182,680 book-affecting messages.
+
+That is not a dead counter. Instrumenting the check shows it is in a position
+to fire on 98.7% of those messages — both sides populated, across 6,678
+distinct symbols — and the smallest spread observed is a single Price(4) unit,
+one hundredth of a cent, so the book does reach the point of nearly touching.
+
+**Decision.** The counters stay, and their documented purpose changes. A
+single venue's own displayed book cannot lock or cross itself during
+continuous trading: an incoming order that would cross executes against the
+resting side instead of resting. Locked and crossed markets are an inter-venue
+phenomenon, visible in the consolidated NBBO and not in one venue's book.
+
+So a nonzero count here is evidence of a **reconstruction error** — a missed
+removal, a misapplied replace, a stale level — rather than a market condition.
+That is a more useful signal than the one the counter was introduced for, and
+it is checked on every session.
+
+**Alternatives considered.**
+- *Remove the counters, since they never fire.* Discards a cheap invariant
+  that would catch a whole class of book errors.
+- *Assert on a crossed book.* Record 007's reasoning still applies: an auction
+  or halt in a session not yet replayed, or a venue whose behaviour differs,
+  would lose the session rather than report a number. Counting is what allows
+  the expectation to be revised by data, which is what happened here.
+- *Keep describing them as expected around auctions.* The BX session contains
+  no auction messages at all (`I` and `Q` both zero), so it cannot speak to the
+  auction case either way. Claiming it as confirmation would overstate it.
+
+**Consequences.** The claim "this reconstruction never crossed" is meaningful
+only for single-venue displayed books on sessions with the same
+characteristics. A NASDAQ session, which does run opening and closing crosses,
+has not been replayed, and the expectation there is explicitly untested.
+
+**Evidence.** Full-session replay of `20190130.BX_ITCH_50`: 74,182,680 checks,
+73,201,236 with both sides populated (98.7%), 6,678 symbols two-sided at some
+point, zero crossed, zero locked, minimum spread 1 Price(4) unit. Both the
+reference and fast books report the same, though they implement the same rule
+twice and so agreement between them is not independent confirmation.
