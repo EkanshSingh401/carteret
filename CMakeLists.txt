@@ -62,6 +62,10 @@ add_executable(test_reference_book tests/test_reference_book.cpp)
 target_link_libraries(test_reference_book PRIVATE carteret_testing)
 add_test(NAME reference_book COMMAND test_reference_book)
 
+add_executable(test_order_index tests/test_order_index.cpp)
+target_link_libraries(test_order_index PRIVATE carteret_testing)
+add_test(NAME order_index COMMAND test_order_index)
+
 if(CARTERET_FUZZ)
   # Sanitizers are not optional here: a fuzzer without them finds only inputs
   # that crash outright and misses the out-of-bounds read this target exists
