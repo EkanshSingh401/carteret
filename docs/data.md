@@ -141,6 +141,8 @@ fetching, on 2026-09-22:
 | Types present | `S R H Y L V A F E C X D U P B N` (16 of 23) |
 | Types absent | `I J K Q W h O` |
 | `N` (RPII) | 8,301,264 — 10.0% of the session |
+| Fast-book overflow rate (256-tick sliding window) | 2.37% |
+| Window recenters / levels moved | 3,206,627 / 9,318,071 |
 
 Per-type counts agree exactly with `RITCH::count_messages()`; see
 `docs/correctness.md`. The absent types mean this session establishes nothing
