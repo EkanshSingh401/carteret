@@ -44,36 +44,47 @@ Maker-taker. The venue used by the pre-registered study
 
 | Session | File | Compressed | Study assignment |
 |---|---|---:|---|
-| 2019-01-30 | `Nasdaq ITCH/01302019.NASDAQ_ITCH50.gz` | 4.76 GB | unassigned |
-| 2019-03-27 | `Nasdaq ITCH/03272019.NASDAQ_ITCH50.gz` | 5.51 GB | unassigned |
-| 2019-05-30 | `Nasdaq PSX ITCH/05302019.NASDAQ_ITCH50.gz` | 4.25 GB | unassigned |
-| 2019-07-30 | `Nasdaq ITCH/07302019.NASDAQ_ITCH50.gz` | 3.66 GB | unassigned |
-| 2019-08-30 | `Nasdaq ITCH/08302019.NASDAQ_ITCH50.gz` | 4.08 GB | unassigned |
-| 2019-10-18 | `Nasdaq ITCH/S101819-v50.txt.gz` | 3.95 GB | unassigned |
-| 2019-10-30 | `Nasdaq ITCH/10302019.NASDAQ_ITCH50.gz` | 3.87 GB | unassigned |
-| 2019-12-30 | `Nasdaq ITCH/12302019.NASDAQ_ITCH50.gz` | 3.52 GB | **development** |
-| 2020-01-30 | `Nasdaq ITCH/01302020.NASDAQ_ITCH50.gz` | 5.60 GB | unassigned |
+| 2019-01-30 | `Nasdaq ITCH/01302019.NASDAQ_ITCH50.gz` | 4.76 GB | development |
+| 2019-03-27 | `Nasdaq ITCH/03272019.NASDAQ_ITCH50.gz` | 5.51 GB | development |
+| 2019-05-30 | `Nasdaq PSX ITCH/05302019.NASDAQ_ITCH50.gz` | 4.25 GB | development |
+| 2019-07-30 | `Nasdaq ITCH/07302019.NASDAQ_ITCH50.gz` | 3.66 GB | development |
+| 2019-08-30 | `Nasdaq ITCH/08302019.NASDAQ_ITCH50.gz` | 4.08 GB | development |
+| 2019-10-18 | `Nasdaq ITCH/S101819-v50.txt.gz` | 3.95 GB | development |
+| 2019-10-30 | `Nasdaq ITCH/10302019.NASDAQ_ITCH50.gz` | 3.87 GB | **HELD OUT — do not fetch** |
+| 2019-12-30 | `Nasdaq ITCH/12302019.NASDAQ_ITCH50.gz` | 3.52 GB | development (spent on Stage 3) |
+| 2020-01-30 | `Nasdaq ITCH/01302020.NASDAQ_ITCH50.gz` | 5.60 GB | **HELD OUT — do not fetch** |
+
+### The split, and its one flaw
+
+Seven development sessions, two held out. Recorded **before any feature code
+was written**, which is the only property that makes it meaningful. The two
+held-out sessions have not been downloaded and must not be until
+`research/heldout.lock` names a commit containing the completed
+`docs/preregistration.md`.
+
+The flaw, stated rather than buried: **2019-12-30 sits chronologically after
+2019-10-30**, so the development set is not strictly earlier than the held-out
+set. It was fetched for the Stage 3 correctness gate — which needs a NASDAQ
+session, because BX contains no auction messages at all — before the study
+split existed, and downloading it is what disqualified it from being held out.
+Choosing the two latest sessions instead would have left only 2020-01-30
+untouched, and a single held-out session makes session-clustered inference on
+the held-out side impossible.
+
+For a signal measured over seconds and book events this interleave is a minor
+concern; for a slower signal it would not be acceptable. It is a limitation of
+this study, not a property of the method.
 
 The 2019-05-30 NASDAQ session is filed under the PSX directory; the matching
 `.md5sum` sits in the NASDAQ directory with no `.gz` beside it. The file is
 named `NASDAQ_ITCH50` and is treated as a NASDAQ session. Its checksum cannot
 be verified, for the reason in *Checksums are listed but not served* below.
 
-Assignment of these sessions to development and held-out sets happens in
-Stage 8, before any feature code is written, and is recorded in this table.
-Held-out sessions are not downloaded until the registration commit exists.
-
-**2019-12-30 is already spent and cannot be held out.** It was fetched on
-2026-09-22 for the Stage 3 correctness gate, which needs a NASDAQ session
-because BX contains no auction messages — `I` and `Q` are both absent from
-every BX session, so the opening and closing cross paths have no coverage from
-BX at all. Downloading it is what disqualifies it: a held-out session is one
-nobody has looked at, and this one has been replayed. It is marked development
-here rather than left unassigned so that the Stage 8 split cannot quietly
-assume it is available.
-
-The remaining eight NASDAQ sessions are untouched and stay that way until the
-Stage 8 split is recorded.
+The `GIS/Nov 18, Dec 18, Jan 19/` sessions (2018-12-13, 2018-12-14,
+2018-12-31) are in the 2017-2020 window and are **unassigned**. They are held
+in reserve for the case where the Stage 8 power analysis shows the seven
+development sessions cannot resolve the minimum detectable effect; adding them
+to development is one of the remedies that section names.
 
 ### Outside the 2017-2020 window
 
