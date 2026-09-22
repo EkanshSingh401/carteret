@@ -982,3 +982,93 @@ so any sample URL answers 200 with 457 bytes of HTML. Its application bundle
 contains the request flow (`/book-download/...`, purchase-proof upload, manual
 approve or reject, time-limited link) and no static sample path. Session dates
 are in `docs/data.md`.
+
+---
+
+## 029 — Synthetic order value is reported in half-spreads, not ticks
+
+**Status:** in force.
+
+**Context.** The queue study values a passive fill as the mid at a horizon
+minus the price paid. Pooled across symbols in Price(4) units, the first run
+produced a mean of −739 units at one second, which is implausibly large until
+the composition is examined: placements were spread uniformly over every
+two-sided symbol, and BX has thousands of names whose inside is dollars wide.
+A handful of them dominated the mean.
+
+**Decision.** Two changes, together. Placements are restricted to a liquid
+universe, selected by message count from the session itself. And value is
+reported in **half-spreads at entry** alongside ticks: an order resting at the
+inside begins half a spread better than the mid, so a value of 0 means the mid
+moved exactly far enough to give that edge back, −1 that it moved twice as
+far.
+
+**Alternatives considered.**
+- *Report ticks and note the caveat.* The number is then a weighted average
+  over spreads differing by two orders of magnitude, and no reader can
+  reconstruct what it means for a given symbol.
+- *Report basis points of price.* Correct for comparing across price levels,
+  but it does not answer the question a maker asks, which is whether the
+  captured spread survives the subsequent move.
+- *Report per symbol only.* Necessary for the study and unwieldy as a headline;
+  both are produced, and the pooled figure is the normalised one.
+
+**Consequences.** The half-spread figure is undefined when the spread at entry
+is zero, which a locked book would produce; those fills are excluded from the
+normalised total and included in the tick total, and the counts are reported
+separately so the exclusion is visible. Comparisons across venues are only
+meaningful in half-spreads, since a tick means a different fraction of the
+spread on each.
+
+**Evidence.** With the liquid universe and the normalised scale, exact-model
+value is −0.92 half-spreads at one second, decaying to −0.69 at sixty
+seconds; the conservative model reports −1.42, and its fill-reason breakdown
+(80% trade-throughs against exact's 50%) accounts for the gap.
+
+---
+
+## 030 — Conservative cancel attribution is biased twice, in the same direction
+
+**Status:** in force. This is the study's main finding.
+
+**Context.** A market-by-price backtest cannot tell whether a cancel at a
+price came from ahead of a resting order or behind it. The cautious choice is
+to assume every cancel came from behind, so the queue never advances except on
+an execution. That is conservative in the sense of not overstating fills, and
+it is what a backtest reaches for when it wants to avoid flattering itself.
+
+**Decision.** Record it as the worst of the three approximations, and state
+why, so that the cautious choice is not made by default on the grounds that
+caution is free.
+
+**Evidence.** On `20190130.BX_ITCH_50`, 93,057 placements at the inside of the
+50 busiest symbols, against exact market-by-order position:
+
+- Fill rate 19.80% against exact 24.89%: **20.4% low** pooled, and
+  monotonically worse with queue depth — 5.7% low at the front of the queue,
+  **59.8% low** with 10,000 or more shares ahead. Deep in the queue almost
+  every fill arrives through cancellation of the orders in front, which this
+  model assumes never happens.
+- Value −1.42 half-spreads at one second against exact −0.92: **54% more
+  pessimistic**.
+
+The two are the same mechanism. Refusing to advance the queue on cancels means
+the model only ever fills when the market runs through the level: 80% of its
+fills are trade-throughs, against 50% for exact. Trade-through fills are
+precisely the adversely selected ones, so the surviving sample is the worst of
+the real one. The model under-reports how often a passive order fills and
+over-reports how badly it does when it fills.
+
+Proportional attribution — a cancel of *c* from a level of *d* with *a* ahead
+removes *c·a/d* from in front — tracks exact within about 2% at every depth,
+at no extra data cost.
+
+**Consequences.** A maker strategy evaluated under conservative attribution
+will be rejected on two counts that are both artifacts. Anything in this
+repository that reports a maker P&L states its queue model, and the
+pre-registration's strategy section commits to exact position
+(`docs/preregistration.md` section 6).
+
+**Alternatives considered.** None: this is a measurement, not a choice. What
+it settles is which approximation the pre-registered study should use if
+market-by-order data were ever unavailable, and the answer is proportional.
