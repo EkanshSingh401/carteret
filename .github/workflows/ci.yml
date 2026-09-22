@@ -1,6 +1,12 @@
 name: ci
 on: [push, pull_request]
 
+# The two-compiler matrix is not redundancy. std::mt19937_64 is specified down
+# to its exact sequence but the <random> distributions are not, so a draw taken
+# through one diverges between libstdc++ and libc++ -- which it did, silently,
+# until the matrix caught it. tests/test_rng_golden.cpp pins every draw and
+# runs here under both, so that divergence cannot come back.
+
 jobs:
   build-and-test:
     name: ${{ matrix.compiler }} / ${{ matrix.preset }}
