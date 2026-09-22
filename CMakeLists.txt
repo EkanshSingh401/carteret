@@ -35,6 +35,11 @@ option(CARTERET_BENCH "Build the benchmark harness" OFF)
 add_library(carteret INTERFACE)
 target_include_directories(carteret INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# Test-only helpers. Not part of the installed interface.
+add_library(carteret_testing INTERFACE)
+target_link_libraries(carteret_testing INTERFACE carteret)
+target_include_directories(carteret_testing INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+
 add_executable(census         src/census.cpp)
 add_executable(gen_synthetic  tools/gen_synthetic.cpp)
 target_link_libraries(census        PRIVATE carteret)
@@ -42,15 +47,15 @@ target_link_libraries(gen_synthetic PRIVATE carteret)
 
 enable_testing()
 add_executable(test_wire tests/test_wire.cpp)
-target_link_libraries(test_wire PRIVATE carteret)
+target_link_libraries(test_wire PRIVATE carteret_testing)
 add_test(NAME wire COMMAND test_wire)
 
 add_executable(test_messages tests/test_messages.cpp)
-target_link_libraries(test_messages PRIVATE carteret)
+target_link_libraries(test_messages PRIVATE carteret_testing)
 add_test(NAME messages COMMAND test_messages)
 
 add_executable(test_dispatch tests/test_dispatch.cpp)
-target_link_libraries(test_dispatch PRIVATE carteret)
+target_link_libraries(test_dispatch PRIVATE carteret_testing)
 add_test(NAME dispatch COMMAND test_dispatch)
 
 if(CARTERET_FUZZ)

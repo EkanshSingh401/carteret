@@ -18,11 +18,14 @@
 #include "carteret/messages.hpp"
 #include "carteret/spec.hpp"
 
+#include "itch_builder.hpp"
+
 #include <cstdio>
 #include <string_view>
 #include <vector>
 
 using namespace carteret;
+using carteret::test::Bytes;
 
 namespace {
 
@@ -36,34 +39,6 @@ int failures = 0;
         }                                                                                      \
     } while (0)
 
-// Byte builder. Every emitter is big-endian, matching the wire.
-struct Bytes {
-    std::vector<unsigned char> b;
-
-    void u8(unsigned char v) { b.push_back(v); }
-    void u16(std::uint16_t v) {
-        b.push_back(static_cast<unsigned char>(v >> 8));
-        b.push_back(static_cast<unsigned char>(v));
-    }
-    void u32(std::uint32_t v) {
-        for (int s = 24; s >= 0; s -= 8) b.push_back(static_cast<unsigned char>(v >> s));
-    }
-    void u48(std::uint64_t v) {
-        for (int s = 40; s >= 0; s -= 8) b.push_back(static_cast<unsigned char>(v >> s));
-    }
-    void u64(std::uint64_t v) {
-        for (int s = 56; s >= 0; s -= 8) b.push_back(static_cast<unsigned char>(v >> s));
-    }
-    void alpha(std::string_view s, std::size_t n) {
-        std::size_t i = 0;
-        for (; i < n && i < s.size(); ++i) b.push_back(static_cast<unsigned char>(s[i]));
-        for (; i < n; ++i) b.push_back(' ');
-    }
-
-    [[nodiscard]] const unsigned char* data() const noexcept { return b.data(); }
-    [[nodiscard]] std::size_t size() const noexcept { return b.size(); }
-};
-
 // Header values shared by every fixture. The locate and tracking number are
 // distinct and both nonzero.
 constexpr std::uint16_t kLocate = 0x2A5B;   // 10843
@@ -71,12 +46,7 @@ constexpr std::uint16_t kTracking = 0xBEEF; // 48879
 constexpr std::uint64_t kTs = 0x00001F2B3C4DULL;
 
 Bytes header(char type) {
-    Bytes m;
-    m.u8(static_cast<unsigned char>(type));
-    m.u16(kLocate);
-    m.u16(kTracking);
-    m.u48(kTs);
-    return m;
+    return carteret::test::header(type, kLocate, kTs, kTracking);
 }
 
 // Every fixture runs this first, so a header regression fails once per type
