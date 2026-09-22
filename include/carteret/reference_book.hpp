@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include "book_types.hpp"
 #include "messages.hpp"
 #include "spec.hpp"
 
@@ -34,13 +35,6 @@
 #include <vector>
 
 namespace carteret {
-
-using Price = std::uint32_t; // Price(4): integer with 4 implied decimals
-using Ref = std::uint64_t;   // order reference number
-using Shares = std::uint32_t;
-
-inline constexpr unsigned char kBuy = 'B';
-inline constexpr unsigned char kSell = 'S';
 
 // One price level. The FIFO holds order references in arrival order; the
 // aggregates are maintained alongside so the invariant check has something
