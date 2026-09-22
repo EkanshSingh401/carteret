@@ -120,6 +120,114 @@ The 50 symbols with the most book messages in each session, selected per
 session from that session's own activity, as in `queue_study`. Fixed here so
 that the held-out universe is not chosen after seeing held-out data.
 
+### The inference problem, and four ways out
+
+**This section is a draft for the author to choose between. It is not a
+decision.**
+
+`docs/data.md` lists **nine** NASDAQ ITCH 5.0 sessions in the 2017-2020
+window. Seven are development and **two are held out**. Three further NASDAQ
+sessions (2018-12-13, 2018-12-14, 2018-12-31) are unassigned and held in
+reserve.
+
+Two held-out sessions is the whole difficulty, and it cannot be fixed by
+analysis. With two clusters:
+
+- A **session-clustered standard error** has two terms. The finite-sample
+  correction is *G/(G−1) = 2*, the estimator has one degree of freedom, and
+  the usual normal or *t* reference distribution is not even approximately
+  right. It is degenerate, not merely imprecise.
+- A **session block bootstrap** resamples two units with replacement. It can
+  draw only three distinct multisets — {A,A}, {A,B}, {B,B} — so the bootstrap
+  distribution has at most three mass points and its percentiles are an
+  artifact of that, not an estimate.
+
+Reporting either as though it were a confidence interval would be worse than
+reporting nothing, because it would look like inference. The options are:
+
+#### (a) Acquire more sessions
+
+**Assumption:** additional sessions are exchangeable with the ones already
+held, so pooling them estimates the same quantity.
+
+The three unassigned NASDAQ sessions in `docs/data.md` are free and would take
+the held-out set to five, which is still small but no longer degenerate.
+Beyond that, historical NASDAQ ITCH is sold commercially — LOBSTER and
+several vendors resell it — at a cost per session-symbol that the author would
+need to establish; this project has not obtained a quote, and that figure is
+**not** filled in here on the basis of a guess.
+
+*Cost:* money and time, and ~4 GB per session of download at the rates
+observed in `docs/data.md`. *Benefit:* the only option that actually fixes the
+problem rather than working around it.
+
+#### (b) Intraday block bootstrap
+
+**Assumption:** dependence between observations decays to negligible beyond
+some block length *L*, so blocks of length *L* within a session are
+approximately independent and may be resampled.
+
+This is the standard move when there are too few natural clusters, and it buys
+inference at the cost of an assumption that has to be defended rather than
+asserted. Two things must be stated in advance and neither can be chosen after
+seeing the result:
+
+- **The block length.** Proposed: **30 minutes of exchange time**, giving 13
+  blocks per session and 26 across the held-out set. The justification has to
+  be empirical, from the development sessions: the autocorrelation of the
+  primary metric computed per block should be indistinguishable from zero at
+  lag one by 30 minutes. If it is not, *L* rises and the block count falls,
+  which is the trade this option makes.
+- **The dependence structure it assumes away.** Blocks within a day share the
+  day's volatility regime, its news, and its market-wide moves. A block
+  bootstrap treats two blocks from the same session as independent draws, and
+  they are not. It will therefore be **anti-conservative** — intervals too
+  narrow — by an amount that grows with how much of the metric's variance is
+  common to the session rather than local to the block. That fraction is
+  estimable on development sessions and must be reported beside any interval
+  this option produces.
+
+#### (c) Symbol clustering
+
+**Assumption:** symbols within a session are independent given the session.
+
+They are not, and the direction of the error is known. Symbols on the same day
+co-move: an index move, a sector move or a market-wide liquidity event hits
+many symbols at once, and the primary metric is a function of order flow that
+responds to exactly those. Clustering on symbol therefore treats correlated
+observations as independent and produces **intervals that are too narrow** —
+anti-conservative, in the same direction as (b) and probably by more, since 50
+symbols on one day share more than 13 half-hours do.
+
+It is listed because it is what the queue-position study already uses for its
+own intervals, where the quantity is a mechanical property of a queue model
+rather than a market-wide signal, and the assumption is far less strained.
+Using it for the *signal* study would be a different and weaker claim.
+
+*If chosen, the write-up says "clustered on symbol, which is anti-conservative
+under common market moves" every time an interval appears.*
+
+#### (d) Declare the study exploratory
+
+**Assumption:** none. This is the option that assumes nothing.
+
+The held-out set is used as a single out-of-sample look, the point estimate is
+reported with no confidence interval, and the study is described as
+**exploratory rather than confirmatory** wherever it is cited. The
+pre-registration still does its job: it fixes the hypothesis, the features,
+the strategy and the costs in advance, so the point estimate is not the best
+of many tried. What it cannot do at this sample size is attach a calibrated
+probability to that estimate.
+
+*Cost:* no significance claim. *Benefit:* nothing stated is wrong.
+
+#### What is not an option
+
+Running (b) or (c), obtaining an interval that excludes the null, and
+reporting it as a confirmatory finding without stating the assumption that
+produced it. Both are anti-conservative in a known direction, and an interval
+that is too narrow by an unstated amount is not evidence.
+
 ### Power — completed on development sessions only
 
 Intraday observations within a session are heavily autocorrelated, so the
@@ -131,36 +239,52 @@ after.
 
 Procedure, run by `research/power.py` on development sessions:
 
-1. Estimate the primary metric per session and per symbol.
-2. Estimate its standard error two ways, and report both: standard errors
-   **clustered by session**, and a **block bootstrap resampling whole
-   sessions** with 10,000 replications. Where symbols are pooled, cluster on
-   session × symbol, because symbols on the same day co-move.
+1. Estimate the primary metric per session, per symbol and per intraday block.
+2. Estimate its standard error under **both** inference plans that could
+   actually be used at the held-out size — (b) the intraday block bootstrap
+   and (c) symbol clustering — with 10,000 replications each. The
+   session-clustered and session-block-bootstrap estimators are computed on
+   the development set too, where there are seven sessions and they are
+   meaningful, so that the degeneracy at the held-out size is visible as a
+   comparison rather than asserted.
 3. Compute the **minimum detectable effect** at the planned held-out size
-   (2 sessions × 50 symbols), at α = 0.05 and 80% power, two-sided.
-4. Record the MDE here, beside the smallest effect that is economically
+   under each of (b) and (c), at α = 0.05 and 80% power, two-sided, **for each
+   of the three candidate hypotheses**, so the choice of hypothesis can be
+   made knowing what each can resolve.
+4. Record them below, beside the smallest effect that is economically
    meaningful after the costs in section 7.
+
+| Candidate | Plan (b) block bootstrap | Plan (c) symbol clustering |
+|---|---|---|
+| A — OFI, directional | *(MDE to be filled)* | *(MDE to be filled)* |
+| B — OFI, out-of-sample R² | *(MDE to be filled)* | *(MDE to be filled)* |
+| C — queue imbalance, directional | *(MDE to be filled)* | *(MDE to be filled)* |
 
 | | Value |
 |---|---|
-| Primary metric, development estimate | *(to be filled)* |
-| Session-clustered standard error | *(to be filled)* |
-| Block-bootstrap standard error | *(to be filled)* |
-| Minimum detectable effect, held-out size, α = 0.05, power 0.80 | *(to be filled)* |
+| Development estimate of the chosen metric | *(to be filled)* |
+| Session-clustered SE, development set (7 sessions) | *(to be filled)* |
+| Session block-bootstrap SE, development set | *(to be filled)* |
+| Intraday block-bootstrap SE, block length *L* | *(to be filled)* |
+| Symbol-clustered SE | *(to be filled)* |
+| Fraction of metric variance common to the session | *(to be filled)* |
 | Smallest economically meaningful effect after costs | *(to be filled)* |
 
-**If the MDE exceeds the economically meaningful effect, the study as designed
-cannot answer its own question.** Remedies, in order of preference, with the
-choice recorded here:
+**If the MDE exceeds the economically meaningful effect under every plan the
+author is willing to assume, the study as designed cannot answer its own
+question**, and the honest response is option (d) above: report the point
+estimate and call the study exploratory.
 
-1. Add sessions. `docs/data.md` holds three unassigned NASDAQ sessions in
-   reserve (2018-12-13, 2018-12-14, 2018-12-31); historical ITCH is also sold
-   commercially.
-2. Add symbols, with inference clustered on session × symbol.
-3. Narrow the question to one the data can answer, and say so plainly.
+Doing none of this and running anyway, then reporting whichever interval
+happens to exclude the null, is not an option: it would produce a number with
+no power to be wrong.
 
-Doing none of these and running anyway is not an option: it would produce a
-number with no power to be wrong.
+**The inference plan is chosen and recorded here before the registration
+commit, and not changed afterwards.** Switching plans after seeing the
+held-out result is the specific failure this whole document exists to prevent,
+and it would be undetectable from the outside — which is why the choice, and
+the assumption it rests on, are written down where a reader can check them
+against the commit date.
 
 ## 5. Features and horizons
 
