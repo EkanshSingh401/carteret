@@ -102,6 +102,9 @@ QueueSimConfig one_placement(std::uint64_t placement_offset_ns, bool rule4 = fal
     cfg.max_life_ns = 300'000'000'000ULL; // long enough not to interfere
     cfg.rule4_non_displayed_fills = rule4;
     cfg.order_size = 100;
+    // Every script below is written for a synthetic BID. Fixing the side here
+    // keeps the tests independent of how many values the sampler draws.
+    cfg.force_side = kBuy;
     return cfg;
 }
 
@@ -385,6 +388,7 @@ void test_all_models_see_the_same_placements() {
     cfg.end_ns = kT0 + 200'000'000ULL;
     cfg.mean_interarrival_ns = 10'000'000ULL;
     cfg.max_life_ns = 300'000'000'000ULL;
+    cfg.force_side = kBuy;
 
     QueueSimulator sim = s.run(cfg);
     CHECK(sim.placements() > 5);

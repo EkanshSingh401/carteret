@@ -159,7 +159,7 @@ approximation** departs from exact position, on real US-equity ITCH, with the
 fill rules fixed in advance (`docs/design.md` record 020) and cited by number
 from the pre-registration.
 
-93,057 synthetic orders, one round lot each, placed at the inside of the 50
+93,525 synthetic orders, one round lot each, placed at the inside of the 50
 busiest symbols at random times through `20190130.BX_ITCH_50`, cancelled after
 60 seconds if unfilled. All four models see the identical placements and the
 identical executed volume; they differ **only** in how a cancel at the price
@@ -169,27 +169,27 @@ is attributed, which is what isolates the bias.
 
 | Model | Fill rate | Bias vs exact | Median time to fill |
 |---|---:|---:|---:|
-| **Exact (market-by-order)** | **24.89%** | — | 18.1 s |
-| Conservative | 19.80% | **−20.4%** | 21.0 s |
-| Optimistic | 25.67% | +3.1% | 17.2 s |
-| Proportional | 24.78% | −0.4% | 18.1 s |
+| **Exact (market-by-order)** | **25.12%** | — | 18.1 s |
+| Conservative | 19.87% | **−20.9%** | 21.2 s |
+| Optimistic | 25.84% | +2.9% | 17.2 s |
+| Proportional | 24.99% | −0.5% | 18.2 s |
 
 ### The bias is small in aggregate and severe where it matters
 
-Pooled, the proportional model is almost unbiased (−0.4%) and even the
+Pooled, the proportional model is almost unbiased (−0.5%) and even the
 optimistic one is only 3% high. That aggregate hides the result:
 
 | Shares ahead at entry | Exact | Conservative | Optimistic | Proportional |
 |---|---:|---:|---:|---:|
-| 0–99 | 33.9% | −5.7% | +6.6% | −0.6% |
-| 100–499 | 26.4% | −17.5% | +2.0% | −0.5% |
-| 500–1,999 | 19.4% | −22.2% | +4.2% | +0.1% |
-| 2,000–9,999 | 25.4% | −45.8% | +10.6% | −0.3% |
-| 10,000–49,999 | 28.3% | −59.8% | +11.1% | −2.1% |
+| 0–99 | 34.8% | −6.2% | +2.8% | +0.3% |
+| 100–499 | 26.5% | −17.9% | +1.9% | −0.5% |
+| 500–1,999 | 19.5% | −23.8% | +3.6% | −0.4% |
+| 2,000–9,999 | 26.3% | −44.0% | +9.2% | −1.5% |
+| 10,000–49,999 | 27.7% | −56.7% | +16.2% | +2.2% |
 
 The conservative model — the cautious choice, the one a backtest reaches for
 to avoid overstating fills — is the worst, and it gets worse the deeper the
-queue, reaching a **60% understatement** at the back. Deep in the queue almost
+queue, reaching a **57% understatement** at the back. Deep in the queue almost
 every fill arrives through cancellation of the orders in front, and
 conservative assumes by construction that cancellation never happens ahead.
 
@@ -206,19 +206,19 @@ enough to give that edge back, and −1 means it moved twice as far.
 
 | Model | 1 s | 10 s | 60 s | Trade-through share of fills |
 |---|---:|---:|---:|---:|
-| Exact | −0.92 | −0.81 | −0.69 | 50% |
-| Conservative | −1.42 | −1.17 | −1.10 | 80% |
-| Optimistic | −0.91 | −0.77 | −0.62 | 46% |
-| Proportional | −0.93 | −0.82 | −0.70 | 50% |
+| Exact | −0.77 | −0.61 | −0.56 | 49% |
+| Conservative | −1.28 | −1.01 | −1.06 | 79% |
+| Optimistic | −0.72 | −0.58 | −0.51 | 46% |
+| Proportional | −0.79 | −0.62 | −0.57 | 50% |
 
 Every model is negative at every horizon: on this venue and session a passive
 fill at the inside is adversely selected by more than the half-spread it
 earns, before any fee. That is the expected direction and it is worth stating
 plainly, because it is the number a maker strategy has to overcome.
 
-The conservative model is 54% more pessimistic than exact at one second, and
-the mechanism is visible in the fill reasons: **80% of its fills are
-trade-throughs against 50% for exact**. Refusing to advance the queue on
+The conservative model is 66% more pessimistic than exact at one second, and
+the mechanism is visible in the fill reasons: **79% of its fills are
+trade-throughs against 49% for exact**. Refusing to advance the queue on
 cancels means it only ever fills when the market runs through the level — and
 those are precisely the adversely selected fills. So the conservative model is
 biased twice, in the same direction: it under-reports how often a passive
@@ -232,8 +232,8 @@ study runs twice from the same seed.
 
 | | Exact fill rate | Conservative bias |
 |---|---:|---:|
-| Rule 4 off | 24.89% | −20.4% |
-| Rule 4 on | 25.57% | −18.2% |
+| Rule 4 off | 25.12% | −20.9% |
+| Rule 4 on | 25.82% | −18.6% |
 
 Enabling it lifts every fill rate by roughly 0.7 percentage points and does
 not change any conclusion above.

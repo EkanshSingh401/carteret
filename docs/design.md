@@ -1021,9 +1021,9 @@ meaningful in half-spreads, since a tick means a different fraction of the
 spread on each.
 
 **Evidence.** With the liquid universe and the normalised scale, exact-model
-value is −0.92 half-spreads at one second, decaying to −0.69 at sixty
-seconds; the conservative model reports −1.42, and its fill-reason breakdown
-(80% trade-throughs against exact's 50%) accounts for the gap.
+value is −0.77 half-spreads at one second, decaying to −0.56 at sixty
+seconds; the conservative model reports −1.28, and its fill-reason breakdown
+(79% trade-throughs against exact's 49%) accounts for the gap.
 
 ---
 
@@ -1041,20 +1041,19 @@ it is what a backtest reaches for when it wants to avoid flattering itself.
 why, so that the cautious choice is not made by default on the grounds that
 caution is free.
 
-**Evidence.** On `20190130.BX_ITCH_50`, 93,057 placements at the inside of the
+**Evidence.** On `20190130.BX_ITCH_50`, 93,525 placements at the inside of the
 50 busiest symbols, against exact market-by-order position:
 
-- Fill rate 19.80% against exact 24.89%: **20.4% low** pooled, and
-  monotonically worse with queue depth — 5.7% low at the front of the queue,
-  **59.8% low** with 10,000 or more shares ahead. Deep in the queue almost
-  every fill arrives through cancellation of the orders in front, which this
-  model assumes never happens.
-- Value −1.42 half-spreads at one second against exact −0.92: **54% more
+- Fill rate 19.87% against exact 25.12%: **20.9% low** pooled, and worse with
+  queue depth — 6.2% low at the front of the queue, **56.7% low** with 10,000
+  or more shares ahead. Deep in the queue almost every fill arrives through
+  cancellation of the orders in front, which this model assumes never happens.
+- Value −1.28 half-spreads at one second against exact −0.77: **66% more
   pessimistic**.
 
 The two are the same mechanism. Refusing to advance the queue on cancels means
-the model only ever fills when the market runs through the level: 80% of its
-fills are trade-throughs, against 50% for exact. Trade-through fills are
+the model only ever fills when the market runs through the level: 79% of its
+fills are trade-throughs, against 49% for exact. Trade-through fills are
 precisely the adversely selected ones, so the surviving sample is the worst of
 the real one. The model under-reports how often a passive order fills and
 over-reports how badly it does when it fills.
