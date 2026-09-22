@@ -71,12 +71,22 @@ imbalance, micro-price deviation **in ticks**, trade-sign imbalance, and
 queue-position-conditioned order flow imbalance, each at the horizons in
 section 5. That is five distinct features.
 
-They are distinct by construction, not by assumption: half-spread-normalised
-micro-price deviation is algebraically identical to queue imbalance
-(`docs/design.md` record 031), and registering both would have put one feature
-in the family twice and tightened every other feature's threshold for no added
-evidence. Any feature added to this family in future is checked for an
-algebraic relationship to the existing ones before registration.
+**The family size depends on the primary metric**, and is fixed here rather
+than discovered later. Micro-price deviation and queue imbalance are related
+by *micro − mid = (s/2) · QI* with the spread *s* strictly positive
+(`docs/design.md` record 031), so:
+
+- If the primary metric uses **magnitude** (candidate B), the two are distinct
+  — their correlation is 0.22 — and the family is **five**.
+- If the primary metric uses **only the sign** (candidates A and C), the two
+  are identical, because they always share a sign. Micro-price deviation is
+  then dropped and the family is **four**.
+
+Registering both under a sign-based metric would have entered one feature
+twice, tightening every other feature's corrected threshold for no added
+evidence and presenting one result as two. Any feature added to this family in
+future is checked for an algebraic relationship to the existing ones, in
+magnitude and in sign, before registration.
 
 Secondaries are tested under a **Holm–Bonferroni** correction across the
 secondary family, with the family size fixed here once the primary is chosen

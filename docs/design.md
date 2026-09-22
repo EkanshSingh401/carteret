@@ -1114,11 +1114,33 @@ feature; measured on the BX session its correlation with queue imbalance is
   significance threshold for no added evidence, and would present one result
   as two.
 
-**Consequences.** The secondary family is five features, not six-with-a-
-duplicate, and the correction is over genuinely distinct tests. Any future
-feature added to that family is checked for an algebraic relationship to the
-existing ones before it is registered, not after.
+**Consequences, and a second identity the first fix did not remove.**
+Expressing micro-price deviation in ticks separates it from queue imbalance in
+*magnitude* — their correlation is 0.22 — but **not in sign**. Since
+*micro − mid = (s/2) · QI* and the spread *s* is strictly positive whenever
+the book is two-sided, the two always carry the same sign, confirmed on all
+174,216 rows.
+
+So the two features are distinct for a metric that uses magnitude, such as an
+out-of-sample R², and **identical for any metric that uses only the sign**,
+such as directional accuracy. On the development dry run both produced a
+directional accuracy of 0.39824 to five decimal places.
+
+The size of the Holm–Bonferroni family therefore depends on the metric the
+primary hypothesis uses, which is stated in `docs/preregistration.md` section
+3 rather than left to be noticed later:
+
+- Primary metric uses magnitude (candidate B): the family is five distinct
+  features.
+- Primary metric uses only sign (candidates A and C): micro-price deviation is
+  not distinct from queue imbalance, and the family is four.
+
+Any future feature added to that family is checked for an algebraic
+relationship to the existing ones — in magnitude *and* in sign — before it is
+registered, not after.
 
 **Evidence.** The derivation above, confirmed in exact rational arithmetic on
-constructed inputs and numerically across all 174,216 rows of the BX feature
-export, where the maximum absolute difference was exactly zero.
+constructed inputs and numerically across all 174,216 rows of a feature
+export, where the maximum absolute difference was exactly zero. The sign
+identity was confirmed on the same rows: the two features share a sign in
+100% of them, and the tick form reproduces *QI × s/2* to within rounding.
