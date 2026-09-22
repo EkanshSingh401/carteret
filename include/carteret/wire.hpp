@@ -99,30 +99,66 @@ struct MsgView {
 // Framing
 // ---------------------------------------------------------------------------
 //
-// NASDAQ BinaryFILE: every message is preceded by a 2-byte big-endian length,
-// and a zero length marks end of session.
+// NASDAQ BinaryFILE precedes every message with a 2-byte big-endian length and
+// terminates the session with a zero length. Sessions downloaded from the
+// NASDAQ archive use this form.
 //
-// The prefix is authoritative for advancing through the file. For known types
-// it is additionally checked against the specification length in one table
-// lookup. A frame whose length disagrees, or whose type is unknown, is skipped
-// by its prefix length and counted, never parsed, so that one malformed frame
-// cannot desynchronise the rest of the session.
+// One file in circulation does not: ex20101224.TEST_ITCH_50, bundled with the
+// RITCH R package, carries the 2-byte prefix field for all 12,012 of its
+// messages and leaves every one of them zero. The prefix is present and
+// unfilled, so the length has to come from the type byte instead. The variant
+// is handled explicitly rather than by relaxing the prefix rule for every
+// file, because in the prefixed form a zero prefix is the end-of-session
+// marker and the two readings cannot both be applied to the same bytes.
+//
+// In the prefixed form the prefix alone advances the cursor, and for known
+// types it is additionally checked against the specification length in one
+// table lookup. A frame whose length disagrees, or whose type is unknown, is
+// skipped by its prefix length and counted, never parsed, so that one
+// malformed frame cannot desynchronise the rest of the session.
+//
+// In the zero-prefixed form there is no independent length, so an unknown type
+// byte is unrecoverable: nothing says how far to skip. The reader stops and
+// reports a truncation rather than guessing. That asymmetry is the cost of a
+// file format that does not carry its own lengths, and it is why the prefixed
+// form is the one every result in this repository is produced from. See
+// docs/design.md record 001.
+
+enum class Framing : unsigned char {
+    LengthPrefixed, // 2-byte big-endian length before each message
+    ZeroPrefixed,   // 2-byte prefix present but always zero; length from the type byte
+};
 
 enum class FrameStatus : unsigned char {
     Ok,
-    EndOfSession,   // zero-length prefix
+    EndOfSession,   // zero-length prefix, or exact exhaustion in the zero-prefixed form
     Truncated,      // prefix or body runs past the end of the buffer
-    LengthMismatch, // known type, wrong length; skipped and counted
+    LengthMismatch, // known type, prefix length disagrees; skipped and counted
     UnknownType,    // not an ITCH 5.0 type; skipped and counted
 };
 
 class FrameReader {
 public:
-    explicit FrameReader(std::span<const unsigned char> buf) noexcept : buf_(buf) {}
+    explicit FrameReader(std::span<const unsigned char> buf,
+                         Framing f = Framing::LengthPrefixed) noexcept
+        : buf_(buf), framing_(f) {}
 
     // Advances by one frame. On Ok, `out` is populated. On LengthMismatch and
-    // UnknownType the frame is consumed and skipped so the caller can continue.
+    // UnknownType the frame is consumed and skipped so the caller can continue;
+    // in the zero-prefixed form UnknownType is terminal, because the length is
+    // unknown and there is no safe distance to skip.
     FrameStatus next(MsgView& out) noexcept {
+        return framing_ == Framing::LengthPrefixed ? next_prefixed(out)
+                                                   : next_zero_prefixed(out);
+    }
+
+    [[nodiscard]] std::size_t offset() const noexcept { return pos_; }
+    [[nodiscard]] std::uint64_t unknown() const noexcept { return unknown_; }
+    [[nodiscard]] std::uint64_t mismatch() const noexcept { return mismatch_; }
+    [[nodiscard]] Framing framing() const noexcept { return framing_; }
+
+private:
+    FrameStatus next_prefixed(MsgView& out) noexcept {
         if (pos_ + 2 > buf_.size()) return FrameStatus::Truncated;
 
         const std::uint16_t len = be16(buf_.data() + pos_);
@@ -148,15 +184,69 @@ public:
         return FrameStatus::Ok;
     }
 
-    [[nodiscard]] std::size_t offset() const noexcept { return pos_; }
-    [[nodiscard]] std::uint64_t unknown() const noexcept { return unknown_; }
-    [[nodiscard]] std::uint64_t mismatch() const noexcept { return mismatch_; }
+    FrameStatus next_zero_prefixed(MsgView& out) noexcept {
+        // A message boundary at exactly the end of the buffer is how this
+        // variant ends; it carries no terminator of its own.
+        if (pos_ == buf_.size()) return FrameStatus::EndOfSession;
+        if (pos_ + 3 > buf_.size()) return FrameStatus::Truncated;
 
-private:
+        // The prefix field is expected to be zero. A nonzero value means the
+        // framing was misidentified, so it is counted and the type-implied
+        // length is used, which keeps the walk deterministic.
+        if (be16(buf_.data() + pos_) != 0) ++mismatch_;
+
+        const unsigned char* body = buf_.data() + pos_ + 2;
+        const unsigned char t = body[off::kType];
+        const std::uint8_t len = kMsgLen[t];
+        if (len == 0) {
+            ++unknown_;
+            return FrameStatus::Truncated; // no length available; cannot resynchronise
+        }
+        if (pos_ + 2 + len > buf_.size()) return FrameStatus::Truncated;
+        pos_ += 2 + len;
+
+        out.data = body;
+        out.len = len;
+        return FrameStatus::Ok;
+    }
+
     std::span<const unsigned char> buf_;
+    Framing framing_ = Framing::LengthPrefixed;
     std::size_t pos_ = 0;
     std::uint64_t unknown_ = 0;
     std::uint64_t mismatch_ = 0;
 };
+
+// Identifies which of the two forms a buffer uses by walking up to kProbe
+// messages under each hypothesis and taking the one that stays consistent.
+// Ambiguity resolves to LengthPrefixed, which is the form every session in
+// docs/data.md uses and the only one that can recover from a bad frame.
+inline Framing detect_framing(std::span<const unsigned char> buf) noexcept {
+    constexpr int kProbe = 64;
+
+    auto walks = [&](Framing f) {
+        std::size_t pos = 0;
+        for (int i = 0; i < kProbe; ++i) {
+            if (pos + 3 > buf.size()) return i > 0; // ran out cleanly after some progress
+            const std::uint16_t pfx = be16(buf.data() + pos);
+            const unsigned char t = buf[pos + 2];
+            const std::uint8_t implied = kMsgLen[t];
+            if (implied == 0) return false;
+            if (f == Framing::LengthPrefixed) {
+                if (pfx == 0) return i > 0; // end-of-session marker
+                if (pfx != implied) return false;
+            } else {
+                if (pfx != 0) return false;
+            }
+            pos += 2u + implied;
+            if (pos > buf.size()) return false;
+        }
+        return true;
+    };
+
+    if (walks(Framing::LengthPrefixed)) return Framing::LengthPrefixed;
+    if (walks(Framing::ZeroPrefixed)) return Framing::ZeroPrefixed;
+    return Framing::LengthPrefixed;
+}
 
 } // namespace carteret

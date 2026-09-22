@@ -148,11 +148,115 @@ static void test_timestamp_masking() {
     CHECK(tracking(m) == 0xBEEF);
 }
 
+// ---------------------------------------------------------------------------
+// The zero-prefixed framing variant.
+//
+// ex20101224.TEST_ITCH_50, bundled with the RITCH R package, carries the
+// 2-byte prefix field for every message and leaves all of them zero, so the
+// length must come from the type byte. In the prefixed form the same bytes
+// mean end of session, which is why the two forms are distinguished before
+// the walk rather than during it.
+// ---------------------------------------------------------------------------
+
+// Frames a body with the given 2-byte prefix value.
+static void frame_with(std::vector<unsigned char>& buf, std::uint16_t prefix,
+                       const std::vector<unsigned char>& body) {
+    buf.push_back(static_cast<unsigned char>(prefix >> 8));
+    buf.push_back(static_cast<unsigned char>(prefix));
+    buf.insert(buf.end(), body.begin(), body.end());
+}
+
+static std::vector<unsigned char> body_of(char type) {
+    std::vector<unsigned char> b(kMsgLen[static_cast<unsigned char>(type)], 0);
+    b[off::kType] = static_cast<unsigned char>(type);
+    return b;
+}
+
+static void test_zero_prefixed_framing() {
+    std::vector<unsigned char> buf;
+    frame_with(buf, 0, body_of('S'));
+    frame_with(buf, 0, body_of('A'));
+    frame_with(buf, 0, body_of('D'));
+    // No terminator: this form ends by exhausting the buffer at a boundary.
+
+    CHECK(detect_framing({buf.data(), buf.size()}) == Framing::ZeroPrefixed);
+
+    FrameReader rd({buf.data(), buf.size()}, Framing::ZeroPrefixed);
+    MsgView m;
+    int ok = 0;
+    unsigned char types[3] = {0, 0, 0};
+    for (;;) {
+        const FrameStatus st = rd.next(m);
+        if (st == FrameStatus::EndOfSession) break;
+        if (st != FrameStatus::Ok) {
+            CHECK(false && "unexpected status in the zero-prefixed form");
+            break;
+        }
+        if (ok < 3) types[ok] = m.type();
+        ++ok;
+    }
+    CHECK(ok == 3);
+    CHECK(types[0] == 'S');
+    CHECK(types[1] == 'A');
+    CHECK(types[2] == 'D');
+    CHECK(rd.offset() == buf.size());
+    CHECK(rd.unknown() == 0);
+    CHECK(rd.mismatch() == 0);
+}
+
+// An unknown type byte is recoverable in the prefixed form and terminal in the
+// zero-prefixed form, because nothing says how far to skip.
+static void test_zero_prefixed_unknown_type_is_terminal() {
+    std::vector<unsigned char> buf;
+    frame_with(buf, 0, body_of('S'));
+    std::vector<unsigned char> unk(10, 0);
+    unk[off::kType] = '~';
+    frame_with(buf, 0, unk);
+    frame_with(buf, 0, body_of('D'));
+
+    FrameReader rd({buf.data(), buf.size()}, Framing::ZeroPrefixed);
+    MsgView m;
+    CHECK(rd.next(m) == FrameStatus::Ok);
+    CHECK(m.type() == 'S');
+    CHECK(rd.next(m) == FrameStatus::Truncated);
+    CHECK(rd.unknown() == 1);
+}
+
+// Detection must not mistake one form for the other. A real session begins
+// with a prefix equal to the type-implied length; the RITCH fixture begins
+// with a zero prefix and a valid type byte.
+static void test_framing_detection() {
+    std::vector<unsigned char> prefixed;
+    frame_with(prefixed, kMsgLen['S'], body_of('S'));
+    frame_with(prefixed, kMsgLen['R'], body_of('R'));
+    frame_with(prefixed, kMsgLen['A'], body_of('A'));
+    prefixed.push_back(0);
+    prefixed.push_back(0);
+    CHECK(detect_framing({prefixed.data(), prefixed.size()}) == Framing::LengthPrefixed);
+
+    std::vector<unsigned char> zeroed;
+    frame_with(zeroed, 0, body_of('S'));
+    frame_with(zeroed, 0, body_of('R'));
+    frame_with(zeroed, 0, body_of('A'));
+    CHECK(detect_framing({zeroed.data(), zeroed.size()}) == Framing::ZeroPrefixed);
+
+    // Too short to tell, and garbage, both resolve to the prefixed form: it is
+    // the form every session in docs/data.md uses and the only one that can
+    // recover from a bad frame.
+    const std::vector<unsigned char> tiny = {0x00};
+    CHECK(detect_framing({tiny.data(), tiny.size()}) == Framing::LengthPrefixed);
+    const std::vector<unsigned char> junk = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    CHECK(detect_framing({junk.data(), junk.size()}) == Framing::LengthPrefixed);
+}
+
 int main() {
     test_timestamp_masking();
     test_add_order();
     test_order_replace();
     test_framing();
+    test_zero_prefixed_framing();
+    test_zero_prefixed_unknown_type_is_terminal();
+    test_framing_detection();
     test_length_table();
     if (failures == 0)
         std::printf("all wire tests passed\n");
