@@ -278,6 +278,29 @@ public:
         return best(locate, kSell).second;
     }
 
+    // Aggregate depth at a price, without materialising the FIFO. level()
+    // copies the whole order sequence, which is what the differential harness
+    // needs and what a per-second sampler must not pay for.
+    struct Depth {
+        bool present = false;
+        std::uint64_t shares = 0;
+        std::uint32_t orders = 0;
+    };
+
+    [[nodiscard]] Depth depth_at(std::uint16_t locate, unsigned char side,
+                                 Price price) const noexcept {
+        Depth d;
+        if (locate >= symbols_.size()) return d;
+        const FastSymbol& sym = symbols_[locate];
+        const FastSide& s = (side == kBuy) ? sym.bid : sym.ask;
+        const FastLevel* lvl = find_level(sym, s, price);
+        if (!lvl || lvl->orders == 0) return d;
+        d.present = true;
+        d.shares = lvl->shares;
+        d.orders = lvl->orders;
+        return d;
+    }
+
     [[nodiscard]] FastLevelSnapshot level(std::uint16_t locate, unsigned char side,
                                           Price price) const {
         FastLevelSnapshot out;

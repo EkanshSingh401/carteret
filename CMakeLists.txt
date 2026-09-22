@@ -65,10 +65,12 @@ target_include_directories(carteret_testing INTERFACE ${CMAKE_CURRENT_SOURCE_DIR
 add_executable(census         src/census.cpp)
 add_executable(replay        src/replay.cpp)
 add_executable(determinism   src/determinism.cpp)
+add_executable(export_micro  src/export_micro.cpp)
 add_executable(gen_synthetic  tools/gen_synthetic.cpp)
 target_link_libraries(census        PRIVATE carteret)
 target_link_libraries(replay       PRIVATE carteret)
 target_link_libraries(determinism  PRIVATE carteret)
+target_link_libraries(export_micro PRIVATE carteret)
 target_link_libraries(gen_synthetic PRIVATE carteret)
 
 if(CARTERET_BENCH)
