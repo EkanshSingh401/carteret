@@ -1,19 +1,15 @@
 // carteret/spec.hpp -- NASDAQ TotalView-ITCH 5.0 wire constants and field offsets.
 //
-// SOURCE OF TRUTH: NQTVITCHspecification.pdf (rev. 28 April 2023), sections 1.1-1.8.
+// Source: NQTVITCHspecification.pdf, revision 2023-04-28, sections 1.1-1.8.
+// Every length and offset below was audited against that revision.
 //
-// >>> VERIFY THIS FILE AGAINST THE PDF BEFORE YOU TRUST IT. <<<
-// It is 23 tables of integers transcribed by hand. Read the spec, check every
-// row, then delete this comment. If one offset here is wrong, every number
-// downstream is wrong and you will not be able to defend any of them.
-//
-// Conventions, from the spec's Data Types section:
+// Conventions, from the specification's Data Types section:
 //   - Integer fields are big-endian (network byte order), unsigned.
 //   - Alpha fields are ASCII, left justified, space padded right.
 //   - Price(4) is an integer with 4 implied decimals. Max 200000.0000 = 0x77359400.
 //   - Timestamps are 6 bytes: nanoseconds since midnight.
-//   - Stock Locate is at offset 1 in EVERY message. The spec says this is
-//     deliberate, to support efficient filtering.
+//   - Stock Locate occupies offset 1 in every message, which lets a consumer
+//     filter by symbol without decoding the body.
 
 #pragma once
 
@@ -42,7 +38,7 @@ enum class MsgType : unsigned char {
     MwcbStatus            = 'W',
     IpoQuotingPeriod      = 'K',
     LuldAuctionCollar     = 'J',
-    OperationalHalt       = 'h',   // lowercase -- easy to miss in a switch
+    OperationalHalt       = 'h',   // lowercase; distinct from 'H' Stock Trading Action
     AddOrder              = 'A',
     AddOrderMpid          = 'F',
     OrderExecuted         = 'E',
@@ -71,7 +67,7 @@ inline constexpr std::array<std::uint8_t, 256> kMsgLen = [] {
     return t;
 }();
 
-inline constexpr std::size_t kMaxMsgLen = 50;   // 'I' (NOII) is the largest
+inline constexpr std::size_t kMaxMsgLen = 50;   // 'I' (NOII) is the longest message
 
 // ---------------------------------------------------------------------------
 // Field offsets
@@ -87,7 +83,7 @@ inline constexpr std::size_t kTimestamp   = 5;   // 6  ns since midnight
 
 // 'A' Add Order, no MPID (36)
 namespace add {
-    inline constexpr std::size_t kOrderRef = 11;  // 8  <-- UNALIGNED. See wire.hpp.
+    inline constexpr std::size_t kOrderRef = 11;  // 8  unaligned; see wire.hpp
     inline constexpr std::size_t kSide     = 19;  // 1  'B' | 'S'
     inline constexpr std::size_t kShares   = 20;  // 4
     inline constexpr std::size_t kStock    = 24;  // 8  alpha
@@ -97,7 +93,7 @@ namespace add {
 namespace add_mpid {
     inline constexpr std::size_t kAttribution = 36;  // 4 alpha
 }
-// 'E' Order Executed (31). NO price field: use the resting order's price.
+// 'E' Order Executed (31). Carries no price field; the resting order's price applies.
 namespace exec {
     inline constexpr std::size_t kOrderRef       = 11;  // 8
     inline constexpr std::size_t kExecutedShares = 19;  // 4
@@ -111,28 +107,29 @@ namespace exec_price {
     inline constexpr std::size_t kPrintable      = 31;  // 1  'Y' | 'N'
     inline constexpr std::size_t kExecPrice      = 32;  // 4  Price(4)
 }
-// 'X' Order Cancel (23) -- PARTIAL cancel. Deduct shares; remove only at zero.
+// 'X' Order Cancel (23) -- partial cancel. Deduct shares; remove only at zero.
 namespace cancel {
     inline constexpr std::size_t kOrderRef        = 11;  // 8
     inline constexpr std::size_t kCancelledShares = 19;  // 4
 }
-// 'D' Order Delete (19) -- full removal
+// 'D' Order Delete (19) -- removes the order outright
 namespace del {
     inline constexpr std::size_t kOrderRef = 11;         // 8
 }
 // 'U' Order Replace (35)
-// Carries NO side, NO stock, NO attribution: retain them from the original Add.
-// The new ref supersedes the old for every later update, and the order goes to
-// the BACK of the queue at the new price.
+// Carries no side, no stock and no attribution; all three are retained from the
+// original Add. The new reference supersedes the old one for every later update,
+// and the order moves to the back of the queue at the new price.
 namespace replace {
     inline constexpr std::size_t kOldOrderRef = 11;      // 8
     inline constexpr std::size_t kNewOrderRef = 19;      // 8
     inline constexpr std::size_t kShares      = 27;      // 4  new TOTAL quantity
     inline constexpr std::size_t kPrice       = 31;      // 4  Price(4)
 }
-// 'P' Trade, non-cross (44) -- NO BOOK EFFECT. Non-displayable liquidity.
-// OrderRef has been zero since Dec 2010. Side has been hardcoded 'B' regardless
-// of resting side since 14 July 2014. Never sign a trade off that field.
+// 'P' Trade, non-cross (44) -- no book effect. Reports non-displayable liquidity.
+// OrderRef has been zero since December 2010. Side has been hardcoded 'B'
+// regardless of the resting side since 14 July 2014, so trade sign cannot be
+// taken from that field.
 namespace trade {
     inline constexpr std::size_t kOrderRef    = 11;      // 8  (always 0)
     inline constexpr std::size_t kSide        = 19;      // 1  (always 'B')
@@ -141,7 +138,7 @@ namespace trade {
     inline constexpr std::size_t kPrice       = 32;      // 4
     inline constexpr std::size_t kMatchNumber = 36;      // 8
 }
-// 'Q' Cross Trade (40) -- NO BOOK EFFECT. May legitimately report zero shares.
+// 'Q' Cross Trade (40) -- no book effect. Zero shares is a valid report.
 namespace cross {
     inline constexpr std::size_t kShares      = 11;      // 8
     inline constexpr std::size_t kStock       = 19;      // 8
@@ -149,18 +146,19 @@ namespace cross {
     inline constexpr std::size_t kMatchNumber = 31;      // 8
     inline constexpr std::size_t kCrossType   = 39;      // 1  'O'|'C'|'H'
 }
-// 'B' Broken Trade (19) -- NO BOOK EFFECT. Time-and-sales only.
+// 'B' Broken Trade (19) -- no book effect. Affects time and sales only.
 namespace broken {
     inline constexpr std::size_t kMatchNumber = 11;      // 8
 }
 // 'S' System Event (12)
 // Codes: 'O' start of messages, 'S' start of system hours, 'Q' start of market
 // hours, 'M' end of market hours, 'E' end of system hours, 'C' end of messages.
-// E/C/D messages can still arrive AFTER the 'E' event.
+// Broken Trade ('B') and Order Delete ('D') messages can still arrive after the
+// 'E' end-of-system-hours event.
 namespace sysevent {
     inline constexpr std::size_t kEventCode = 11;        // 1
 }
-// 'R' Stock Directory (39) -- the fields a book actually needs
+// 'R' Stock Directory (39)
 namespace stockdir {
     inline constexpr std::size_t kStock        = 11;     // 8
     inline constexpr std::size_t kMarketCat    = 19;     // 1

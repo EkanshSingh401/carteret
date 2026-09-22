@@ -1,5 +1,5 @@
-# Market data NEVER ships. NASDAQ ITCH and LOBSTER data carry redistribution
-# restrictions. Use tools/fetch_data.sh; keep the repo clean.
+# Market data is never committed: NASDAQ ITCH and LOBSTER files carry
+# redistribution restrictions. Sessions are fetched with tools/fetch_data.sh.
 data/
 *.itch
 *.ITCH_50

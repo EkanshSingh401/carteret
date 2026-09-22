@@ -1,21 +1,17 @@
 // carteret/wire.hpp -- BinaryFILE framing and big-endian field decode.
 //
-// Two jobs, and nothing else:
-//   1. Walk a memory-mapped session file, yielding one message view at a time.
-//   2. Decode big-endian fields out of that view without undefined behaviour.
+// Scope is two things: walk a memory-mapped session file yielding one message
+// view at a time, and decode big-endian fields out of that view without
+// undefined behaviour. Book construction, handler dispatch and memory ownership
+// live elsewhere.
 //
-// Deliberately does NOT build a book, dispatch to handlers, or own memory.
-// Those are yours.
-//
-// WHY memcpy AND NOT reinterpret_cast:
-// The 64-bit order reference sits at offset 11 in every order message, which is
-// not 8-byte aligned. Casting a pointer into the buffer to `const uint64_t*`
-// is undefined behaviour twice over: an unaligned load, and a strict-aliasing
-// violation. It happens to work on x86 and it is still wrong, and an
-// interviewer will ask. memcpy into a local plus __builtin_bswap64 compiles to
-// one unaligned load plus one bswap at -O2. Check with:
-//     g++ -O2 -S -masm=intel  and read the generated asm.
-// Verifying that claim yourself is worth an hour; quoting it is worth nothing.
+// Decoding goes through memcpy rather than a pointer cast because the 64-bit
+// order reference sits at offset 11 in every order message, which is not
+// 8-byte aligned. Casting a buffer pointer to `const uint64_t*` is undefined
+// behaviour twice over: an unaligned load and a strict-aliasing violation. It
+// happens to work on x86, which is what makes the bug durable. memcpy into a
+// local plus __builtin_bswap64 costs nothing at -O2; see docs/design.md
+// record 002 for the generated assembly and the command that produced it.
 
 #pragma once
 
@@ -51,21 +47,19 @@ namespace carteret {
     return __builtin_bswap64(v);
 }
 
-// Timestamp and tracking number, from ONE 8-byte load.
+// Timestamp and tracking number come from a single 8-byte load.
 //
-// The 6-byte timestamp sits at offset 5, preceded by the 2-byte tracking
-// number at offset 3. Those two fields are exactly 8 contiguous bytes, so load
-// [3, 11), byte-swap once, and split:
-//     low 48 bits  -> timestamp (ns since midnight)
-//     high 16 bits -> tracking number, for free
+// The 2-byte tracking number at offset 3 and the 6-byte timestamp at offset 5
+// are exactly 8 contiguous bytes, so loading [3, 11) and byte-swapping once
+// yields the timestamp in the low 48 bits and the tracking number in the high
+// 16. The load cannot overread: the shortest ITCH 5.0 message is 12 bytes and
+// the load ends at offset 11.
 //
-// No overread: the smallest ITCH 5.0 message is 12 bytes and the load ends at
-// 11. This replaces the earlier copy-6-into-a-zeroed-u64 approach, which on
-// GCC 13.3 -O2 compiled to ~16 instructions with a stack spill. This version
-// is three (mov / xor ax,ax / bswap) -- the compiler turns the mask into a
-// 16-bit zero before the swap. Re-verify on your compiler; do not quote this.
+// The alternative -- copying 6 bytes into a zeroed u64 -- compiled to roughly
+// 16 instructions with a stack spill under GCC 13.3 -O2. See docs/design.md
+// record 002.
 //
-// NOTE: these take the MESSAGE BASE pointer, not a field pointer.
+// These take the message base pointer, not a field pointer.
 [[gnu::always_inline]] inline std::uint64_t header_tail(const unsigned char* msg) noexcept {
     std::uint64_t v;
     std::memcpy(&v, msg + off::kTracking, 8);
@@ -79,7 +73,7 @@ namespace carteret {
 }
 
 // Alpha fields are space-padded on the right. Returns a view into the buffer
-// with the padding stripped -- no allocation, no copy.
+// with the padding stripped; no allocation and no copy.
 inline std::string_view alpha(const unsigned char* p, std::size_t n) noexcept {
     while (n > 0 && p[n - 1] == ' ') --n;
     return {reinterpret_cast<const char*>(p), n};
@@ -104,29 +98,28 @@ struct MsgView {
 // ---------------------------------------------------------------------------
 //
 // NASDAQ BinaryFILE: every message is preceded by a 2-byte big-endian length,
-// and a length of ZERO marks end of session.
+// and a zero length marks end of session.
 //
 // The prefix is authoritative for advancing through the file. For known types
-// we additionally check it against the spec length in one table lookup; a frame
-// whose length disagrees, or whose type is unknown, is skipped by its prefix
-// length and counted, never parsed. That single rule is what stops one
-// malformed frame from desynchronising the rest of the session.
+// it is additionally checked against the specification length in one table
+// lookup. A frame whose length disagrees, or whose type is unknown, is skipped
+// by its prefix length and counted, never parsed, so that one malformed frame
+// cannot desynchronise the rest of the session.
 
 enum class FrameStatus : unsigned char {
     Ok,
     EndOfSession,     // zero-length prefix
     Truncated,        // prefix or body runs past the end of the buffer
-    LengthMismatch,   // known type, wrong length -- skipped and counted
-    UnknownType,      // not an ITCH 5.0 type -- skipped and counted
+    LengthMismatch,   // known type, wrong length; skipped and counted
+    UnknownType,      // not an ITCH 5.0 type; skipped and counted
 };
 
 class FrameReader {
 public:
     explicit FrameReader(std::span<const unsigned char> buf) noexcept : buf_(buf) {}
 
-    // Advances by one frame. On Ok, `out` is populated.
-    // On LengthMismatch / UnknownType the frame is consumed and skipped, so the
-    // caller can keep going.
+    // Advances by one frame. On Ok, `out` is populated. On LengthMismatch and
+    // UnknownType the frame is consumed and skipped so the caller can continue.
     FrameStatus next(MsgView& out) noexcept {
         if (pos_ + 2 > buf_.size()) return FrameStatus::Truncated;
 

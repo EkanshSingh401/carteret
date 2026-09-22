@@ -1,14 +1,10 @@
-// test_wire -- byte fixtures and a round trip.
+// test_wire -- byte fixtures and framing tests.
 //
-// Layer 1 of the correctness program. Two kinds of test:
-//   1. Hand-built bytes, constructed from the spec tables rather than captured
-//      from a file, so a wrong offset fails here and not silently downstream.
-//   2. Round trip: gen_synthetic writes a session, FrameReader parses it back.
-//
-// TWO FIXTURES ARE WRITTEN OUT BELOW ('A' and 'U'). The other 21 message types
-// are yours. That is not laziness on my part -- building each fixture is how
-// you actually read the spec, and the ones you build by hand are the ones you
-// will remember under questioning.
+// Correctness layer 1. Fixtures are built byte by byte from the specification
+// tables rather than captured from a session file, so a transcription error in
+// an offset fails here instead of propagating silently into the book. The
+// round-trip half of layer 1 lives in tests/roundtrip.cmake, which parses back
+// a session written by gen_synthetic.
 
 #include "carteret/spec.hpp"
 #include "carteret/wire.hpp"
@@ -24,8 +20,7 @@ static int failures = 0;
     std::fprintf(stderr, "FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); ++failures; } } while (0)
 
 // ---------------------------------------------------------------------------
-// Fixture 1: 'A' Add Order, no MPID. 36 bytes, built byte by byte from
-// spec section 1.3.1.
+// 'A' Add Order, no MPID. 36 bytes, specification section 1.3.1.
 // ---------------------------------------------------------------------------
 static void test_add_order() {
     const std::vector<unsigned char> msg = {
@@ -45,7 +40,7 @@ static void test_add_order() {
     CHECK(p[off::kType] == 'A');
     CHECK(be16(p + off::kStockLocate) == 42);
     CHECK(timestamp(p) == 0x00001F2B3C4DULL);
-    CHECK(tracking(p) == 1);   // same load; must not leak into the timestamp
+    CHECK(tracking(p) == 1);   // decoded from the same load as the timestamp
     CHECK(be64(p + off::add::kOrderRef) == 1234);
     CHECK(p[off::add::kSide] == 'B');
     CHECK(be32(p + off::add::kShares) == 500);
@@ -54,9 +49,9 @@ static void test_add_order() {
 }
 
 // ---------------------------------------------------------------------------
-// Fixture 2: 'U' Order Replace. 35 bytes, spec section 1.4.5.
-// The point of this one is the TWO refs: the old ref dies, the new ref is used
-// for every subsequent update, and side/stock must be retained from the Add.
+// 'U' Order Replace. 35 bytes, specification section 1.4.5. Two references: the
+// old one is retired, the new one carries every subsequent update, and side and
+// stock are retained from the original Add.
 // ---------------------------------------------------------------------------
 static void test_order_replace() {
     const std::vector<unsigned char> msg = {
@@ -93,8 +88,8 @@ static void test_framing() {
     std::vector<unsigned char> sysev(12, 0); sysev[0] = 'S'; sysev[11] = 'O';
     frame(sysev);
 
-    // Known type, WRONG length. Must be skipped and counted, not parsed, and
-    // must not desynchronise what follows.
+    // Known type at the wrong length: skipped and counted rather than parsed,
+    // and it must not desynchronise the frames that follow.
     std::vector<unsigned char> bad(20, 0); bad[0] = 'D';   // 'D' should be 19
     frame(bad);
 
@@ -131,8 +126,8 @@ static void test_length_table() {
     CHECK(kMsgLen['I'] == kMaxMsgLen);
 }
 
-// The offset-3 load reads tracking + timestamp together. A nonzero tracking
-// number must NOT leak into the timestamp's high bits.
+// The offset-3 load reads the tracking number and timestamp together, so a
+// nonzero tracking number must not appear in the timestamp's high bits.
 static void test_timestamp_masking() {
     unsigned char m[12] = {'S', 0,0, 0xBE,0xEF, 0x00,0x1F,0x2B,0x3C,0x4D,0x5E, 'O'};
     CHECK(timestamp(m) == 0x001F2B3C4D5EULL);

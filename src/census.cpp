@@ -1,12 +1,10 @@
 // census -- per-type message census over a session file.
 //
-// This is Week 1's deliverable and your first correctness gate. Run it against
-// 20170130.BX_ITCH_50 and require an EXACT match on every type against a
-// published third party (the RITCH R package publishes counts; regenerate them
-// yourself rather than trusting a number you read somewhere).
-//
-// If the totals match to the message, your framing and your length table are
-// right, and everything downstream can stand on that. If they do not, stop.
+// Correctness layer 2: an exact per-type match against an independently
+// implemented counter establishes that the framing loop and the length table
+// walk the file correctly. It says nothing about field decode, which layer 1
+// covers. tools/census_vs_ritch.sh runs the comparison against the RITCH R
+// package.
 //
 //   usage: census <session-file>
 
@@ -39,7 +37,7 @@ int main(int argc, char** argv) {
         const FrameStatus st = rd.next(m);
         if (st == FrameStatus::EndOfSession) { saw_end = true; break; }
         if (st == FrameStatus::Truncated) break;
-        if (st != FrameStatus::Ok) continue;   // skipped and counted in rd
+        if (st != FrameStatus::Ok) continue;   // skipped and counted by the reader
 
         ++counts[m.type()];
         ++total;
@@ -59,7 +57,7 @@ int main(int argc, char** argv) {
                 total ? 100.0 * (double)book_msgs / (double)total : 0.0);
     std::printf("unknown type      %llu\n", (unsigned long long)rd.unknown());
     std::printf("length mismatch   %llu\n", (unsigned long long)rd.mismatch());
-    std::printf("end-of-session    %s\n", saw_end ? "yes" : "NO  <-- truncated or malformed");
+    std::printf("end-of-session    %s\n", saw_end ? "yes" : "no  (truncated or malformed)");
     std::printf("first ts          %llu ns\n", (unsigned long long)first_ts);
     std::printf("last ts           %llu ns\n", (unsigned long long)last_ts);
     std::printf("\nper type:\n");
@@ -67,10 +65,10 @@ int main(int argc, char** argv) {
         if (counts[t]) std::printf("  %c  %12llu\n", static_cast<int>(t), (unsigned long long)counts[t]);
     }
 
-    // NOT a benchmark. Wall-clock over an unpinned core with the page cache in
-    // whatever state it happens to be in. It tells you the run finished; it
-    // does not tell you how fast anything is. The real numbers come from the
-    // benchmark harness on an isolated core. Do not put this figure on a resume.
+    // Not a benchmark. This is wall-clock time on an unpinned core with the page
+    // cache in an arbitrary state; it confirms the run completed and nothing
+    // more. Published latency figures come from the benchmark harness on an
+    // isolated core, per docs/benchmarks.md.
     std::printf("\n[not a benchmark] %.2fs wall, %.1f M msg/s\n",
                 secs, secs > 0 ? (double)total / secs / 1e6 : 0.0);
     return 0;

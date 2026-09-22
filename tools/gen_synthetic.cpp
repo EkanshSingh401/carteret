@@ -1,14 +1,13 @@
 // gen_synthetic -- writes a deterministic BinaryFILE-framed ITCH 5.0 session.
 //
-// Why this exists: the real sessions are 5-13 GB and cannot be committed. CI
-// needs something to run against, and hand-built bytes need a round-trip
-// partner. This writer is the partner: write a known stream, parse it back,
-// assert equality.
+// Real sessions are 5-13 GB and cannot be committed, so CI has nothing to
+// replay. This writer supplies a known stream that the framing loop parses
+// back, which turns the hand-built byte fixtures into a round trip.
 //
-// It is deliberately DUMB. It does not model a market, does not maintain a
-// book, and its order flow is not realistic. Do not benchmark against it and
-// do not draw microstructure conclusions from it -- that is what the NASDAQ
-// sessions are for. Its only job is to exercise the framing and decode paths.
+// The order flow is not a market model: arrival times, sizes and prices are
+// drawn from flat distributions and no book is maintained. It exercises the
+// framing and decode paths only, and is not a source of latency numbers or
+// microstructure conclusions.
 //
 //   usage: gen_synthetic <out-file> <n-messages> [seed]
 

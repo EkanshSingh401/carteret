@@ -21,7 +21,7 @@ jobs:
       - name: test
         run: ctest --test-dir build --output-on-failure
 
-# NOTE: CI runs correctness only. It never publishes a latency number -- a
-# shared GitHub runner has no core isolation, no frequency control and noisy
-# neighbours, so any timing it produced would be meaningless. Benchmarks are a
-# manual run on a named machine, logged in docs/benchmarks.md.
+# CI covers correctness only. A shared runner has no core isolation, no
+# frequency control and unknown co-tenants, so it cannot produce an
+# interpretable timing. Benchmarks are a manual run on a named host, recorded
+# in docs/benchmarks.md.

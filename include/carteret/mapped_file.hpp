@@ -25,9 +25,9 @@ public:
         void* p = ::mmap(nullptr, size_, PROT_READ, MAP_PRIVATE, fd_, 0);
         if (p == MAP_FAILED) { ::close(fd_); throw std::runtime_error("mmap failed"); }
         data_ = static_cast<const unsigned char*>(p);
-        // Sequential replay. Measure whether this actually helps on your box --
-        // on a warm page cache it often does nothing, and saying so is better
-        // than cargo-culting the call.
+        // Replay is strictly sequential. The benefit of this hint is unmeasured
+        // and is expected to be nil on a warm page cache; docs/benchmarks.md
+        // carries the experiment when it runs.
         ::madvise(const_cast<void*>(p), size_, MADV_SEQUENTIAL);
     }
 
