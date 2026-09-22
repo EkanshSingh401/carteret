@@ -1072,3 +1072,53 @@ pre-registration's strategy section commits to exact position
 **Alternatives considered.** None: this is a measurement, not a choice. What
 it settles is which approximation the pre-registered study should use if
 market-by-order data were ever unavailable, and the answer is proportional.
+
+---
+
+## 031 — Half-spread-normalised micro-price deviation *is* queue imbalance
+
+**Status:** in force.
+
+**Context.** `docs/preregistration.md` section 5 listed micro-price deviation
+and queue imbalance as two of five secondary features, to be tested under a
+Holm–Bonferroni correction across that family. The first feature export made
+them numerically identical in every one of 174,216 rows, to the last digit
+printed.
+
+That is not a property of the data. With best bid *(P_b, q_b)* and best offer
+*(P_a, q_a)*, micro price *M = (q_a P_b + q_b P_a)/(q_b + q_a)*, mid
+*m = (P_b + P_a)/2* and spread *s = P_a − P_b*:
+
+```
+M - m = (q_a P_b + q_b P_a)/(q_b + q_a) - (P_b + P_a)/2
+      = [2 q_a P_b + 2 q_b P_a - (q_b + q_a)(P_b + P_a)] / [2(q_b + q_a)]
+      = [q_a(P_b - P_a) + q_b(P_a - P_b)] / [2(q_b + q_a)]
+      = (s/2) * (q_b - q_a)/(q_b + q_a)
+```
+
+So *(M − m)/(s/2)* equals *(q_b − q_a)/(q_b + q_a)* identically, for every
+input. Micro-price deviation measured in half-spreads **is** queue imbalance,
+by algebra rather than by approximation.
+
+**Decision.** Micro-price deviation is emitted in **ticks**, not half-spreads.
+In ticks it equals queue imbalance multiplied by half the spread, so it
+carries the spread as well as the imbalance and is genuinely a different
+feature; measured on the BX session its correlation with queue imbalance is
+0.22 rather than 1.
+
+**Alternatives considered.**
+- *Drop micro-price from the family.* Defensible, and it discards the spread
+  interaction, which is the part of the feature that is not already present.
+- *Keep both normalised and note the identity.* Would put the same feature in
+  the Holm–Bonferroni family twice, shrinking every other feature's corrected
+  significance threshold for no added evidence, and would present one result
+  as two.
+
+**Consequences.** The secondary family is five features, not six-with-a-
+duplicate, and the correction is over genuinely distinct tests. Any future
+feature added to that family is checked for an algebraic relationship to the
+existing ones before it is registered, not after.
+
+**Evidence.** The derivation above, confirmed in exact rational arithmetic on
+constructed inputs and numerically across all 174,216 rows of the BX feature
+export, where the maximum absolute difference was exactly zero.

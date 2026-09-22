@@ -67,9 +67,16 @@ Whichever is chosen, the other two move to section 3 as secondaries.
 ## 3. Secondary hypotheses and multiple-comparison correction
 
 The features not chosen as primary are secondary: order flow imbalance, queue
-imbalance, micro-price deviation, trade-sign imbalance, and
+imbalance, micro-price deviation **in ticks**, trade-sign imbalance, and
 queue-position-conditioned order flow imbalance, each at the horizons in
-section 5.
+section 5. That is five distinct features.
+
+They are distinct by construction, not by assumption: half-spread-normalised
+micro-price deviation is algebraically identical to queue imbalance
+(`docs/design.md` record 031), and registering both would have put one feature
+in the family twice and tightened every other feature's threshold for no added
+evidence. Any feature added to this family in future is checked for an
+algebraic relationship to the existing ones before registration.
 
 Secondaries are tested under a **Holm–Bonferroni** correction across the
 secondary family, with the family size fixed here once the primary is chosen
@@ -170,8 +177,16 @@ definition; only the use of it is different (section 1).
 **Queue imbalance.** *(q^b − q^a) / (q^b + q^a)* at the last update of the
 window.
 
-**Micro-price deviation.** *((q^a P^b + q^b P^a)/(q^a + q^b) − mid)* divided by
-half the spread, at the last update of the window.
+**Micro-price deviation.** *((q^a P^b + q^b P^a)/(q^a + q^b) − mid)*, in
+**ticks**, at the last update of the window.
+
+Deliberately not normalised by the half spread. Normalising makes it
+algebraically identical to queue imbalance — *(M − m)/(s/2) = (q^b − q^a)/(q^b
++ q^a)* for every input, derived in `docs/design.md` record 031 — so the two
+would be the same feature entered twice in the correction family. In ticks it
+equals queue imbalance multiplied by half the spread and therefore carries the
+spread as well; measured on a session its correlation with queue imbalance is
+0.22 rather than 1.
 
 **Trade-sign imbalance.** Signed executed shares over the window, normalised
 by total executed shares. The sign is **known exactly**, not inferred: the
