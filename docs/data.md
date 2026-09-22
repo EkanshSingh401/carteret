@@ -51,7 +51,7 @@ Maker-taker. The venue used by the pre-registered study
 | 2019-08-30 | `Nasdaq ITCH/08302019.NASDAQ_ITCH50.gz` | 4.08 GB | unassigned |
 | 2019-10-18 | `Nasdaq ITCH/S101819-v50.txt.gz` | 3.95 GB | unassigned |
 | 2019-10-30 | `Nasdaq ITCH/10302019.NASDAQ_ITCH50.gz` | 3.87 GB | unassigned |
-| 2019-12-30 | `Nasdaq ITCH/12302019.NASDAQ_ITCH50.gz` | 3.52 GB | unassigned |
+| 2019-12-30 | `Nasdaq ITCH/12302019.NASDAQ_ITCH50.gz` | 3.52 GB | **development** |
 | 2020-01-30 | `Nasdaq ITCH/01302020.NASDAQ_ITCH50.gz` | 5.60 GB | unassigned |
 
 The 2019-05-30 NASDAQ session is filed under the PSX directory; the matching
@@ -62,6 +62,18 @@ be verified, for the reason in *Checksums are listed but not served* below.
 Assignment of these sessions to development and held-out sets happens in
 Stage 8, before any feature code is written, and is recorded in this table.
 Held-out sessions are not downloaded until the registration commit exists.
+
+**2019-12-30 is already spent and cannot be held out.** It was fetched on
+2026-09-22 for the Stage 3 correctness gate, which needs a NASDAQ session
+because BX contains no auction messages — `I` and `Q` are both absent from
+every BX session, so the opening and closing cross paths have no coverage from
+BX at all. Downloading it is what disqualifies it: a held-out session is one
+nobody has looked at, and this one has been replayed. It is marked development
+here rather than left unassigned so that the Stage 8 split cannot quietly
+assume it is available.
+
+The remaining eight NASDAQ sessions are untouched and stay that way until the
+Stage 8 split is recorded.
 
 ### Outside the 2017-2020 window
 
