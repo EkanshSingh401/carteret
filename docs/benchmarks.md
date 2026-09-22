@@ -131,6 +131,50 @@ gets its own record and its own prediction before it is measured. **The
 latency consequence of an overflow hit has not been measured**, so the cost of
 33.8% is currently unknown — it is a structural fact in search of a price.
 
+### S-002 — the window slides: overflow falls by a factor of 14
+
+**Prediction, recorded before the run.** S-001 diagnosed the fixed origin as
+the cause of the 33.8% overflow rate, on the grounds that the rate was
+measuring intraday range rather than distance from the inside. The prediction
+was that anchoring the window on the inside would bring the rate into low
+single digits at the default width, and that the rebuild cost would be small
+because rebuilds are triggered by price movement rather than by message rate.
+Both held. What was not predicted: that the replay would be no slower overall,
+because the saved overflow map lookups pay for the rebuilds.
+
+- Date: 2026-09-22
+- Session: `20190130.BX_ITCH_50`, 74,508,064 book-affecting messages
+- Build: Apple Clang 21.0.0, `-O2`, 24-byte order records, multiply-shift hash
+- Host: macOS development host. **Structural counts only. No timing here is
+  publishable.**
+- Verification: every row reported `RESULT: identical`, so the sliding window
+  is semantically equivalent to the fixed one at every width.
+
+| Window | Overflow (fixed) | Overflow (sliding) | Recenters | Levels moved |
+|---:|---:|---:|---:|---:|
+| 64 | 43.8% | 3.51% | 4,774,566 | 15,561,237 |
+| 128 | 39.5% | 2.99% | 4,098,163 | 12,577,697 |
+| 256 | 33.8% | **2.37%** | 3,206,627 | 9,318,071 |
+| 512 | 26.7% | 1.43% | 1,833,926 | 4,943,986 |
+| 1024 | 16.7% | 0.62% | 646,340 | 1,554,702 |
+| 2048 | 6.3% | 0.29% | 157,772 | 340,009 |
+
+**Interpretation.** At the default width the overflow rate falls from 33.8% to
+2.37%, a factor of 14, for a rebuild cost of 0.13 levels moved per book
+message. The remaining 2.37% is dominated by orders genuinely far from the
+inside, plus a floor of 0.18% from sub-cent prices that no cents-indexed
+window can hold (`docs/design.md` record 005).
+
+The design change that mattered most was giving each side its own origin. A
+single origin per symbol must span the spread, and a per-symbol version
+measured first produced 4.0M rebuilds moving 26.8M levels against 3.2M moving
+9.3M — the spread was entering a decision it has no business in.
+
+**What this does not show.** The latency cost of an overflow hit is still
+unmeasured, so the value of removing 31 percentage points of them is unknown.
+The wall-clock column runs both book implementations on an unpinned core and
+is not a timing. Record 033 has the design reasoning.
+
 ## Log
 
 *(Empty. The first timing entry is written from a run on the Linux benchmark

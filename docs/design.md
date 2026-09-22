@@ -1213,3 +1213,134 @@ well-formed prefix of a valid file — and fails if the census accepts it.
 content check is meaningful: the transfer length must equal the advertised
 `content-length`, and `gzip -t` must pass **with no output at all**, since
 macOS gzip exits 2 on trailing garbage while GNU gzip exits 0 with a warning.
+
+---
+
+## 033 — The flat window slides, anchored per side on that side's own best price
+
+**Status:** in force. Supersedes the window geometry of record 018; that
+record's decision to use a flat array with an overflow map stands.
+
+**Context.** Record 018 placed a per-symbol window at the symbol's first
+whole-cent price and never moved it. Measured on `20190130.BX_ITCH_50`, that
+put **33.8% of all orders into the overflow map** at the default 256-tick
+width, and the rate fell only slowly with width — 43.8% at 64 ticks, 26.7% at
+512 — reaching single digits only at 2,048 ticks, which costs about 640 MB of
+level arrays and removes the locality the flat array was chosen for.
+
+The shape of that curve was the diagnosis. A thin tail of stale far-from-market
+orders would have fallen away quickly with width. A broad, slowly-falling
+distribution says the window was in the wrong *place*, not that it was too
+small: with a fixed origin the overflow rate measures a symbol's intraday
+**range**, not any order's distance from the inside.
+
+**Decision.** The window slides. Three parts, which only work together:
+
+1. **The origin belongs to the side, not the symbol.** One origin per symbol
+   must span the spread, and on a thin venue the best bid and offer can sit
+   further apart than the window is wide — so the trigger fires permanently
+   and the window is rebuilt on every tick of the mid. Per side the spread
+   never enters the decision.
+2. **A window is anchored asymmetrically.** A side's resting interest is
+   almost all on one side of its own best price: bids at or below the best
+   bid, offers at or above the best offer. The best bid is placed
+   `kRecenterMargin` below the top of its window and the best offer the same
+   distance above the bottom of its own, so the bulk of the window covers
+   prices that side can actually occupy. Centring would spend half of it on
+   prices that cannot be.
+3. **The order record caches nothing about where its level lives.** The origin
+   moves, so a cached flag would have to be rewritten for every order of every
+   level that crossed the boundary during a rebuild — the one operation
+   recentering exists to keep cheap. The location is derived from the price and
+   the current origin, two comparisons, and moving the origin moves every level
+   at once without touching a single order.
+
+A rebuild is triggered when a side's best price comes within `kRecenterMargin`
+of a window edge, with hysteresis of the same size so an inside oscillating
+around the trigger does not rebuild on every tick. The rebuild is driven by the
+occupancy bitmap rather than by a scan of the window, so its cost is
+proportional to what is in the window rather than to its width.
+
+**Alternatives considered.**
+- *Ring-index the window with a moving origin.* Avoids the rebuild, but every
+  slot's meaning changes as the origin moves, so slots leaving the window must
+  still be evicted, and the arithmetic at every access gains a modulo. The
+  rebuild turned out to cost about 0.13 levels moved per book message, which
+  did not justify that.
+- *Widen the window instead.* Measured, and rejected: 1.5% overflow needs 4,096
+  ticks and 1.3 GB of level arrays.
+- *Keep one origin per symbol and recenter on the mid.* Implemented and
+  measured first. It works, but the spread enters the decision, and on this
+  session it produced 4.0M rebuilds moving 26.8M levels against 3.2M moving
+  9.3M for the per-side version.
+
+**Consequences.** Emptied overflow levels and emptied flat levels are handled
+by the same code path, since which one an order was in is no longer recorded.
+A recenter is O(occupied levels + overflow entries) for one side, and its
+frequency is bounded by the hysteresis rather than by the message rate.
+
+**Evidence.** `20190130.BX_ITCH_50`, 74,508,064 book-affecting messages, every
+row verified identical to the reference book.
+
+| Window | Overflow, fixed origin | Overflow, sliding | Recenters | Levels moved |
+|---:|---:|---:|---:|---:|
+| 64 | 43.8% | **3.51%** | 4,774,566 | 15,561,237 |
+| 128 | 39.5% | **2.99%** | 4,098,163 | 12,577,697 |
+| 256 | 33.8% | **2.37%** | 3,206,627 | 9,318,071 |
+| 512 | 26.7% | **1.43%** | 1,833,926 | 4,943,986 |
+| 1024 | 16.7% | **0.62%** | 646,340 | 1,554,702 |
+| 2048 | 6.3% | **0.29%** | 157,772 | 340,009 |
+
+At the default 256 ticks the overflow rate falls by a factor of **14**, and
+the replay is no slower than it was with the fixed origin — the saved overflow
+map lookups pay for the rebuilds. Sub-cent prices are 131,243 of the remaining
+overflow hits at every width and cannot be indexed on a cents axis
+(record 005), so they are a floor of 0.18%.
+
+The path is covered by a differential test that walks the inside up and back
+down across sixteen window widths. The design it replaces could not have
+failed such a test, because it never moved.
+
+---
+
+## 034 — The Retail Price Improvement Indicator is not obsolete on BX
+
+**Status:** in force. Corrects a prior expectation recorded in `spec.hpp`.
+
+**Context.** ITCH's `N` message, Retail Price Improvement Indicator, is
+commonly described as effectively dead on the grounds that NASDAQ's Retail
+Price Improvement program ended on 31 December 2014. This project's
+specification header said so, and told the reader to expect zero or near-zero
+counts in the sample sessions.
+
+**Decision.** Record the measurement and drop the expectation. The note in
+`spec.hpp` now states what the data shows.
+
+**Alternatives considered.** None: this is a measurement correcting a belief.
+What it changes is that a nonzero `N` count is no longer treated as a signal
+that something is wrong with the decode.
+
+**Consequences.** `N` is 10% of a BX session's messages, so any per-message
+cost attributed across "the message stream" on BX is spread over a population
+that is one-tenth a message type the book ignores entirely. Benchmarks that
+quote a per-message figure state which types they include.
+
+**Evidence.** `20190130.BX_ITCH_50`:
+
+| | |
+|---|---|
+| `N` messages | 8,301,264 — **10.0%** of 82,841,542 |
+| Distinct symbols | 7,217 |
+| Time span | 08:00 to 19:00 |
+| `InterestFlag` values | `'A'` 530,735 · `'B'` 2,121,573 · `'N'` 3,620,049 · `'S'` 2,028,907 |
+| Concentration | QQQ, TVIX, AMZN, FFEU, QID, NFLX, SCO, TSLA |
+
+All four documented flag values occur, the messages span the whole session,
+and they concentrate in liquid names — this is a live feed of a live program,
+not residue. `RITCH::count_messages()` independently reports the same total,
+so it is the feed's content and not an artifact of this project's decode. BX
+operates its own retail program.
+
+**Untested.** Whether NASDAQ-venue sessions carry `N` in volume. No NASDAQ
+session has been censused yet, so the original claim may well hold for the
+venue it was made about.
