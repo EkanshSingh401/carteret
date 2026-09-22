@@ -228,6 +228,29 @@ public:
         return out;
     }
 
+    // Aggregate depth at a price, without copying the level's FIFO. level()
+    // returns the full order sequence, which the differential harness needs
+    // and which a per-message query must not pay for.
+    struct Depth {
+        bool present = false;
+        std::uint64_t shares = 0;
+        std::uint32_t orders = 0;
+    };
+
+    [[nodiscard]] Depth depth_at(std::uint16_t locate, unsigned char side,
+                                 Price price) const noexcept {
+        Depth d;
+        const auto sit = symbols_.find(locate);
+        if (sit == symbols_.end()) return d;
+        const auto& m = (side == kBuy) ? sit->second.bids : sit->second.asks;
+        const auto it = m.find(price);
+        if (it == m.end()) return d;
+        d.present = true;
+        d.shares = it->second.shares;
+        d.orders = it->second.orders;
+        return d;
+    }
+
     // Checks every structural invariant over the whole book. Returns the
     // number of violations, which must be zero.
     [[nodiscard]] std::size_t check_invariants() const {
