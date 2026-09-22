@@ -934,3 +934,51 @@ has not been replayed, and the expectation there is explicitly untested.
 point, zero crossed, zero locked, minimum spread 1 Price(4) unit. Both the
 reference and fast books report the same, though they implement the same rule
 twice and so agreement between them is not independent confirmation.
+
+---
+
+## 028 — Correctness layer 3 is skipped, and the gap is stated rather than filled
+
+**Status:** in force.
+
+**Context.** Layer 3 of the correctness argument was a row-by-row diff against
+LOBSTER's reconstructed orderbook files. It is the only layer that would
+constrain this project's *book semantics* against a reconstruction built by
+someone else: layers 1 and 2 constrain the parser, layer 4 shows the two books
+here agree with each other, and layer 5 shows a replay is internally consistent
+and repeatable.
+
+Checked on 2026-09-22, it cannot be run. LOBSTER's sample data is gated behind
+a manual request flow requiring proof of purchase of an accompanying book, with
+a time-limited link sent by hand; there is no unauthenticated download. And its
+sample session is 2012-06-21, for which the NASDAQ archive offers no ITCH 5.0
+session at all — the archive runs 2018-2020 and 2022 onward.
+
+**Decision.** The layer is skipped. The correctness tables in README.md and
+`docs/correctness.md` say so in the row where the layer used to make a claim,
+rather than omitting the row, and both name what the absence costs.
+
+**Alternatives considered.**
+- *Build the adapter anyway against a session only LOBSTER covers.* There is
+  nothing to diff it against, so it would be untested code asserting a
+  capability the project does not have.
+- *Substitute a different external reconstruction.* `RITCH` reconstructs book
+  state as well as counting messages, but layer 2 already uses it and a second
+  use of the same implementation is not a second opinion. No other freely
+  available ITCH 5.0 reconstruction covering book state was found.
+- *Drop the row from the tables.* A four-layer argument presented as though it
+  were the whole plan would overstate what has been verified. The gap is the
+  point of recording it.
+
+**Consequences.** A shared misunderstanding of the feed's semantics passes
+every remaining layer. The concrete example worth naming is record 009: if `U`
+did not in fact move an order to the back of the queue at an unchanged price,
+the reference book and the fast book would both be wrong in the same way, the
+differential would agree, the determinism hashes would be stable, and every
+queue-position result would be wrong. That risk is carried, not eliminated.
+
+**Evidence.** `lobsterdata.com` serves its application shell for every path,
+so any sample URL answers 200 with 457 bytes of HTML. Its application bundle
+contains the request flow (`/book-download/...`, purchase-proof upload, manual
+approve or reject, time-limited link) and no static sample path. Session dates
+are in `docs/data.md`.

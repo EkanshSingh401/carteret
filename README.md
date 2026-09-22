@@ -79,13 +79,19 @@ prove. `docs/correctness.md` carries the detail and the per-session results.
 |---|---|---|
 | 1. Byte fixtures, tiling audit, fuzz | Field offsets and framing | Anything about the book |
 | 2. Census against an independent counter | The framing loop walks the file correctly | Field decode |
-| 3. LOBSTER row-by-row replay | Book logic against an independent system | The ITCH parser; queue composition within a level |
+| 3. LOBSTER row-by-row replay | **Not available.** LOBSTER's samples are gated behind proof of purchase, and its sample date has no counterpart in the NASDAQ archive | — |
 | 4. Differential replay against the reference book | The fast book matches the obvious one | That the obvious one is right |
 | 5. Continuous invariants and determinism hashes | Internal consistency; that a rerun is the same run | Agreement with the venue |
 
 The reference book — `std::map`, `std::unordered_map`, `std::list` — is
 permanent, not a stepping stone. It is both the differential oracle and the
 speedup baseline.
+
+**Layer 3 is unavailable, and that leaves a real gap.** Nothing now constrains
+the book's semantics against an independently built reconstruction. A shared
+misunderstanding of the feed — if `U` did not in fact lose queue priority at
+an unchanged price, say — would pass every remaining layer. `docs/correctness.md`
+records what was checked and what would close it.
 
 ### Wire format
 

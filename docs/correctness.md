@@ -9,7 +9,7 @@ commit.
 |---|---|---|
 | 1. Byte fixtures, tiling audit, fuzzing | Field offsets, field widths, framing | Anything about the book |
 | 2. Message census against an independent counter | The framing loop walks the file correctly | Field decode |
-| 3. LOBSTER row-by-row replay | Book logic against an independently built system | The ITCH parser; queue composition within a level |
+| 3. LOBSTER row-by-row replay | *(not available — see below)* | — |
 | 4. Differential replay against the reference book | The fast book matches the obvious one | That the obvious one is right |
 | 5. Continuous invariants and determinism hashes | Internal consistency per message; that a rerun is the same run | Agreement with the venue |
 
@@ -98,29 +98,47 @@ census that agrees perfectly is consistent with every field offset being wrong.
 
 ---
 
-## Layer 3 — LOBSTER row-by-row replay
+## Layer 3 — LOBSTER row-by-row replay — **not available, skipped**
 
 LOBSTER publishes reconstructed message and orderbook files for NASDAQ
-sessions, built by a separate group from the same ITCH feed. Where free sample
-files cover a session this project can also reconstruct, an adapter maps this
-book's state to LOBSTER's format and diffs row by row.
+sessions, built by a separate group from the same ITCH feed. Diffing this
+book's state against theirs row by row would constrain the book logic from
+outside this repository, which no other layer does.
 
-Mapping notes that matter: LOBSTER event type 5 is an execution of a
-**hidden** order and therefore has no effect on the displayed book, matching
-this project's treatment of `P` (`docs/design.md` record 011). LOBSTER reports
-a fixed number of levels; the comparison is restricted to those levels.
+**It cannot be run, for two independent reasons.** Both were checked on
+2026-09-22 and are recorded here so the layer is not quietly dropped.
 
-*Does not prove:* anything about the ITCH parser, since a shared
-misunderstanding of the feed would agree. It also says nothing about the
-composition of a level — LOBSTER's orderbook file reports aggregate depth, not
-the FIFO order of the individual orders that make it up, which is precisely the
-quantity the queue study depends on.
+**1. There is no free sample to diff against.** `lobsterdata.com` is now a
+single-page application with no static sample files; the historical
+`/info/DataSamples.php` page returns the application shell for any path, which
+is why guessed sample URLs answer `200` with 457 bytes of HTML rather than a
+zip. The application bundle shows sample data is gated behind a request flow:
+a purchaser of the accompanying book submits an e-mail address and a purchase
+proof (order confirmation or receipt), the request is reviewed by hand, and a
+time-limited download link is sent. There is no unauthenticated download.
 
-*Status.* Conditional on free sample availability for a session in
-`docs/data.md`. If no overlapping free sample exists, that is documented here
-and the layer is skipped rather than approximated.
+**2. Even with a sample, no session would overlap.** LOBSTER's sample data is
+for 2012-06-21. The NASDAQ archive in `docs/data.md` offers no 2012 session:
+its ITCH 5.0 sessions run 2018-2020 and 2022 onward, plus a 2010 test fixture
+and a 2003 file in the ITCH 2.0 protocol. A row-by-row diff needs the same
+session on both sides, and there is no date on which both exist.
 
----
+**What is lost.** No layer now constrains the book logic against an
+independently built reconstruction. Layers 1 and 2 constrain the parser; layer
+4 shows the two books here agree; layer 5 shows a replay is internally
+consistent and repeatable. A shared misunderstanding of the feed's semantics —
+for instance, if `U` did not in fact lose queue priority at an unchanged price
+— would pass every remaining layer. That gap is real and is stated in the
+README rather than papered over.
+
+**What would close it.** A purchased LOBSTER sample for a session in
+`docs/data.md`; or a second independent ITCH reconstruction covering book
+state rather than message counts, which `RITCH` does not (it counts messages,
+and layer 2 already uses it for that). If either becomes available, the
+adapter is a day's work: LOBSTER event type 5 is a hidden execution and has no
+displayed-book effect, matching this project's treatment of `P`
+(`docs/design.md` record 011), and the comparison restricts to the fixed
+number of levels the orderbook file carries.
 
 ## Layer 4 — Differential replay against the reference book
 
