@@ -1443,3 +1443,76 @@ difference in how the two processes approach zero.
 **Scope.** One venue, one session, 50 symbols. The direction of the
 attribution error follows from cancels concentrating among young orders, which
 is a general feature of modern equity markets; its magnitude is not.
+
+---
+
+### 035a — Testing the variance explanation, prediction recorded first
+
+The paragraph above offers a *mechanism* — that exact and proportional differ
+in the variance of the ahead-count and not only in its mean — and offers it
+without a test. A mechanism that only ever explains an observed sign is not
+worth much. This section states a test, and the prediction it would have to
+survive, before the test was implemented.
+
+**The instrument.** A fifth model, **Bernoulli-proportional**. On every cancel
+at a live synthetic order's price it draws once, with probability equal to the
+proportional model's own assumed ahead-share *a/d*, and on a hit removes the
+cancelled order's full size from the queue ahead — all or nothing, as exact
+does. On a miss it removes nothing. Its expected removal per cancel is
+identical to proportional's; its removals are jumps, as exact's are. It
+therefore isolates the variance from the mean: the only thing it changes
+relative to proportional is the shape of the process, and the only thing it
+retains relative to exact is the attribution error.
+
+Two properties of the construction matter:
+
+- The draw is taken from a **separate generator**, seeded independently of the
+  placement generator. A model must not be able to change where and when the
+  synthetic orders are placed, or the five models would no longer be compared
+  on the same orders and the pairing that every reported interval depends on
+  would be gone.
+- The draw is `Sampler::bernoulli`, integer arithmetic on raw engine output.
+  It is taken once per cancel rather than once per placement, which is four
+  orders of magnitude more often, so a float comparison there would have put
+  the platform's math library on the hot path of a published number.
+
+**Prediction.** If the variance explanation in this record is right:
+
+1. **Bernoulli-proportional closes most of the gap to exact** in the shallow
+   and middle buckets, where proportional's fill-rate bias is negative. Most
+   of that negative bias is the shape of the process, not the attribution
+   error, so matching the shape should remove most of it.
+2. **What remains tracks the mean attribution error**, which is the +0.92 pp
+   pooled and +4.00 pp deep figures in the table above. Over-attributing
+   cancels to the queue ahead advances the queue too fast and therefore fills
+   too often, so the residual bias should be **positive** and should **grow
+   monotonically with depth**, in the same direction and roughly the same
+   ordering as the attribution error itself.
+3. **The deepest bucket keeps its positive sign** and becomes more positive,
+   because there the attribution error was already large enough to dominate.
+
+**What would falsify it.** If Bernoulli-proportional's fill-rate bias is close
+to proportional's rather than to exact's, then matching the variance changed
+nothing and the variance is not the mechanism — the explanation above would be
+a story that fits a sign and nothing more, and would be withdrawn.
+
+**A second, independent check.** The variance argument is an appeal to
+Jensen's inequality, and Jensen's inequality has a sign that depends on the
+curvature of fill probability as a function of the ahead-count. Randomising a
+quantity raises the expected value of a convex function of it and lowers the
+expected value of a concave one. So the argument requires that fill
+probability be **convex** in the ahead-count over the range where
+proportional's bias is negative. The exact model can estimate that curve
+directly, on a finer grid than the six reporting buckets.
+
+The shape expected is flat near the front — an order with a handful of shares
+ahead fills on the next execution more or less regardless of exactly how few —
+then a steep fall, then a flattening towards zero at great depth. If the curve
+is convex through the middle and deep region, the Jensen term is negative
+there, which is the sign proportional's bias actually has, and the sign flip
+in the deepest bucket is then the mean attribution error growing faster with
+depth than the curvature term rather than the curvature changing sign. If the
+curve is concave over that region, the Jensen term has the wrong sign and the
+explanation fails regardless of what the Bernoulli model does.
+
+Results follow in 035b, which was written after this section was committed.
