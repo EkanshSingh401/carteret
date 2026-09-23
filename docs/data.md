@@ -253,6 +253,7 @@ only meaningful once the previous one holds:
 |---|---|---|
 | `20190130.BX_ITCH_50` | `d670c9dd0e2391a4007fa407668bfaaa9ded346f0804bb5d7b2a6c381bdcadd3` | 2026-09-22 |
 | `12302019.NASDAQ_ITCH50` | `5d81c2e14a0f748b29c674b6a342796932702034b4dd341e39e9a9ec5bac610f` | 2026-09-22 |
+| `01302019.NASDAQ_ITCH50` | `1d0972ffc25b35902ccc3f9069aae517da56903d5795f872902b8697315f30c3` | 2026-09-23 |
 
 The compressed files are recorded too, because the length and `gzip -t` checks
 are made against those bytes and the digest is what ties a later re-fetch to
@@ -261,6 +262,8 @@ the same archive entry.
 | Compressed file | Advertised bytes | SHA-256 (.gz) |
 |---|---:|---|
 | `12302019.NASDAQ_ITCH50.gz` | 3,524,013,057 | `ef03df46a27e6bda4dead017f84c2e3979df7211f02c7868b51d53fceb99c689` |
+| `01302019.NASDAQ_ITCH50.gz` | 4,764,426,091 | `8c97b5b13bc451c012c2466fb7e258da134dab29aa47b67fe7b0088c78e870be` |
+| `20190530.PSX_ITCH_50.gz` | 576,045,196 | `d605d18c4268f4a7c632b4bb9f5340c18f9f395eb75b2fbdb442e1181840cf57` |
 
 ## Whole-file transfer does not work for the larger sessions
 
@@ -296,9 +299,54 @@ GET /ITCH/Nasdaq%20ITCH/01302019.NASDAQ_ITCH50.gz   Range: bytes=0-1023
 
 206 with a `Content-Range` exactly matching the request, so
 `tools/fetch_chunked.sh` fetches 64 MiB at a time and resumes from whatever it
-already has. Measured immediately after the eight whole-file failures, it
-sustained about **11.6 MB/s**, which is the same archive answering a different
-request shape.
+already has.
+
+### Throughput is not a constant, and the first figure measured was the wrong one
+
+Measured immediately after the eight whole-file failures, the chunked path
+sustained about **11.6 MB/s** and completed a 4.76 GB session. That number was
+recorded here as though it characterised the archive. **It does not.** It was
+the *pre-throttle* rate, available before this client had pulled several
+gigabytes in a sitting.
+
+Measured on the next session, on fresh connections, immediately afterwards:
+
+| Probe | Rate |
+|---|---|
+| 1 MiB range | ~0.4 MB/s |
+| 8 MiB range | 0.34 MB/s |
+| 32 MiB range | 0.76 MB/s |
+| 64 MiB chunk already in flight | stalled entirely, zero bytes for minutes |
+
+So **sustained throughput after a large transfer is 0.3–0.8 MB/s**, roughly
+twenty times slower, and the 11.6 MB/s figure describes only the first session
+fetched in a quiet period. Planning on it understates a seven-session fetch by
+about an order of magnitude: at the sustained rate the remaining sessions are
+hours rather than minutes.
+
+The throttle is per-client and cumulative rather than per-connection: while one
+chunk was stalled at zero bytes, a **fresh** request for a different range of
+the *same* file returned 206 with a correct `Content-Range` and delivered data.
+That is also why parallel streams are not used — they are more of what
+provoked the throttling, not a way around it.
+
+A second measurement worth recording: a download and a differential replay
+running together fell to **0.6 MB/s** against 11.6 MB/s for the download alone.
+Disk contention, not the network. `tools/fetch_development_set.sh` therefore
+fetches and verifies strictly one session at a time.
+
+**Stall handling.** The first version gave each chunk a 15-minute timeout, so a
+socket that stopped delivering cost fifteen minutes of nothing. A chunk is now
+abandoned if it drops below **24 KB/s for 45 seconds** and retried in place
+with linear backoff, up to twenty attempts, rather than failing the run. Only
+the chunk is lost, because nothing is appended until the response has been
+validated as the range that was asked for.
+
+**Resumption is verified, not assumed.** The pipeline was interrupted twice
+mid-session and both times continued from the bytes already on disk rather
+than from zero — once from **268,435,456** bytes and once from
+**3,288,334,336** — with the ETag check confirming the file had not changed
+underneath it.
 
 **What each chunk must prove before a byte of it is appended.** This is the
 failure the script exists to prevent, and it has already happened here: an
@@ -350,10 +398,40 @@ served.
 | `20190130.BX_ITCH_50.gz` | whole file | completed |
 | `12302019.NASDAQ_ITCH50.gz` | whole file, after two corrupted attempts | completed; see *three attempts to get it right* |
 | `20190530.PSX_ITCH_50.gz` | whole file (0.54 GB) | completed |
-| `01302019.NASDAQ_ITCH50.gz` | **chunked**, after 4 whole-file failures | in progress |
+| `01302019.NASDAQ_ITCH50.gz` | **chunked**, after 4 whole-file failures | completed and verified |
+| `05302019.NASDAQ_ITCH50.gz` | **chunked** | in progress |
 | `03272019.NASDAQ_ITCH50.gz` | **chunked**, after 4 whole-file failures | pending |
-| `07302019.NASDAQ_ITCH50.gz` | **chunked** | pending |
-| `05302019`, `08302019`, `S101819` | pending the Linux throughput measurement | pending |
+| `07302019`, `08302019`, `S101819-v50.txt` | **chunked** | pending |
+
+All remaining sessions are fetched on this machine. They are not moved to the
+benchmark host: it is very likely behind the same public address and so the
+same throttle, and it has to stay network-quiet for Stage 4 or its timings
+measure the download.
+
+### Disk budget
+
+Measured expansion is **2.35×** (11.25/4.76 and 8.25/3.52 on the two sessions
+unpacked so far).
+
+| | GB |
+|---|---:|
+| Seven development sessions, compressed | 29.73 |
+| Seven development sessions, unpacked | 69.90 |
+| Both copies of all seven | **99.64** |
+| `20190130.BX_ITCH_50`, archive and session (Stage 7's second session) | 3.52 |
+| `20190530.PSX_ITCH_50.gz`, the venue control | 0.58 |
+| **Peak** | **103.74** |
+
+Against **693 GB free**, which is 6.7× the peak, so both copies of every
+session are kept and nothing is pruned. Keeping the archive beside the
+unpacked session is what makes a later integrity question answerable: the
+recorded SHA-256 of the `.gz` can be rechecked, and `gzip -t` can be re-run,
+without fetching four gigabytes again from an archive that throttles.
+
+If that margin ever disappears, the order to discard in is: unpacked sessions
+first (they regenerate from the archive in a minute), then archives of
+sessions already verified and hashed, and never the `.gz` of a session whose
+digest has not yet been recorded in this document.
 
 ## Fetching the remaining development sessions on a second machine
 
@@ -470,7 +548,7 @@ any gated computation.
 | Session | Filed under | Verdict | Profiled |
 |---|---|---|---|
 | 2019-12-30 `12302019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | **NASDAQ** | 2026-09-23 |
-| 2019-01-30 `01302019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | *pending download* | — |
+| 2019-01-30 `01302019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | **NASDAQ** | 2026-09-23 |
 | 2019-03-27 `03272019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | *pending download* | — |
 | 2019-05-30 `05302019.NASDAQ_ITCH50` | **`Nasdaq PSX ITCH/`** | *pending download* | — |
 | 2019-07-30 `07302019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | *pending download* | — |

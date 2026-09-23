@@ -140,7 +140,7 @@ while [ "$have" -lt "$TOTAL" ]; do
     rm -f "$tmp"
     if [ "$attempt" -ge 20 ]; then
       echo "" >&2
-      echo "chunk ${start}-${end}: 20 attempts failed; re-run to resume from $have" >&2
+      echo "chunk ${start}-${end}: 20 attempts failed; re-run to continue from $have" >&2
       exit 1
     fi
     back=$((attempt * 5))
