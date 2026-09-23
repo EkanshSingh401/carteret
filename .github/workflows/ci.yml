@@ -34,6 +34,29 @@ jobs:
       - name: test
         run: ctest --preset ${{ matrix.preset }}
 
+  # The compiler matrix above catches a standard library that consumes the
+  # engine differently. It cannot catch a MATH LIBRARY that rounds differently,
+  # because both of its jobs run on the same glibc. exponential_ns() calls
+  # std::log1p, which is not required to be correctly rounded, so this job runs
+  # the golden draws against Apple's libm as well. The two must agree exactly;
+  # sampling.hpp explains why quantization makes that the expected outcome and
+  # what a disagreement would mean.
+  golden-draws:
+    name: golden draws / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: configure
+        run: cmake --preset release
+      - name: build
+        run: cmake --build --preset release --target test_rng_golden -j
+      - name: golden draws
+        run: ctest --preset release -R rng_golden --output-on-failure
+
   fuzz-smoke:
     name: fuzz smoke (60s)
     runs-on: ubuntu-latest
