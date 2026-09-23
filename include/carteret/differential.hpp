@@ -89,6 +89,15 @@ public:
         ++stats_.messages;
     }
 
+    // 'H' changes no book state, so it is forwarded to the reference book
+    // only, which retains the trading state. That state is what separates a
+    // crossed book the venue allowed -- because it was not matching the
+    // symbol -- from one this reconstruction produced.
+    void on(StockTradingAction v) {
+        ref_.on(v);
+        ++stats_.messages;
+    }
+
     void on(AddOrder v) {
         if (done()) return;
         apply(v);

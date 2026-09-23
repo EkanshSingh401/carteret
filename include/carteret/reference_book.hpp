@@ -106,6 +106,36 @@ struct RefCounters {
     std::uint64_t crossed_worst_ticks = 0; // deepest crossing seen, in Price(4) units
     std::set<std::uint16_t> crossed_symbols;
     std::set<std::uint16_t> locked_symbols;
+    // Observations made while the symbol was NOT in state 'T'. A venue that
+    // is not matching a symbol cannot prevent its book from crossing, so this
+    // is the split that decides whether a crossing is a market condition or a
+    // reconstruction error.
+    std::uint64_t crossed_while_not_trading = 0;
+    std::uint64_t locked_while_not_trading = 0;
+    std::uint64_t trading_state_changes = 0;
+    // Observations excused because the symbol had resumed but its reopening
+    // cross had not yet run. Between the 'T' that restores trading and the
+    // cross that clears the accumulated book, the venue is not yet matching
+    // and the book may still be crossed. That window is bounded by observable
+    // events rather than by a tolerance chosen to fit.
+    //
+    // It closes on whichever comes first: the symbol's next cross trade, or
+    // the first observation in which its book is NOT crossed or locked. The
+    // second bound is what keeps the excuse honest. Waiting only for a cross
+    // leaves the window open until the closing cross when no halt cross
+    // arrives -- measured at 6.4 hours on one symbol of
+    // `12302019.NASDAQ_ITCH50` -- and a gate that excuses a whole afternoon
+    // is not a gate. A book that uncrosses has demonstrated that the venue is
+    // matching it, and anything after that stands on its own.
+    std::uint64_t crossed_awaiting_reopen = 0;
+    std::uint64_t locked_awaiting_reopen = 0;
+    std::uint64_t reopen_windows = 0;
+    std::uint64_t reopen_window_max_ns = 0;
+    // Everything else: in state 'T', reopening cross already run or the
+    // symbol never halted. These fail the gate.
+    std::uint64_t crossed_unexplained = 0;
+    std::uint64_t locked_unexplained = 0;
+    std::set<std::uint16_t> unexplained_symbols;
 
     [[nodiscard]] std::uint64_t orphans() const noexcept {
         return orphan_execute + orphan_execute_price + orphan_cancel + orphan_delete +
@@ -127,6 +157,29 @@ public:
     // are observed for their counters only.
     void on(SystemEvent v) {
         if (v.event_code() == 'E') after_hours_ = true;
+    }
+
+    // 'H' Stock Trading Action. The book is not changed by it; the trading
+    // state is retained because a symbol that is halted, paused or in its
+    // quotation-only period is one the venue is not matching, and an unmatched
+    // book may legitimately cross. State 'T' is trading; 'H' and 'P' are
+    // halted and paused; 'Q' is quotation only.
+    void on(StockTradingAction v) {
+        const unsigned char st = v.trading_state();
+        auto& slot = trading_state_[v.locate()];
+        // The instant of entry into 'T' is retained only on a real transition,
+        // so a repeated 'T' does not restart the clock.
+        if (st == 'T' && slot.state != 'T') {
+            slot.entered_t_ts = v.ts();
+            // The first action of the session announces a state rather than
+            // ending a halt, so it opens no reopening window.
+            if (slot.state != 0) {
+                slot.awaiting_reopen = true;
+                ++counters_.reopen_windows;
+            }
+        }
+        slot.state = st;
+        ++counters_.trading_state_changes;
     }
 
     void on(StockDirectory v) {
@@ -205,9 +258,19 @@ public:
         tick();
         (void)v;
     }
+    // A cross for a symbol closes any reopening window it had open: the
+    // accumulated book has been matched, and the venue is matching
+    // continuously again from here.
     void on(CrossTrade v) {
         tick();
         if (v.shares() == 0) ++counters_.zero_share_cross;
+        const auto it = trading_state_.find(v.locate());
+        if (it != trading_state_.end() && it->second.awaiting_reopen) {
+            it->second.awaiting_reopen = false;
+            const std::uint64_t held =
+                v.ts() >= it->second.entered_t_ts ? v.ts() - it->second.entered_t_ts : 0;
+            if (held > counters_.reopen_window_max_ns) counters_.reopen_window_max_ns = held;
+        }
     }
 
     // --- queries -----------------------------------------------------------
@@ -431,9 +494,21 @@ private:
         const RefSymbol& s = it->second;
         if (!s.has_bid() || !s.has_ask()) return;
         const bool continuous = ts >= kOpenNs && ts < kCloseNs;
+        const auto ts_it = trading_state_.find(locate);
+        const bool known = ts_it != trading_state_.end();
+        const bool trading = known && ts_it->second.state == 'T';
+        const bool awaiting = known && ts_it->second.awaiting_reopen;
         if (s.best_bid() > s.best_ask()) {
             ++counters_.crossed_observations;
             if (continuous) ++counters_.crossed_continuous;
+            if (!trading) {
+                ++counters_.crossed_while_not_trading;
+            } else if (awaiting) {
+                ++counters_.crossed_awaiting_reopen;
+            } else {
+                ++counters_.crossed_unexplained;
+                counters_.unexplained_symbols.insert(locate);
+            }
             if (counters_.crossed_first_ts == 0) counters_.crossed_first_ts = ts;
             counters_.crossed_last_ts = ts;
             const std::uint64_t depth = s.best_bid() - s.best_ask();
@@ -442,9 +517,24 @@ private:
         } else if (s.best_bid() == s.best_ask()) {
             ++counters_.locked_observations;
             if (continuous) ++counters_.locked_continuous;
+            if (!trading) {
+                ++counters_.locked_while_not_trading;
+            } else if (awaiting) {
+                ++counters_.locked_awaiting_reopen;
+            } else {
+                ++counters_.locked_unexplained;
+                counters_.unexplained_symbols.insert(locate);
+            }
             if (counters_.locked_first_ts == 0) counters_.locked_first_ts = ts;
             counters_.locked_last_ts = ts;
             counters_.locked_symbols.insert(locate);
+        } else if (awaiting) {
+            // Neither crossed nor locked: the reopening has taken effect, so
+            // the window closes here whether or not a cross was seen.
+            ts_it->second.awaiting_reopen = false;
+            const std::uint64_t held =
+                ts >= ts_it->second.entered_t_ts ? ts - ts_it->second.entered_t_ts : 0;
+            if (held > counters_.reopen_window_max_ns) counters_.reopen_window_max_ns = held;
         }
     }
 
@@ -452,6 +542,12 @@ private:
     std::unordered_map<Ref, RefOrder> orders_;
     std::map<std::uint16_t, std::array<char, 8>> names_;
     RefCounters counters_;
+    struct TradingState {
+        unsigned char state = 0;
+        bool awaiting_reopen = false;
+        std::uint64_t entered_t_ts = 0;
+    };
+    std::unordered_map<std::uint16_t, TradingState> trading_state_;
     bool after_hours_ = false;
 };
 

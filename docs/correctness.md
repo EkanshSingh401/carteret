@@ -216,21 +216,42 @@ is consistently wrong hashes consistently.
 | Session | Crossed | Locked | Zero-share `Q` | Orphaned modifies | Post-`E` book messages | Removed at zero |
 |---|---:|---:|---:|---:|---:|---:|
 | `20190130.BX_ITCH_50` | 0 | 0 | 0 | 0 | 155 | 1,012,543 |
+| `12302019.NASDAQ_ITCH50` | 8,580 | 70 | 12,189 | 0 | 51,200 | 4,270,459 |
+
+The NASDAQ crossed and locked counts are **not** a contradiction of the row
+above them, and every one of them is excused by the feed:
+
+| | Crossed | Locked |
+|---|---:|---:|
+| Symbol not in trading state `T` | 7,945 | 62 |
+| Inside a reopening window | 635 | 8 |
+| **Unexplained — these fail the gate** | **0** | **0** |
+
+See `docs/design.md` record 036. BX runs no auction and halted no symbol in
+this session, so zero is what the same rule predicts there.
 
 **Zero orphaned modifies over 74.5M book messages.** Every `E`, `C`, `X`, `D`
 and `U` in the session named a live order. The condition is real — it is
 documented at session boundaries — but it does not occur here.
 
-**Zero crossed and zero locked, and now a gate.** Not a dead counter: the
-check is in a position to fire on 98.7% of book-affecting messages, across
-6,678 two-sided symbols, and the minimum spread observed is one Price(4) unit.
-A single venue's own displayed book cannot lock or cross itself during
-continuous trading, so these counters are reconstruction-error detectors
-rather than market statistics, and **`replay` now exits nonzero on any nonzero
-count in either book**. See `docs/design.md` record 027.
+**Crossed and locked books are a gate, and the NASDAQ session is what
+calibrated it.** A venue cannot keep its own displayed book uncrossed in a
+symbol it is **matching**, so an observation while the venue is matching is a
+reconstruction error rather than a market statistic. Two conditions excuse
+one, both read from the feed: the symbol is not in trading state `T`, or it
+has resumed and its reopening cross has not yet run. **`replay` exits nonzero
+on any observation that is neither**, and additionally requires the two books
+to agree on the totals, since only the reference book carries trading state.
 
-**155 book-affecting messages after the `E` end-of-system-hours event**, out of
-223 messages of all types. The specification permits this and the book applies
+On BX the check is in a position to fire on 98.7% of book-affecting messages
+across 6,678 two-sided symbols, and the minimum spread observed is one
+Price(4) unit, so zero there is a result and not a dead counter. On NASDAQ it
+fired 8,650 times and every one was excused — which is what turned a rule
+about *trading hours* into a rule about *matching*. See `docs/design.md`
+records 027 and 036.
+
+**155 book-affecting messages after the `E` end-of-system-hours event on BX,
+and 51,200 on NASDAQ**, out of 223 and 51,268 messages of all types. The specification permits this and the book applies
 them; stopping at `E` would silently lose them.
 
 ---

@@ -132,13 +132,28 @@ int run(const Options& opt) {
     // See docs/design.md record 027.
     const RefCounters& rc = d.reference().counters();
     const FastCounters& fc = d.fast().counters();
-    const bool no_crossing = rc.crossed_observations == 0 && rc.locked_observations == 0 &&
-                             fc.crossed_observations == 0 && fc.locked_observations == 0;
+    // The gate (record 036). A crossed or locked book is a reconstruction
+    // error only where the venue was matching the symbol. Two states excuse
+    // it, and both are read from the feed rather than assumed:
+    //   - the symbol is not in trading state 'T' -- halted, paused, or in a
+    //     quotation-only period, so nothing executes against the resting book;
+    //   - the symbol has resumed but its reopening cross has not yet run, so
+    //     the accumulated book has not been matched.
+    // Anything else fails. The fast book carries no trading state, so it is
+    // held to agreement with the reference book's totals instead, which is
+    // what keeps it inside the check.
+    const bool books_agree = rc.crossed_observations == fc.crossed_observations &&
+                             rc.locked_observations == fc.locked_observations;
+    const bool no_crossing =
+        rc.crossed_unexplained == 0 && rc.locked_unexplained == 0 && books_agree;
 
     const bool ok = !d.divergence().found && full_ok && ref_bad == 0 && fast_bad == 0 &&
                     no_crossing && st.end != ParseEnd::Truncated && st.trailing == 0 &&
                     fc.pool_exhausted == 0 && fc.index_failures == 0 && fc.symbol_overflow == 0;
-    if (!no_crossing) {
+
+    // Reported whenever they occur, not only on failure: a rate that changes
+    // between sessions is worth seeing even when every observation is excused.
+    if (rc.crossed_observations || rc.locked_observations) {
         const auto hms = [](std::uint64_t ns, char* buf, std::size_t n) {
             const std::uint64_t s_ = ns / 1'000'000'000ULL;
             std::snprintf(buf, n, "%02llu:%02llu:%02llu", (unsigned long long)(s_ / 3600),
@@ -149,26 +164,46 @@ int run(const Options& opt) {
         hms(rc.crossed_last_ts, c1, sizeof c1);
         hms(rc.locked_first_ts, l0, sizeof l0);
         hms(rc.locked_last_ts, l1, sizeof l1);
+        std::printf("\ncrossed and locked observations (docs/design.md record 036):\n");
+        std::printf("  %-26s %12s %12s\n", "", "crossed", "locked");
+        std::printf("  %-26s %12llu %12llu\n", "total",
+                    (unsigned long long)rc.crossed_observations,
+                    (unsigned long long)rc.locked_observations);
+        std::printf("  %-26s %12llu %12llu\n", "  symbol not trading",
+                    (unsigned long long)rc.crossed_while_not_trading,
+                    (unsigned long long)rc.locked_while_not_trading);
+        std::printf("  %-26s %12llu %12llu\n", "  awaiting reopening cross",
+                    (unsigned long long)rc.crossed_awaiting_reopen,
+                    (unsigned long long)rc.locked_awaiting_reopen);
+        std::printf("  %-26s %12llu %12llu   <- fails the gate\n", "  unexplained",
+                    (unsigned long long)rc.crossed_unexplained,
+                    (unsigned long long)rc.locked_unexplained);
+        std::printf("  %-26s %12llu %12llu\n", "  in continuous trading",
+                    (unsigned long long)rc.crossed_continuous,
+                    (unsigned long long)rc.locked_continuous);
+        std::printf("  %-26s %12s %12s\n", "  first", c0, l0);
+        std::printf("  %-26s %12s %12s\n", "  last", c1, l1);
+        std::printf("  %-26s %12llu %12llu\n", "  distinct symbols",
+                    (unsigned long long)rc.crossed_symbols.size(),
+                    (unsigned long long)rc.locked_symbols.size());
+        std::printf("  deepest crossing          %12llu ticks\n",
+                    (unsigned long long)rc.crossed_worst_ticks);
+        std::printf("  reopening windows         %12llu, longest %.3f s\n",
+                    (unsigned long long)rc.reopen_windows,
+                    static_cast<double>(rc.reopen_window_max_ns) / 1e9);
+    }
+    if (!no_crossing) {
         std::fprintf(stderr,
-                     "\nLOCKED OR CROSSED BOOK: %llu crossed, %llu locked observations\n"
-                     "in the reference book, and the same in the fast book.\n"
-                     "See docs/design.md record 027.\n\n"
-                     "  crossed   %llu total, %llu of them in continuous trading\n"
-                     "            %s to %s, %llu distinct symbols, deepest %llu ticks\n"
-                     "  locked    %llu total, %llu of them in continuous trading\n"
-                     "            %s to %s, %llu distinct symbols\n\n"
-                     "Continuous trading is 09:30:00 to 16:00:00. A count that sits\n"
-                     "entirely outside it points at the auction book; a count inside it\n"
-                     "points at the reconstruction.\n",
-                     (unsigned long long)rc.crossed_observations,
-                     (unsigned long long)rc.locked_observations,
-                     (unsigned long long)rc.crossed_observations,
-                     (unsigned long long)rc.crossed_continuous, c0, c1,
-                     (unsigned long long)rc.crossed_symbols.size(),
-                     (unsigned long long)rc.crossed_worst_ticks,
-                     (unsigned long long)rc.locked_observations,
-                     (unsigned long long)rc.locked_continuous, l0, l1,
-                     (unsigned long long)rc.locked_symbols.size());
+                     "\nLOCKED OR CROSSED BOOK: %llu crossed and %llu locked observations\n"
+                     "that the feed does not excuse, across %llu symbols.\n"
+                     "A venue that is matching a symbol cannot let its own displayed book\n"
+                     "cross, so this is a reconstruction error. See docs/design.md record\n"
+                     "036. Books agree on the totals: %s.\n",
+                     (unsigned long long)rc.crossed_unexplained,
+                     (unsigned long long)rc.locked_unexplained,
+                     (unsigned long long)rc.unexplained_symbols.size(),
+                     books_agree ? "yes"
+                                 : "NO -- the two books disagree, which is its own bug");
     }
     std::printf("%s\n", ok ? "RESULT: identical" : "RESULT: FAILED");
     return ok ? 0 : 1;

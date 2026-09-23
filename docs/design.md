@@ -935,14 +935,17 @@ a class of book errors that no other layer detects into an immediate failure.
 
 **Consequences.** The claim "this reconstruction never crossed" is meaningful
 only for single-venue displayed books on sessions with the same
-characteristics. A NASDAQ session, which does run opening and closing crosses,
-has not been replayed, and the expectation there is explicitly untested.
+characteristics.
 
 **Evidence.** Full-session replay of `20190130.BX_ITCH_50`: 74,182,680 checks,
 73,201,236 with both sides populated (98.7%), 6,678 symbols two-sided at some
 point, zero crossed, zero locked, minimum spread 1 Price(4) unit. Both the
 reference and fast books report the same, though they implement the same rule
 twice and so agreement between them is not independent confirmation.
+
+**Superseded in part by record 036,** which ran the NASDAQ session this record
+named as the real test. The rule above is right about continuous trading and
+wrong about what continuous trading means.
 
 ---
 
@@ -1601,3 +1604,141 @@ been measured, not as a mechanism that has been traced end to end, and this
 record says so rather than reading four points out of six as agreement.
 
 **Scope.** One venue, one session, 50 symbols, one order size.
+
+---
+
+## 036 — A crossed book is a reconstruction error only while the venue is matching
+
+**Status:** in force. Supersedes the gate condition of record 027; that
+record's decision to fail rather than merely count stands unchanged.
+
+**Context.** Record 027 turned the crossed and locked counters into a
+correctness gate on the argument that a single venue's own displayed book
+cannot lock or cross itself during continuous trading. It was explicit that
+the BX session could not test this — BX runs no auction, `I` and `Q` are both
+zero there — and it pre-committed to the NASDAQ session as the real test, with
+revision on evidence rather than a quiet relaxation if the gate fired.
+
+It fired. `12302019.NASDAQ_ITCH50`, 264 million messages compared with **no
+divergence between the reference and fast books**, zero orphans, zero
+over-executions, zero invariant violations — and **8,580 crossed and 70 locked
+observations**, identical in both books.
+
+**The first hypothesis was wrong.** The obvious explanation for a venue that
+runs an opening and a closing cross is the auction book, where interest
+accumulates at overlapping prices until the cross resolves it. That is not
+what this is: **8,372 of the 8,580 crossings are inside 09:30 to 16:00.**
+
+The data that does explain it is the concentration. The crossings touch
+**13 distinct symbols out of 8,897**, the locks 6, and the deepest crossing is
+140,000 Price(4) units — **$14.00**. A missed removal, a misapplied replace or
+a stale level is a mechanism that would not confine itself to thirteen names
+and would not need to be fourteen dollars deep.
+
+`H` (Stock Trading Action) carries a per-symbol trading state that the
+reference book was discarding. On this session:
+
+| State | Messages | Meaning |
+|---|---:|---|
+| `T` | 8,922 | trading |
+| `P` | 22 | paused — LULD |
+| `H` | 19 | halted |
+| `Q` | 3 | quotation only |
+
+Nineteen symbols carry more than one action, and they are the halted and
+paused ones: MDR halts four times between 15:05:33 and 15:34:11, WKEY is
+paused five times through the morning, MKD spends much of the session cycling
+between `P` and `T`. The locked observations' last instant is **15:14:23**,
+which is exactly ARDS's third LULD pause.
+
+**The trading state alone does not account for all of them.** Splitting by
+state leaves **635 crossed and 8 locked observations while the symbol was in
+state `T`**, which halts do not explain and which an earlier draft of this
+record wrongly claimed did not exist.
+
+They have a single cause, and it is sharp. Every one of the 635 falls **within
+50 ms of that symbol's resumption**, none later, and **none on a symbol that was
+never halted**. The `'T'` message restores trading, but the accumulated book
+is not matched until the reopening cross runs, and in the interval between the
+two the venue is still not matching.
+
+**Decision.** The rule is right and its scope was wrong. A venue cannot keep a
+book uncrossed in a symbol it is **not matching**, and "matching" is not the
+same as the clock, nor quite the same as the trading state. Two conditions
+excuse an observation, both read from the feed:
+
+1. The symbol is **not in state `T`** — halted, paused, or quotation-only.
+2. The symbol has resumed but is **inside an open reopening window**.
+
+Everything else fails the gate. Observations in categories 1 and 2 are
+counted and reported with their instants, symbol counts and depth, and fail
+nothing.
+
+**The reopening window is bounded by events, not by a tolerance.** A tolerance
+would have been the easy move — the observed maximum was under 50 ms, so any
+round number above it would have passed — but a threshold chosen after seeing
+the data it must accommodate is fitted to that data. The window opens on a
+resumption and closes on whichever comes first:
+
+- the symbol's **next cross trade**, which is the reopening cross matching the
+  accumulated book; or
+- the **first observation in which its book is neither crossed nor locked**,
+  because a book that has uncrossed has demonstrated that the venue is
+  matching it.
+
+The second bound is what makes the first safe. Closing only on a cross leaves
+the window open until the *closing* cross when no halt cross arrives, which on
+this session reached **23,203 seconds — 6.4 hours** on one symbol. Nothing
+wrong got through it, but an excuse that can stay open for an afternoon is not
+a gate. With both bounds the longest window on the same session is **1
+millisecond**, and the unexplained count is unchanged at zero.
+
+The reference book retains the trading state and the window; the fast book
+does not, so the gate additionally requires the two books' totals to agree,
+which keeps the fast book inside the check.
+
+**Consequences.** `Differential` forwards `'H'` to the reference book, which
+it previously dropped along with every other non-book message. That is the
+second defect this session exposed: the harness silently discarded a message
+type that carried state the gate needed, and nothing noticed because BX's
+single `'H'` per symbol never mattered.
+
+Record 027's evidence is unaffected. BX genuinely has zero of both, and on a
+venue with no auction and no halt in the session that is the same statement
+the new gate makes.
+
+**Alternatives considered.**
+- *Relax the gate to a warning.* This is what record 027 pre-committed against.
+  The gate caught something real on its first exposure to a venue with halts;
+  removing it would discard a working check because it worked.
+- *Gate on clock time instead — exclude 09:30 to 16:00.* Wrong on both sides.
+  It would excuse the 208 crossings outside those hours that are equally
+  legitimate, and it would still fail on the 8,372 inside them, which are
+  legitimate too. Clock time is a proxy for matching; the trading state is the
+  thing itself.
+- *Exclude the thirteen symbols.* Fits this session and generalises to
+  nothing.
+- *Treat an absent `'H'` as not trading.* Rejected: absence of a state is
+  ignorance, not a halt, and it would silently excuse a real error on any
+  session whose directory messages were incomplete. The gate treats only an
+  explicit non-`T` state as permission, so a missing `'H'` fails loudly.
+- *Excuse the post-resumption crossings with a time tolerance.* Rejected above. A
+  threshold set just past the largest value observed is fitted to the session
+  that produced it, and it would go on excusing anything that happened to fall
+  inside it on a session where the cause was different.
+
+**Evidence.** `12302019.NASDAQ_ITCH50`, 264,496,253 messages compared, no
+divergence, zero invariant violations, zero orphans:
+
+| | Crossed | Locked |
+|---|---:|---:|
+| Total | 8,580 | 70 |
+| Symbol not in state `T` | 7,945 | 62 |
+| Inside a reopening window | 635 | 8 |
+| **Unexplained** | **0** | **0** |
+| In continuous trading | 8,372 | 70 |
+| Distinct symbols | 13 | 6 |
+
+Deepest crossing 140,000 Price(4) units. 33 reopening windows, longest 1 ms.
+`20190130.BX_ITCH_50` is unchanged under the new gate: zero of everything,
+and `RESULT: identical`.
