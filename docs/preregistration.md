@@ -322,6 +322,71 @@ The block length used in step 2 is whatever the ±0.05-for-30-lags rule
 returns on the development sessions, rounded up to the next whole minute. It
 is recorded in the table below as a measured quantity, not chosen.
 
+#### The block-length rule has an unfixed parameter, and it decides the answer
+
+**This is an open item for the author. It is reported rather than resolved,
+because it can no longer be resolved innocently.**
+
+The rule fixes the tolerance (±0.05), the run length (30 consecutive lags) and
+the rounding. It does not fix **the time bin the metric is aggregated into
+before the autocorrelation is taken**, and on `12302019.NASDAQ_ITCH50` that
+choice moves the answer by two orders of magnitude:
+
+| Bin | First qualifying lag | Block length |
+|---:|---:|---:|
+| 1 s | 2 s | **1 minute** |
+| 5 s | 10 s | **1 minute** |
+| 10 s | 20 s | **1 minute** |
+| 30 s | 8,850 s | **148 minutes** |
+| 60 s | 19,140 s | **319 minutes** |
+
+A 319-minute block on a 390-minute session yields one block, which is not a
+bootstrap. Both ends are artifacts, by two different mechanisms, and neither
+is a statement about dependence in the data.
+
+**Small bins: noise in the metric.** At a 1-second bin there are 10.4
+qualifying windows per bin, so the per-bin hit rate is mostly binomial
+sampling noise — observed standard deviation 0.2393 against a noise floor of
+0.1554, so roughly 65% of the variance is noise. Noise is uncorrelated, so it
+drives the autocorrelation towards zero and the rule fires almost
+immediately. The block is short because the series is noisy, not because
+dependence is absent.
+
+**Large bins: noise in the autocorrelation estimate.** The rule demands 30
+consecutive lags inside ±0.05, but the estimate has its own standard error of
+about 1/√n:
+
+| Bin | Bins in a session | SE(ρ) | Tolerance in SE |
+|---:|---:|---:|---:|
+| 1 s | 23,400 | 0.0065 | 7.7 |
+| 10 s | 2,340 | 0.0207 | 2.4 |
+| 30 s | 780 | 0.0358 | 1.4 |
+| 60 s | 390 | 0.0506 | **1.0** |
+
+At a 60-second bin the tolerance **equals one standard error**, so ρ wanders
+outside ±0.05 by chance every few lags and 30 consecutive lags inside it is
+reached only by luck — which is exactly what
+`docs/figures/block_length_dev_2019-12-30_directional.png` shows past the
+2,000-second mark.
+
+So the rule is reliable only where the bin is large enough that the metric is
+not mostly noise **and** small enough that ±0.05 is several standard errors of
+ρ. Those two requirements point in opposite directions, and nothing in the
+registration says where to stand between them.
+
+**Why this is not fixed here.** The remedy is to fix the bin in the
+registration on a stated principle — a minimum number of observations per bin,
+or a tolerance scaled to SE(ρ) rather than a constant. Either is defensible.
+But the table above has now been seen, so any bin chosen from here is chosen
+knowing which block length it produces, which is the precise thing a
+pre-registered rule exists to prevent. The author fixes the amendment, and
+this section records that the choice was made with the sensitivity already
+visible.
+
+**Provisional status.** Until then no block length is registered, and the MDE
+cells below stay empty. The figure and the two tables above are the evidence
+for the amendment, computed on development data only.
+
 #### The economic thresholds, fixed before any MDE was computed
 
 One economic requirement, expressed in each metric's own units. Stating it
