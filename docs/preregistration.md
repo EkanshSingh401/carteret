@@ -426,6 +426,16 @@ A predictive signal has no P&L until it is a strategy.
   unlikely to clear.
 - **Fills** come from the queue simulator under the fill rules of
   `docs/design.md` record 020, with **exact market-by-order queue position**.
+- **Rule 4 is OFF in the primary specification.** Rule 4 fills a resting order
+  when a non-displayed print occurs at exactly its price. That is a *modelling
+  choice and not an inference*: `P` carries no usable side, and
+  midpoint-pegged prints trade between ticks, so a print at the order's price
+  does not establish that displayed interest there was exhausted. Turning it
+  on can only add fills, so it can only flatter the strategy, and a
+  specification that flatters itself by an assumption it cannot check is the
+  wrong primary. **Rule 4 on is reported alongside as a labelled sensitivity**
+  and carries the correction in section 3 like any other secondary.
+  Both arms are run for every result; neither is chosen after seeing them.
   Unfilled quotes are unfilled. Record 030 is why the queue model is named
   here: conservative attribution understates fill rates by up to 60% and
   overstates adverse selection by 54%, so a strategy result is meaningless
@@ -532,11 +542,29 @@ Distinct from the signal failing. If any of these occurs, the result is
 
 - The held-out minimum detectable effect exceeds the economically meaningful
   effect from section 4.
-- Book reconstruction on a held-out session fails any correctness layer in
-  `docs/correctness.md`, or a determinism hash changes without explanation.
-  `research/run_heldout.sh` runs the census, the determinism hashes and the
-  differential replay on each held-out session before the study, for this
-  reason.
+- **Any of the following is not true of a held-out session before a single
+  feature is computed from it.** All four are recorded in `docs/data.md` at
+  download time and checked by `research/run_heldout.sh`, which refuses to
+  proceed if any fails:
+  1. Its **SHA-256 is recorded at download**, for the compressed file and for
+     the unpacked session, computed twice by independent implementations
+     (`shasum` and `census --sha256`).
+  2. The **integrity checks pass**: the compressed length equals the length
+     the server advertised, and `tools/verify_archive.sh` exits zero — no
+     truncated stream, no appended bytes, digest matching if one is known.
+  3. The **census is clean and the session is complete**: no unknown type, no
+     length mismatch, no trailing bytes, and the final message is System
+     Event `'C'`. Without that last check a truncated download is a
+     well-formed prefix of a valid session (`docs/design.md` record 032).
+  4. The **differential replay reports `RESULT: identical`**, with zero
+     unexplained crossed or locked observations under record 036's gate.
+
+  A session failing any of these is not analysed and is not quietly replaced;
+  the failure is reported. Computing a feature first and checking afterwards
+  would mean the decision to re-download had been made with the result already
+  visible.
+- Book reconstruction on a held-out session fails any other correctness layer
+  in `docs/correctness.md`, or a determinism hash changes without explanation.
 - Fewer than *(N)* simulated fills per held-out session for the maker
   strategy.
 - Any held-out data was read before the registration commit existed.
@@ -548,6 +576,44 @@ Distinct from the signal failing. If any of these occurs, the result is
 "The data cannot distinguish these hypotheses" is a result. It is not the same
 as "the effect is absent", and conflating the two is the error this section
 exists to prevent.
+
+---
+
+## 10. The sequence, in order, with nothing reorderable
+
+A pre-registration is only worth what an outside reader can check about
+**when** it was fixed. Every step below leaves a public artifact with a
+timestamp that is not under the author's control, and each must complete
+before the next begins.
+
+| # | Step | Artifact a reader can check |
+|---|---|---|
+| 1 | **Registration commit.** This document, complete: hypothesis, features, strategy, costs, decision rules, MDE table, selected hypothesis, block length. | commit hash and author date |
+| 2 | **Push.** | GitHub's own receipt of the push, which the author cannot backdate |
+| 3 | **CI green.** All jobs, both compilers, both platforms. | workflow run id, conclusion and time |
+| 4 | **`heldout.lock` commit.** Records the registration commit hash, the CI run id that went green, and the SHA-256 of this document at that commit. | commit hash, and a digest that changes if the registration is edited afterwards |
+| 5 | **Push.** | second push receipt |
+| 6 | **Only then, download the held-out sessions.** | `docs/data.md` download timestamps and digests, all later than step 5 |
+
+**Why the lock is a separate commit after CI rather than part of step 1.** A
+lock written in the same commit as the registration proves nothing about the
+registration: both are written at once by the same hand. Written afterwards,
+against a pushed commit and a completed CI run, it pins a document that was
+already public. And because it carries the registration's SHA-256, any later
+edit to this file is detectable by anyone who recomputes it — including edits
+that would otherwise look like tidying.
+
+**What would invalidate the study, and is checkable.** If any held-out
+session's download timestamp in `docs/data.md` precedes the push at step 5, or
+if this document's digest at the registration commit does not match the one in
+`heldout.lock`, the study is not confirmatory and must be reported as
+exploratory regardless of its result. `research/run_heldout.sh` checks both
+before it runs anything and refuses if either fails.
+
+**Nothing between steps 1 and 6 may touch held-out data**, including reading
+its size, its per-type census or its first message. The sessions are not
+downloaded at all until step 6, which is the only version of this rule that
+does not depend on the author's restraint.
 
 ---
 

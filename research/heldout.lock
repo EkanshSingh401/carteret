@@ -11,6 +11,18 @@
 # is fetched; a hash written by the same process that runs the study would
 # establish nothing.
 #
-# format: a single line, "commit <40-hex-sha>"
+# Section 10 of docs/preregistration.md fixes the order these are written in,
+# and this file carries three things rather than one so that a reader can
+# check it rather than trust it:
+#
+#   commit    <40-hex-sha>   the registration commit, pushed before CI ran
+#   ci_run    <id>           the workflow run that went green on that commit
+#   sha256    <64-hex>       of docs/preregistration.md AT that commit
+#
+# The digest is the part that matters. A lock naming only a commit is
+# satisfied by editing the registration afterwards and amending; a lock
+# carrying the registration's digest is not, because recomputing it is
+# something anyone can do. run_heldout.sh recomputes it and refuses on a
+# mismatch.
 #
 # UNSET. The held-out sessions in docs/data.md have not been downloaded.
