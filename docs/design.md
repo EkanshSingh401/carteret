@@ -1303,11 +1303,20 @@ row verified identical to the reference book.
 | 1024 | 16.7% | **0.62%** | 646,340 | 1,554,702 |
 | 2048 | 6.3% | **0.29%** | 157,772 | 340,009 |
 
-At the default 256 ticks the overflow rate falls by a factor of **14**, and
-the replay is no slower than it was with the fixed origin — the saved overflow
-map lookups pay for the rebuilds. Sub-cent prices are 131,243 of the remaining
-overflow hits at every width and cannot be indexed on a cents axis
-(record 005), so they are a floor of 0.18%.
+At the default 256 ticks the overflow rate falls by a factor of **14**.
+Sub-cent prices are 131,243 of the remaining overflow hits at every width and
+cannot be indexed on a cents axis (record 005), so they are a floor of 0.18%.
+
+**The timing comparison here is a smoke test, not a result.** Wall time for
+the differential replay did not rise when the window began to slide, which is
+the expected direction — the overflow map lookups that are no longer taken pay
+for the rebuilds — but that was measured on the development Mac, on a machine
+with no core isolation and no frequency control, and docs/benchmarks.md admits
+no number from it. The counts in the table above are deterministic and stand;
+the claim that sliding is not a throughput regression is **pending the Linux
+host** (Stage 4), where the per-message distribution will also separate
+recentering messages from the rest so the tail can be attributed rather than
+guessed at.
 
 The path is covered by a differential test that walks the inside up and back
 down across sixteen window widths. The design it replaces could not have

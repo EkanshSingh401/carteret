@@ -139,8 +139,16 @@ measuring intraday range rather than distance from the inside. The prediction
 was that anchoring the window on the inside would bring the rate into low
 single digits at the default width, and that the rebuild cost would be small
 because rebuilds are triggered by price movement rather than by message rate.
-Both held. What was not predicted: that the replay would be no slower overall,
-because the saved overflow map lookups pay for the rebuilds.
+Both held.
+
+A third observation — that the replay was no slower overall — is recorded here
+as a **smoke test only**. It was taken on the development Mac, which this
+document does not accept timings from, and it is the kind of claim most likely
+to be wrong for a reason a wall clock cannot see: the rebuilds could be cheap
+on average and still own the tail. It is carried forward to Stage 4 as a
+prediction to be tested on the benchmark host, where bench_book tags the
+messages that trigger a recenter and reports their distribution separately
+from the rest.
 
 - Date: 2026-09-22
 - Session: `20190130.BX_ITCH_50`, 74,508,064 book-affecting messages
