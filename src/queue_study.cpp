@@ -125,7 +125,7 @@ void print_summary(const QueueSimulator& sim, bool rule4) {
                 (unsigned long long)sim.schedule_overruns());
     std::printf("\n%-14s %10s %10s %12s %14s\n", "model", "placed", "filled", "fill rate",
                 "mean t-to-fill");
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         const double mean_ttf = r[m].filled ? static_cast<double>(r[m].sum_time_to_fill_ns) /
                                                   static_cast<double>(r[m].filled) / 1e9
                                             : 0.0;
@@ -137,7 +137,7 @@ void print_summary(const QueueSimulator& sim, bool rule4) {
     // The bias, which is the result: each approximation against exact.
     const double exact_rate = r[0].fill_rate();
     std::printf("\n%-14s %16s %16s\n", "model", "fill-rate bias", "relative");
-    for (std::size_t m = 1; m < 4; ++m) {
+    for (std::size_t m = 1; m < kModelCount; ++m) {
         const double d = r[m].fill_rate() - exact_rate;
         std::printf("%-14s %15.3fpp %15.1f%%\n", kQueueModelName[m], d * 100.0,
                     exact_rate > 0 ? 100.0 * d / exact_rate : 0.0);
@@ -145,7 +145,7 @@ void print_summary(const QueueSimulator& sim, bool rule4) {
 
     std::printf("\nfill rate by queue depth at entry (shares ahead)\n");
     std::printf("%-14s", "depth");
-    for (std::size_t m = 0; m < 4; ++m) std::printf(" %13s", kQueueModelName[m]);
+    for (std::size_t m = 0; m < kModelCount; ++m) std::printf(" %13s", kQueueModelName[m]);
     std::printf(" %12s\n", "n placed");
     for (std::size_t d = 0; d < kDepthBucketEdges.size(); ++d) {
         if (r[0].placed_by_depth[d] == 0) continue;
@@ -159,7 +159,7 @@ void print_summary(const QueueSimulator& sim, bool rule4) {
                           (unsigned long long)kDepthBucketEdges[d]);
         }
         std::printf("%-14s", label);
-        for (std::size_t m = 0; m < 4; ++m) {
+        for (std::size_t m = 0; m < kModelCount; ++m) {
             const double rate = r[m].placed_by_depth[d]
                                     ? static_cast<double>(r[m].filled_by_depth[d]) /
                                           static_cast<double>(r[m].placed_by_depth[d])
@@ -174,7 +174,7 @@ void print_summary(const QueueSimulator& sim, bool rule4) {
     // beside it.
     std::printf("\nrealised value per filled order, in half-spreads at entry\n");
     std::printf("%-14s %12s %12s %12s %14s\n", "model", "1 s", "10 s", "60 s", "fills valued");
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         double hs[3] = {0, 0, 0};
         std::uint64_t n[3] = {0, 0, 0};
         for (std::size_t d = 0; d < kDepthBucketEdges.size(); ++d) {
@@ -232,10 +232,46 @@ void print_summary(const QueueSimulator& sim, bool rule4) {
         std::printf("  it advanced the queue too fast and should over-estimate fills.\n");
     }
 
+    // Fill probability against the ahead-count at entry, on the fine grid.
+    // The curvature of this curve fixes the sign of the Jensen term that
+    // record 035's explanation rests on: randomising the ahead-count raises
+    // the expected value of a convex function of it and lowers a concave one.
+    // Six reporting buckets cannot settle that; eighteen can say something.
+    {
+        const std::size_t ex = static_cast<std::size_t>(QueueModel::Exact);
+        const std::size_t bp = static_cast<std::size_t>(QueueModel::BernoulliProportional);
+        const std::size_t pr = static_cast<std::size_t>(QueueModel::Proportional);
+        std::printf("\nfill probability against shares ahead at entry "
+                    "(docs/design.md record 035a)\n");
+        std::printf("%14s %10s %10s %10s %10s %10s\n", "shares ahead", "placed", "mean ahead",
+                    "exact", "prop", "bern");
+        for (std::size_t g = 0; g < kAheadGridEdges.size(); ++g) {
+            const std::uint64_t n = r[ex].placed_by_ahead[g];
+            if (n == 0) continue;
+            const double dn = static_cast<double>(n);
+            char lo[32];
+            if (g + 1 < kAheadGridEdges.size()) {
+                std::snprintf(lo, sizeof lo, "%llu-%llu",
+                              (unsigned long long)kAheadGridEdges[g],
+                              (unsigned long long)kAheadGridEdges[g + 1] - 1);
+            } else {
+                std::snprintf(lo, sizeof lo, "%llu+", (unsigned long long)kAheadGridEdges[g]);
+            }
+            std::printf("%14s %10llu %10.0f %9.2f%% %9.2f%% %9.2f%%\n", lo,
+                        (unsigned long long)n, r[ex].ahead_sum[g] / dn,
+                        100.0 * static_cast<double>(r[ex].filled_by_ahead[g]) / dn,
+                        100.0 * static_cast<double>(r[pr].filled_by_ahead[g]) / dn,
+                        100.0 * static_cast<double>(r[bp].filled_by_ahead[g]) / dn);
+        }
+        std::printf("  The exact column is the curve. A convex stretch means a model that\n");
+        std::printf("  removes cancels in jumps fills more often than one that removes the\n");
+        std::printf("  same amount as a fraction, which is the whole of the Jensen term.\n");
+    }
+
     std::printf("\nwhy orders filled\n");
     std::printf("%-14s %14s %14s %16s %12s\n", "model", "exec behind", "trade through",
                 "non-displayed", "expired");
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         std::printf("%-14s %14llu %14llu %16llu %12llu\n", kQueueModelName[m],
                     (unsigned long long)r[m].reasons[1], (unsigned long long)r[m].reasons[2],
                     (unsigned long long)r[m].reasons[3], (unsigned long long)r[m].reasons[4]);
@@ -251,7 +287,7 @@ void write_csv(const QueueSimulator& sim, const Options& opt, bool rule4) {
                     "fill_rate,value_1s,value_10s,value_60s,"
                     "value_hs_1s,value_hs_10s,value_hs_60s,"
                     "valued_1s,valued_10s,valued_60s\n");
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         for (std::size_t d = 0; d < kDepthBucketEdges.size(); ++d) {
             if (r[m].placed_by_depth[d] == 0) continue;
             const double rate = static_cast<double>(r[m].filled_by_depth[d]) /
@@ -289,9 +325,30 @@ void write_csv(const QueueSimulator& sim, const Options& opt, bool rule4) {
     }
     std::fclose(f);
 
+    f = open_or_die(opt.out + "/queue_fill_curve_" + suffix + ".csv");
+    std::fprintf(f, "venue,date,rule4,model,bin,ahead_low,ahead_high,mean_ahead,placed,"
+                    "filled,fill_rate\n");
+    for (std::size_t m = 0; m < kModelCount; ++m) {
+        for (std::size_t g = 0; g < kAheadGridEdges.size(); ++g) {
+            const std::uint64_t n = r[m].placed_by_ahead[g];
+            if (n == 0) continue;
+            const long long high = g + 1 < kAheadGridEdges.size()
+                                       ? static_cast<long long>(kAheadGridEdges[g + 1]) - 1
+                                       : -1;
+            std::fprintf(f, "%s,%s,%d,%s,%zu,%llu,%lld,%.1f,%llu,%llu,%.6f", opt.venue.c_str(),
+                         opt.date.c_str(), rule4 ? 1 : 0, kQueueModelName[m], g,
+                         (unsigned long long)kAheadGridEdges[g], high,
+                         r[m].ahead_sum[g] / static_cast<double>(n), (unsigned long long)n,
+                         (unsigned long long)r[m].filled_by_ahead[g],
+                         static_cast<double>(r[m].filled_by_ahead[g]) / static_cast<double>(n));
+            std::fprintf(f, "\n");
+        }
+    }
+    std::fclose(f);
+
     f = open_or_die(opt.out + "/queue_time_to_fill_" + suffix + ".csv");
     std::fprintf(f, "venue,date,rule4,model,bucket,low_ns,high_ns,count\n");
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         for (std::size_t b = 0; b < kFillTimeBuckets; ++b) {
             if (r[m].time_to_fill[b] == 0) continue;
             std::fprintf(f, "%s,%s,%d,%s,%zu,%.0f,%.0f,%llu\n", opt.venue.c_str(),
@@ -307,14 +364,14 @@ void write_csv(const QueueSimulator& sim, const Options& opt, bool rule4) {
 // separate a difference between models from a difference between the orders
 // that happened to be placed; running several and reporting the range is what
 // makes that separable.
-void print_seed_spread(const std::vector<std::array<double, 4>>& rates, int seeds) {
+void print_seed_spread(const std::vector<std::array<double, kModelCount>>& rates, int seeds) {
     if (seeds <= 1) {
         std::printf("\nseed spread       not measured (one seed)\n");
         return;
     }
     std::printf("\nfill rate across %d placement sequences\n", seeds);
     std::printf("%-14s %10s %10s %10s %10s\n", "model", "mean", "min", "max", "range");
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         double lo = rates[0][m], hi = rates[0][m], sum = 0.0;
         for (const auto& r : rates) {
             lo = r[m] < lo ? r[m] : lo;
@@ -327,13 +384,13 @@ void print_seed_spread(const std::vector<std::array<double, 4>>& rates, int seed
     }
 }
 
-void write_seed_csv(const std::vector<std::array<double, 4>>& rates, const Options& opt,
-                    bool rule4) {
+void write_seed_csv(const std::vector<std::array<double, kModelCount>>& rates,
+                    const Options& opt, bool rule4) {
     const std::string suffix = rule4 ? "rule4on" : "rule4off";
     std::FILE* f = open_or_die(opt.out + "/queue_seeds_" + suffix + ".csv");
     std::fprintf(f, "venue,date,rule4,seed_index,model,fill_rate\n");
     for (std::size_t k = 0; k < rates.size(); ++k) {
-        for (std::size_t m = 0; m < 4; ++m) {
+        for (std::size_t m = 0; m < kModelCount; ++m) {
             std::fprintf(f, "%s,%s,%d,%zu,%s,%.6f\n", opt.venue.c_str(), opt.date.c_str(),
                          rule4 ? 1 : 0, k, kQueueModelName[m], rates[k][m]);
         }
@@ -349,7 +406,7 @@ void write_symbol_csv(const QueueSimulator& sim, const Options& opt, bool rule4,
     const std::string suffix = rule4 ? "rule4on" : "rule4off";
     std::FILE* f = open_or_die(opt.out + "/queue_by_symbol_" + suffix + ".csv");
     std::fprintf(f, "venue,date,rule4,symbol,locate,model,placed,filled\n");
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         for (const auto& [locate, counts] : sim.results()[m].by_symbol) {
             const auto it = names.find(locate);
             std::fprintf(f, "%s,%s,%d,%s,%u,%s,%llu,%llu\n", opt.venue.c_str(),
@@ -423,16 +480,18 @@ int main(int argc, char** argv) {
         // The spread across them is the only handle on how much of a reported
         // difference is the models and how much is which orders happened to be
         // placed; a single seed cannot distinguish the two.
-        std::vector<std::array<double, 4>> rates_by_seed;
+        std::vector<std::array<double, kModelCount>> rates_by_seed;
         QueueSimulator base = run_once(mf, opt, universe, rule4, opt.seed);
         for (int k = 0; k < opt.seeds; ++k) {
             const std::uint64_t seed = opt.seed + static_cast<std::uint64_t>(k);
-            std::array<double, 4> rates{};
+            std::array<double, kModelCount> rates{};
             if (k == 0) {
-                for (std::size_t m = 0; m < 4; ++m) rates[m] = base.results()[m].fill_rate();
+                for (std::size_t m = 0; m < kModelCount; ++m)
+                    rates[m] = base.results()[m].fill_rate();
             } else {
                 const QueueSimulator sim = run_once(mf, opt, universe, rule4, seed);
-                for (std::size_t m = 0; m < 4; ++m) rates[m] = sim.results()[m].fill_rate();
+                for (std::size_t m = 0; m < kModelCount; ++m)
+                    rates[m] = sim.results()[m].fill_rate();
             }
             rates_by_seed.push_back(rates);
         }

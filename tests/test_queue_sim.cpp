@@ -148,7 +148,7 @@ void test_rule1_execution_ahead_deducts_without_filling() {
     QueueSimulator sim = s.run(one_placement(500));
     CHECK(sim.placements() == 1);
     // 200 shares still ahead: no model may fill.
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         CHECK(!filled(sim, static_cast<QueueModel>(m)));
     }
 }
@@ -184,7 +184,7 @@ void test_rule2_execution_at_price_once_ahead_is_zero_fills() {
     s.execute(3, 100, s.at(3000)); // next execution at the price fills
 
     QueueSimulator sim = s.run(one_placement(500));
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         const QueueModel qm = static_cast<QueueModel>(m);
         CHECK(filled(sim, qm));
         CHECK(reason_count(sim, qm, FillReason::ExecutionBehind) == 1);
@@ -199,7 +199,7 @@ void test_clearing_the_queue_exactly_does_not_fill() {
     s.execute(1, 200, s.at(2000));
 
     QueueSimulator sim = s.run(one_placement(500));
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         CHECK(!filled(sim, static_cast<QueueModel>(m)));
     }
 }
@@ -214,7 +214,7 @@ void test_rule3_trade_through_fills_every_model() {
 
     QueueSimulator sim = s.run(one_placement(500));
     CHECK(sim.placements() == 1);
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         const QueueModel qm = static_cast<QueueModel>(m);
         CHECK(filled(sim, qm));
         CHECK(reason_count(sim, qm, FillReason::TradeThrough) == 1);
@@ -228,7 +228,7 @@ void test_execution_on_the_other_side_does_not_fill() {
     seed(s, 300);
     s.execute(2, 500, s.at(2000)); // the resting ask executes
     QueueSimulator sim = s.run(one_placement(500));
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         CHECK(!filled(sim, static_cast<QueueModel>(m)));
     }
 }
@@ -241,7 +241,7 @@ void test_rule4_off_by_default() {
     s.trade(kBid, 500, s.at(2000)); // a print at exactly the synthetic price
 
     QueueSimulator sim = s.run(one_placement(500, /*rule4=*/false));
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         CHECK(!filled(sim, static_cast<QueueModel>(m)));
     }
 }
@@ -252,7 +252,7 @@ void test_rule4_on_fills_every_model() {
     s.trade(kBid, 500, s.at(2000));
 
     QueueSimulator sim = s.run(one_placement(500, /*rule4=*/true));
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         const QueueModel qm = static_cast<QueueModel>(m);
         CHECK(filled(sim, qm));
         CHECK(reason_count(sim, qm, FillReason::NonDisplayedPrint) == 1);
@@ -265,7 +265,7 @@ void test_rule4_only_applies_at_the_order_price() {
     seed(s, 300);
     s.trade(kBid - 500, 500, s.at(2000));
     QueueSimulator sim = s.run(one_placement(500, /*rule4=*/true));
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         CHECK(!filled(sim, static_cast<QueueModel>(m)));
     }
 }
@@ -321,7 +321,7 @@ void test_cancel_behind_splits_the_models() {
     // Every model ends up filled here; what differs is when, which the
     // aggregate time-to-fill captures. The point of this test is that the
     // exact model's ahead-count was untouched by a cancel behind it.
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         CHECK(filled(sim, static_cast<QueueModel>(m)));
     }
 }
@@ -352,6 +352,93 @@ void test_replace_is_treated_as_a_removal() {
     CHECK(!filled(sim, QueueModel::Conservative));
 }
 
+// --- the Bernoulli-proportional model ----------------------------------------
+
+// The model's whole purpose is to have proportional's MEAN and exact's SHAPE
+// (docs/design.md record 035a), so both halves are asserted here.
+//
+// The script: 400 shares ahead, 600 join behind, then the 600 behind cancels.
+// A market-by-price observer sees a level of 1,000 lose 600, so the assumed
+// ahead-share is 400/1000 = 0.4. The probe is a PARTIAL EXECUTION OF THE ORDER
+// AHEAD -- 100 of its 400 shares. That probe is deliberate: an execution of an
+// order behind would fill the exact model outright by rule 2 and settle
+// nothing, whereas executing the order ahead leaves every model to answer from
+// its own ahead-count, and only a model that believes nothing is ahead fills.
+//
+//   exact         the cancel was behind: 400 - 100 = 300 ahead, never fills.
+//   conservative  assumes behind: 400 - 100 = 300 ahead, never fills.
+//   optimistic    assumes ahead: 400 - 600 -> 0, so the execution fills it.
+//   proportional  removes 600 * 0.4 = 240, then 100: 60 ahead, never fills.
+//   bernoulli     removes 600 or nothing: 0 or 400 ahead, so it fills in
+//                 exactly those runs where the coin came up ahead.
+//
+// SHAPE is therefore the fact that this model's outcome is ever either of the
+// two extremes, which no fraction can produce. MEAN is the rate at which it
+// takes the filling one, checked across 400 seeds.
+void test_bernoulli_proportional_is_all_or_nothing_at_the_stated_rate() {
+    const int kRuns = 400;
+    int bern_fills = 0;
+    for (int r = 0; r < kRuns; ++r) {
+        Script s;
+        s.add(1, kBuy, kBid, 400, s.at(0));
+        s.add(2, kSell, kAsk, 500, s.at(1));
+        clock(s, s.at(500));                   // synthetic order enters, 400 ahead
+        s.add(3, kBuy, kBid, 600, s.at(1000)); // behind; level depth now 1,000
+        s.cancel(3, 600, s.at(2000));          // the order behind cancels
+        s.execute(1, 100, s.at(3000));         // partial execution of the order AHEAD
+
+        QueueSimConfig cfg = one_placement(500);
+        cfg.seed = 1000u + static_cast<std::uint64_t>(r);
+        QueueSimulator sim = s.run(cfg);
+        CHECK(sim.placements() == 1);
+
+        // The other four are deterministic and must not vary with the seed.
+        CHECK(!filled(sim, QueueModel::Exact));
+        CHECK(!filled(sim, QueueModel::Conservative));
+        CHECK(!filled(sim, QueueModel::Proportional));
+        CHECK(filled(sim, QueueModel::Optimistic));
+
+        if (filled(sim, QueueModel::BernoulliProportional)) ++bern_fills;
+    }
+
+    // 400 draws at p = 0.4: mean 160, standard deviation 9.8. The bounds are
+    // five standard deviations either side, wide enough that a change to the
+    // generator cannot fail this by chance and narrow enough to catch a wrong
+    // numerator, a wrong denominator, or a draw that never happens.
+    CHECK(bern_fills > 111);
+    CHECK(bern_fills < 209);
+    if (bern_fills <= 111 || bern_fills >= 209) {
+        std::fprintf(stderr, "  bernoulli fills %d of %d, expected about 160\n", bern_fills,
+                     kRuns);
+    }
+}
+
+// A certainty must not consume a draw, and must not be taken as a coin: when
+// the whole level is ahead, the assumed share is 1 and the model must remove
+// the full quantity every time, for every seed.
+void test_bernoulli_proportional_is_certain_when_the_level_is_all_ahead() {
+    for (std::uint64_t seed :
+         {std::uint64_t{1}, std::uint64_t{2}, std::uint64_t{99}, std::uint64_t{20190130}}) {
+        Script s;
+        s.add(1, kBuy, kBid, 400, s.at(0));
+        s.add(2, kSell, kAsk, 500, s.at(1));
+        clock(s, s.at(500));          // synthetic order enters, 400 ahead, nothing behind
+        s.cancel(1, 400, s.at(1000)); // the entire queue ahead cancels
+        s.add(3, kBuy, kBid, 100, s.at(2000));
+        s.execute(3, 100, s.at(3000));
+
+        QueueSimConfig cfg = one_placement(500);
+        cfg.seed = seed;
+        QueueSimulator sim = s.run(cfg);
+        CHECK(sim.placements() == 1);
+        CHECK(filled(sim, QueueModel::BernoulliProportional));
+        // Conservative still believes 400 are ahead, which is what makes the
+        // check above a statement about attribution rather than about the
+        // execution.
+        CHECK(!filled(sim, QueueModel::Conservative));
+    }
+}
+
 // --- expiry and accounting ---------------------------------------------------
 
 void test_unfilled_orders_expire_and_are_worth_nothing() {
@@ -366,7 +453,7 @@ void test_unfilled_orders_expire_and_are_worth_nothing() {
     cfg.max_life_ns = 60'000'000'000ULL;
     QueueSimulator sim = s.run(cfg);
     CHECK(sim.placements() == 1);
-    for (std::size_t m = 0; m < 4; ++m) {
+    for (std::size_t m = 0; m < kModelCount; ++m) {
         const QueueModel qm = static_cast<QueueModel>(m);
         CHECK(!filled(sim, qm));
         CHECK(reason_count(sim, qm, FillReason::Expired) == 1);
@@ -393,7 +480,7 @@ void test_all_models_see_the_same_placements() {
     QueueSimulator sim = s.run(cfg);
     CHECK(sim.placements() > 5);
     const auto& r = sim.results();
-    for (std::size_t m = 1; m < 4; ++m) {
+    for (std::size_t m = 1; m < kModelCount; ++m) {
         CHECK(r[m].placed == r[0].placed);
         for (std::size_t d = 0; d < kDepthBucketEdges.size(); ++d) {
             CHECK(r[m].placed_by_depth[d] == r[0].placed_by_depth[d]);
@@ -417,6 +504,8 @@ int main() {
     test_cancel_ahead_splits_the_models();
     test_cancel_behind_splits_the_models();
     test_replace_is_treated_as_a_removal();
+    test_bernoulli_proportional_is_all_or_nothing_at_the_stated_rate();
+    test_bernoulli_proportional_is_certain_when_the_level_is_all_ahead();
     test_unfilled_orders_expire_and_are_worth_nothing();
     test_all_models_see_the_same_placements();
 

@@ -26,7 +26,7 @@
 //      order that triggered the fill still executes in the replay, so
 //      liquidity at p is double counted by q. Stated, not corrected.
 //
-// THE FOUR MODELS. All four see the same executed volume at p. They differ
+// THE FIVE MODELS. All five see the same executed volume at p. They differ
 // only in how a *cancel* at p is attributed, which is what the comparison
 // isolates:
 //
@@ -40,11 +40,22 @@
 //   Proportional assumes cancels are drawn uniformly from the level, so a
 //                cancel of c from a level of d reduces the ahead-count by
 //                c * ahead / d.
+//   Bernoulli-   the same assumption, taken as a coin rather than an average:
+//   proportional the cancel is ahead with probability ahead / d, and if it is,
+//                all c shares are removed. Same expected removal as
+//                proportional, same all-or-nothing shape as exact. It exists
+//                to separate the two, and docs/design.md record 035a states
+//                what it had to show before it was built.
 //
-// Exact is not bracketed by the other three: optimistic can still be slower
-// than exact when the real cancels happened to be entirely ahead and larger
-// than proportional would allow. Which way the bias runs, and how large it is,
-// is the measurement.
+// Exact is not bracketed by the others: optimistic can still be slower than
+// exact when the real cancels happened to be entirely ahead and larger than
+// proportional would allow. Which way the bias runs, and how large it is, is
+// the measurement.
+//
+// Bernoulli-proportional draws from a SEPARATE generator. A model must not be
+// able to move the placements, or the models would no longer be compared on
+// the same synthetic orders and the pairing every reported interval rests on
+// would be gone.
 
 #pragma once
 
@@ -69,11 +80,13 @@ enum class QueueModel : std::uint8_t {
     Conservative = 1,
     Optimistic = 2,
     Proportional = 3,
-    kCount = 4,
+    BernoulliProportional = 4,
+    kCount = 5,
 };
+inline constexpr std::size_t kModelCount = static_cast<std::size_t>(QueueModel::kCount);
 
 inline constexpr const char* kQueueModelName[] = {"exact", "conservative", "optimistic",
-                                                  "proportional"};
+                                                  "proportional", "bernoulli-prop"};
 
 // Why a synthetic order stopped being live, under one model.
 enum class FillReason : std::uint8_t {
@@ -126,6 +139,22 @@ inline constexpr std::array<std::uint64_t, 6> kDepthBucketEdges = {0,    100,   
 inline std::size_t depth_bucket(std::uint64_t ahead) noexcept {
     std::size_t i = 0;
     while (i + 1 < kDepthBucketEdges.size() && ahead >= kDepthBucketEdges[i + 1]) ++i;
+    return i;
+}
+
+// A finer grid on the same quantity. The six reporting buckets above are for
+// reporting; they are far too coarse to settle the shape of fill probability
+// as a function of the ahead-count, and that shape is what fixes the sign of
+// the Jensen term the explanation in record 035 rests on (record 035a). The
+// edges below are roughly log-spaced above one round lot, with the front of
+// the queue resolved finely because that is where the curve is expected to be
+// flat and where being wrong about it would matter most.
+inline constexpr std::array<std::uint64_t, 18> kAheadGridEdges = {
+    0,    1,    50,   100,  200,   300,   500,   800,   1200,
+    2000, 3000, 5000, 8000, 12000, 20000, 35000, 60000, 100000};
+inline std::size_t ahead_grid(std::uint64_t ahead) noexcept {
+    std::size_t i = 0;
+    while (i + 1 < kAheadGridEdges.size() && ahead >= kAheadGridEdges[i + 1]) ++i;
     return i;
 }
 
@@ -226,6 +255,13 @@ struct ModelResults {
     // the widest names.
     std::array<std::array<double, 3>, kDepthBucketEdges.size()> value_halfspreads{};
     std::array<std::array<std::uint64_t, 3>, kDepthBucketEdges.size()> valued_by_depth{};
+    // Fill probability against the ahead-count at entry, on the fine grid.
+    // The ahead-count is the exact one in every model, since it is a property
+    // of the order's entry rather than of the model's attribution; what
+    // differs between models is which of those orders went on to fill.
+    std::array<std::uint64_t, kAheadGridEdges.size()> placed_by_ahead{};
+    std::array<std::uint64_t, kAheadGridEdges.size()> filled_by_ahead{};
+    std::array<double, kAheadGridEdges.size()> ahead_sum{};
     std::uint64_t sum_time_to_fill_ns = 0;
 
     [[nodiscard]] double fill_rate() const noexcept {
@@ -241,7 +277,14 @@ public:
     // How often expired orders are swept out of the live set.
     static constexpr std::uint64_t kSweepNs = 100'000'000ULL;
 
-    explicit QueueSimulator(QueueSimConfig cfg = {}) : cfg_(cfg), rng_(cfg.seed), book_() {
+    // The Bernoulli-proportional model's generator is separate and seeded by
+    // mixing the configured seed with a fixed constant. Sharing the placement
+    // generator would let one model's draws move every model's synthetic
+    // orders, which would break the pairing the comparison depends on -- the
+    // same failure that a std::exponential_distribution produced across two
+    // standard libraries, arriving by a different route.
+    explicit QueueSimulator(QueueSimConfig cfg = {})
+        : cfg_(cfg), rng_(cfg.seed), bern_rng_(cfg.seed ^ 0x9E3779B97F4A7C15ULL), book_() {
         next_placement_ = cfg_.start_ns;
     }
 
@@ -321,7 +364,9 @@ public:
 
     // --- results -----------------------------------------------------------
 
-    [[nodiscard]] const std::array<ModelResults, 4>& results() const noexcept { return res_; }
+    [[nodiscard]] const std::array<ModelResults, kModelCount>& results() const noexcept {
+        return res_;
+    }
     [[nodiscard]] const QueueSimConfig& config() const noexcept { return cfg_; }
     [[nodiscard]] std::uint64_t placements() const noexcept { return placements_; }
     [[nodiscard]] std::uint64_t skipped_no_inside() const noexcept { return skipped_; }
@@ -402,7 +447,8 @@ private:
             // them; once that count is zero the next execution at the price
             // fills this order.
             for (const QueueModel m :
-                 {QueueModel::Conservative, QueueModel::Optimistic, QueueModel::Proportional}) {
+                 {QueueModel::Conservative, QueueModel::Optimistic, QueueModel::Proportional,
+                  QueueModel::BernoulliProportional}) {
                 ModelState& s = o.models[static_cast<std::size_t>(m)];
                 if (!s.live) continue;
                 if (s.ahead <= 0.0) {
@@ -477,6 +523,24 @@ private:
                 prop.ahead -= static_cast<double>(qty) * share;
                 if (prop.ahead < 0.0) prop.ahead = 0.0;
             }
+
+            // Bernoulli-proportional: the same assumption taken as a coin.
+            // The removal is all or nothing, as exact's is, so this model has
+            // proportional's mean and exact's shape and the difference between
+            // the two is what it isolates. Record 035a.
+            ModelState& bp =
+                o.models[static_cast<std::size_t>(QueueModel::BernoulliProportional)];
+            if (bp.live && before > 0.0) {
+                const double a = bp.ahead < 0.0 ? 0.0 : bp.ahead;
+                // Truncating both to whole shares keeps the draw in integer
+                // arithmetic; bp.ahead only ever moves by whole quantities, so
+                // nothing is lost.
+                if (bern_rng_.bernoulli(static_cast<std::uint64_t>(a),
+                                        static_cast<std::uint64_t>(before))) {
+                    bp.ahead -= static_cast<double>(qty);
+                    if (bp.ahead < 0.0) bp.ahead = 0.0;
+                }
+            }
         }
     }
 
@@ -493,6 +557,7 @@ private:
         ++res_[mi].filled;
         ++res_[mi].by_symbol[o.locate].filled;
         ++res_[mi].filled_by_depth[db];
+        ++res_[mi].filled_by_ahead[ahead_grid(o.depth_at_entry)];
         ++res_[mi].reasons[static_cast<std::size_t>(why)];
         const std::uint64_t ttf = ts - o.entered_ts;
         res_[mi].sum_time_to_fill_ns += ttf;
@@ -614,10 +679,13 @@ private:
         for (ModelState& s : o.models) s.ahead = static_cast<double>(lv.shares);
 
         const std::size_t db = depth_bucket(o.depth_at_entry);
+        const std::size_t ag = ahead_grid(o.depth_at_entry);
         for (std::size_t m = 0; m < res_.size(); ++m) {
             ++res_[m].placed;
             ++res_[m].by_symbol[locate].placed;
             ++res_[m].placed_by_depth[db];
+            ++res_[m].placed_by_ahead[ag];
+            res_[m].ahead_sum[ag] += static_cast<double>(o.depth_at_entry);
         }
         ++placements_;
         by_locate_[locate].push_back(live_.size());
@@ -690,13 +758,14 @@ private:
 
     QueueSimConfig cfg_;
     Sampler rng_;
+    Sampler bern_rng_;
     ReferenceBook book_;
     std::vector<std::string> names_;
     std::vector<SyntheticOrder> live_;
     std::unordered_map<std::uint16_t, std::vector<std::size_t>> by_locate_;
     std::vector<PendingValuation> pending_;
     std::vector<std::uint16_t> two_sided_;
-    std::array<ModelResults, 4> res_{};
+    std::array<ModelResults, kModelCount> res_{};
     std::uint64_t next_placement_ = 0;
     std::uint64_t last_ts_ = 0;
     std::uint64_t universe_refreshed_ = 0;
