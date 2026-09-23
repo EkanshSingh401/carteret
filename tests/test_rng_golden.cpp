@@ -8,7 +8,9 @@
 // Everything now goes through carteret::Sampler, which is arithmetic on raw
 // engine output. This test asserts the exact values that arithmetic produces,
 // so a change to a helper, or a platform that disagrees, fails here rather
-// than silently shifting a result. CI runs it under both compilers.
+// than silently shifting a result. CI runs it under both compilers on Linux
+// and again on macOS, which is what puts a second math library under the
+// exponential draw.
 //
 // The golden values below were generated once and cross-checked between Apple
 // Clang 21.0.0 and GCC 16.2.0, which agreed on every one.
@@ -92,6 +94,53 @@ void test_exponential_gap() {
         expect("exponential_ns", s.exponential_ns(250000000ULL), w);
 }
 
+// The exponential is the only draw that touches the platform's math library,
+// and the six values above are six chances to notice a libm that disagrees.
+// This checksums a million of them instead. A libm differing by one ulp still
+// produces identical integers -- the quantization in exponential_ns is thirty
+// million times coarser than an ulp of the product, so that difference is
+// designed to vanish. A libm differing by more than that changes some of these
+// million draws and fails here. See sampling.hpp.
+void test_exponential_sweep_checksum() {
+    Sampler s(20190130);
+    std::uint64_t h = 1469598103934665603ULL; // FNV-1a offset basis
+    for (int i = 0; i < 1000000; ++i) {
+        h ^= s.exponential_ns(250000000ULL);
+        h *= 1099511628211ULL;
+    }
+    expect("exponential_ns sweep", h, std::uint64_t{3765140317619766613ULL});
+}
+
+// The Bernoulli-proportional model draws one of these per cancel at a live
+// synthetic order's price, which is the most frequently taken draw in the
+// project. It is integer arithmetic throughout, so it is reproducible by
+// construction; these pin it anyway.
+void test_bernoulli() {
+    Sampler s(20190130);
+    const char* want = "010100000000110001100010";
+    for (const char* c = want; *c; ++c) {
+        expect("bernoulli(1,4)", static_cast<std::uint64_t>(s.bernoulli(1, 4) ? 1 : 0),
+               static_cast<std::uint64_t>(*c == '1' ? 1 : 0));
+    }
+
+    // The rate is what the model depends on, so it is checked as well as the
+    // sequence: 37/100 over a million draws.
+    Sampler t(20190130);
+    std::uint64_t hits = 0;
+    for (int i = 0; i < 1000000; ++i) hits += t.bernoulli(37, 100) ? 1u : 0u;
+    expect("bernoulli(37,100) hits", hits, std::uint64_t{370493ULL});
+
+    // Degenerate rates must not consume a draw differently by platform, and
+    // must not divide by zero.
+    Sampler d(1);
+    CHECK(d.bernoulli(0, 10) == false);
+    CHECK(d.bernoulli(10, 10) == true);
+    CHECK(d.bernoulli(11, 10) == true);
+    CHECK(d.bernoulli(1, 0) == false);
+    expect("bernoulli consumed nothing for degenerate rates", d.raw(),
+           std::uint64_t{2469588189546311528ULL});
+}
+
 void test_pick_and_coin() {
     Sampler s(7);
     const std::size_t want[] = {15, 0, 28, 46, 21, 28, 9, 18, 31, 40};
@@ -127,6 +176,8 @@ int main() {
     test_raw_draws();
     test_uniform01_is_bit_exact();
     test_exponential_gap();
+    test_exponential_sweep_checksum();
+    test_bernoulli();
     test_pick_and_coin();
     test_pick_stays_in_range();
 

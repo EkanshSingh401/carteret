@@ -9,18 +9,30 @@
 //
 // So every draw this project makes goes through the helpers below, which are
 // arithmetic on raw engine output and specified here rather than by the
-// implementation. tests/test_rng_golden.cpp pins their output, and CI runs it
-// under both compilers.
+// implementation. tests/test_rng_golden.cpp pins their output; CI runs it
+// under both compilers, and on both Linux and macOS so that two math
+// libraries are compared as well as two standard libraries.
 //
 // ONE PLATFORM DEPENDENCY REMAINS, and it is named rather than hidden:
-// exponential_ns() calls std::log1p. A correctly rounded log1p gives identical
-// results everywhere, but the last-ulp behaviour of a math library is not
-// guaranteed by the standard. A difference there would move a placement time
-// by a few nanoseconds, which is far below the microsecond spacing of
-// messages and so is very unlikely to change which message a placement lands
-// on -- but the golden test asserts exact equality anyway, so a platform whose
-// log1p differs is reported immediately instead of quietly producing different
-// results.
+// exponential_ns() calls std::log1p, which the standard does not require to be
+// correctly rounded, so two libms may differ in the last bit.
+//
+// That draw is QUANTIZED TO INTEGER NANOSECONDS in the same expression that
+// generates it, and no floating-point value derived from libm is ever
+// returned, stored or compared. The quantization is what contains the
+// dependency, and the margin is large: for a mean of 250 ms a gap is of order
+// 1e8, one ulp of which is about 3e-8 ns, so a one-ulp disagreement changes
+// the returned integer only when the product falls within 3e-8 of an integer
+// boundary -- about three chances in a hundred million per draw. A libm that
+// differs by one ulp therefore produces bit-identical study output; a libm
+// that differs by more than that fails tests/test_rng_golden.cpp, which pins
+// six values directly and checksums a million more. Either the difference
+// vanishes or it is reported, and neither outcome is a quiet divergence.
+//
+// bernoulli() is deliberately integer-only for the same reason: the
+// Bernoulli-proportional model draws once per cancel, far more often than
+// placements occur, and a float comparison there would put libm back on a
+// path where quantization could not contain it.
 
 #pragma once
 
@@ -60,6 +72,20 @@ public:
     // identical on every implementation.
     [[nodiscard]] std::size_t pick(std::size_t n) noexcept {
         return n ? static_cast<std::size_t>(rng_() % n) : 0;
+    }
+
+    // Bernoulli with probability num/den, in integer arithmetic only. The
+    // modulo bias is den / 2^64; for the depths this is called with, that is
+    // below one part in 10^14. A float comparison against uniform01() would be
+    // equivalent in principle and would reintroduce a platform dependency for
+    // no gain.
+    [[nodiscard]] bool bernoulli(std::uint64_t num, std::uint64_t den) noexcept {
+        // Both degenerate rates return without consuming a draw, so a
+        // certainty costs nothing and, more importantly, does not shift the
+        // stream for every later call.
+        if (den == 0 || num == 0) return false;
+        if (num >= den) return true;
+        return (rng_() % den) < num;
     }
 
     [[nodiscard]] bool coin() noexcept { return (rng_() & 1u) != 0; }
