@@ -167,6 +167,15 @@ Fetched and verified on 2026-09-22 by every check in the section below.
 | First / last timestamp | 03:04:32 / 20:05:00 |
 | Types present | `S R H Y L V K J A F E C X D U P Q I` (18 of 23) |
 | Types absent | `N W h O B` |
+| Fast-book overflow rate (256-tick sliding window) | 4.90% |
+| Window recenters / levels moved | 703,924 / 11,999,325 |
+| Sub-cent prices | 656,931 |
+| Trading actions | 8,922 `T`, 22 `P`, 19 `H`, 3 `Q` |
+| Crossed / locked observations | 8,580 / 70, all excused (record 036) |
+
+The overflow rate is **more than double BX's 2.37%** at the same window width,
+on a venue whose symbols span a far wider price range. The window geometry of
+record 033 is unchanged and was not retuned for this session.
 
 **This session is what covers the message types BX could not.** BX runs no
 opening or closing cross, so `I` (NOII) and `Q` (Cross Trade) were exercised
