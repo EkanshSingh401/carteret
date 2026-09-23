@@ -1050,15 +1050,23 @@ it is what a backtest reaches for when it wants to avoid flattering itself.
 why, so that the cautious choice is not made by default on the grounds that
 caution is free.
 
-**Evidence.** On `20190130.BX_ITCH_50`, 93,525 placements at the inside of the
-50 busiest symbols, against exact market-by-order position:
+**Evidence.** **Scope: one venue, one session — BX, 2019-01-30 — 50 symbols,
+one round lot.** 93,525 placements at the inside, against exact
+market-by-order position:
 
-- Fill rate 19.87% against exact 25.12%: **20.9% low** pooled, and worse with
-  queue depth — 6.2% low at the front of the queue, **56.7% low** with 10,000
-  or more shares ahead. Deep in the queue almost every fill arrives through
+- Fill rate 19.87% against exact 25.12%: **20.9% low** pooled, 95% symbol
+  cluster-bootstrap interval [−24.4%, −17.7%], and the same sign in all ten
+  placement sequences with a seed range of 1.01 percentage points — so the
+  effect is twenty times the placement noise.
+- Worse with queue depth: 6.2% low at the front, **56.7% low** with 10,000 or
+  more shares ahead. Deep in the queue almost every fill arrives through
   cancellation of the orders in front, which this model assumes never happens.
+  That deepest bucket holds 669 placements, so its percentage moves by 0.15
+  points per order; the magnitude is solid, the third digit is not.
 - Value −1.28 half-spreads at one second against exact −0.77: **66% more
-  pessimistic**.
+  pessimistic**. The one-second horizon is quoted because adverse selection is
+  largest there; at ten and sixty seconds the gap is −1.04 against −0.61 and
+  −1.06 against −0.56.
 
 The two are the same mechanism. Refusing to advance the queue on cancels means
 the model only ever fills when the market runs through the level: 79% of its
@@ -1069,7 +1077,11 @@ over-reports how badly it does when it fills.
 
 Proportional attribution — a cancel of *c* from a level of *d* with *a* ahead
 removes *c·a/d* from in front — tracks exact within about 2% at every depth,
-at no extra data cost.
+at no extra data cost. Its pooled bias of −0.5% is consistently signed across
+the symbol bootstrap and all ten placement sequences, but its seed range is
+0.36 percentage points, so the effect is barely larger than the placement
+noise. It is a real but negligible bias, not a finding of the same kind as
+conservative's, and record 035 measures where it comes from.
 
 **Consequences.** A maker strategy evaluated under conservative attribution
 will be rejected on two counts that are both artifacts. Anything in this
@@ -1344,3 +1356,81 @@ operates its own retail program.
 **Untested.** Whether NASDAQ-venue sessions carry `N` in volume. No NASDAQ
 session has been censused yet, so the original claim may well hold for the
 venue it was made about.
+
+
+---
+
+## 035 — Proportional attribution over-advances the queue, and that is not why its fill rate is low
+
+**Status:** in force. Measured, replacing an inference.
+
+**Context.** Record 030 established that proportional cancel attribution
+tracks exact queue position closely while conservative does not. It did not
+establish *why*, and the obvious argument runs the wrong way.
+
+The Stage 6 lifetime data says cancels concentrate sharply among
+recently-added orders: 66.6% of cancelled-untouched orders on
+`20190130.BX_ITCH_50` are cancelled within one second of being added, 45%
+within 100 ms. A synthetic order placed at time *T* has every later arrival
+*behind* it, so the orders most likely to be cancelled are disproportionately
+behind. A model that assumes cancels are drawn uniformly from the level should
+therefore attribute too many of them to the queue ahead, advance too fast, and
+**over**-estimate fills.
+
+Proportional's pooled fill-rate bias is **negative**.
+
+**Decision.** Measure the attribution error directly rather than infer it from
+the fill rate. For every cancel at a live synthetic order's price, the exact
+model already knows whether the cancelled order was ahead; the proportional
+model's assumed fraction is *a/d* at that moment. Both are accumulated, per
+depth bucket at entry.
+
+**Evidence.** 538,121,624 cancelled shares at live synthetic orders' prices:
+
+| Shares ahead at entry | Cancelled shares | Actually ahead | Assumed ahead | Error |
+|---|---:|---:|---:|---:|
+| 0–99 | 1,114,909 | 1.57% | 1.70% | +0.13 pp |
+| 100–499 | 213,248,543 | 4.37% | 4.55% | +0.18 pp |
+| 500–1,999 | 138,361,218 | 11.52% | 12.16% | +0.63 pp |
+| 2,000–9,999 | 152,819,508 | 12.09% | 13.66% | +1.57 pp |
+| 10,000–49,999 | 32,577,446 | 21.26% | 25.26% | +4.00 pp |
+| All | 538,121,624 | 9.42% | 10.34% | +0.92 pp |
+
+The prediction from the lifetime data **holds**: the error is positive
+everywhere and grows monotonically with queue depth. Proportional does
+over-attribute cancels to the queue ahead.
+
+**What does not follow, and why.** A positive attribution error does not imply
+an over-estimated fill rate, and here it does not produce one except in the
+deepest bucket (+2.2% at 10,000+ shares ahead, where the attribution error is
++4.00 pp; negative in every shallower bucket).
+
+The mean error is not the whole of the difference between the models. Exact
+removes a cancel from the queue ahead **all or nothing**; proportional always
+removes a fraction. The two therefore differ in the *variance* of the
+ahead-count as well as its mean, and fill probability is not linear in the
+ahead-count — an order needs the count to reach zero, which a fractional
+process approaches differently from a jump process with the same mean. The
+attribution error dominates only where the queue is deep enough that reaching
+zero is the binding constraint on filling at all.
+
+**Consequences.** The practical recommendation in record 030 is unchanged:
+proportional is the approximation to use when market-by-order data is
+unavailable. What changes is the explanation offered for it. Proportional is
+not nearly unbiased because its assumption is nearly right — the assumption is
+measurably wrong, by 0.92 percentage points pooled and 4.00 at depth — but
+because that error is small in absolute terms and partly offset by a
+difference in how the two processes approach zero.
+
+**Alternatives considered.**
+- *Infer the mechanism from the fill-rate bias alone.* That is what produced
+  the wrong prediction, and it is not recoverable without the direct
+  measurement.
+- *Correct proportional for the measured bias.* A model tuned to one session's
+  measured attribution error is fitted to that session, and the whole point of
+  the comparison is to evaluate approximations a practitioner could apply
+  without market-by-order data — which is exactly what they would not have.
+
+**Scope.** One venue, one session, 50 symbols. The direction of the
+attribution error follows from cancels concentrating among young orders, which
+is a general feature of modern equity markets; its magnitude is not.

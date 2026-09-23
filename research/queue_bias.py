@@ -202,6 +202,95 @@ def time_to_fill(ttf: pd.DataFrame, out: pathlib.Path, venue: str, date: str,
     return {f"median_ttf_{m}_s": v for m, v in medians.items()}
 
 
+def symbol_bootstrap(study: pathlib.Path, rule4: bool, replications: int = 10000,
+                     seed: int = 20190130) -> dict:
+    """Confidence intervals for the fill rate and the bias, clustering by symbol.
+
+    Orders placed on one symbol share that symbol's book, spread and flow, so
+    they are not independent observations. Resampling individual placements
+    would treat them as if they were and produce intervals far too narrow;
+    resampling whole symbols with replacement keeps each symbol's internal
+    structure intact and treats the symbol as the unit of independent
+    information.
+
+    The bias is a paired quantity -- every model sees the identical placements
+    -- so a replication resamples symbols ONCE and recomputes every model's
+    rate on that same draw. Resampling per model would add variance that the
+    paired design removes.
+    """
+    suffix = "rule4on" if rule4 else "rule4off"
+    df = pd.read_csv(study / f"queue_by_symbol_{suffix}.csv")
+
+    wide = df.pivot_table(index="symbol", columns="model",
+                          values=["placed", "filled"], aggfunc="sum").fillna(0)
+    symbols = wide.index.to_numpy()
+    placed = {m: wide[("placed", m)].to_numpy(dtype=float) for m in MODEL_ORDER}
+    filled = {m: wide[("filled", m)].to_numpy(dtype=float) for m in MODEL_ORDER}
+
+    rng = np.random.default_rng(seed)
+    n = len(symbols)
+    draws = {m: np.empty(replications) for m in MODEL_ORDER}
+    bias = {m: np.empty(replications) for m in MODEL_ORDER[1:]}
+
+    for r in range(replications):
+        idx = rng.integers(0, n, size=n)
+        rates = {}
+        for m in MODEL_ORDER:
+            p_sum = placed[m][idx].sum()
+            rates[m] = filled[m][idx].sum() / p_sum if p_sum else np.nan
+            draws[m][r] = rates[m]
+        for m in MODEL_ORDER[1:]:
+            bias[m][r] = (rates[m] - rates["exact"]) / rates["exact"] if rates["exact"] else np.nan
+
+    out = {"symbols": int(n), "replications": int(replications)}
+    for m in MODEL_ORDER:
+        point = filled[m].sum() / placed[m].sum()
+        lo, hi = np.percentile(draws[m], [2.5, 97.5])
+        out[f"fill_{m}"] = point * 100
+        out[f"fill_{m}_ci"] = f"[{lo * 100:.2f}, {hi * 100:.2f}]"
+    exact_point = filled["exact"].sum() / placed["exact"].sum()
+    for m in MODEL_ORDER[1:]:
+        point = (filled[m].sum() / placed[m].sum() - exact_point) / exact_point
+        lo, hi = np.percentile(bias[m], [2.5, 97.5])
+        out[f"bias_{m}"] = point * 100
+        out[f"bias_{m}_ci"] = f"[{lo * 100:.2f}, {hi * 100:.2f}]"
+        out[f"bias_{m}_excludes_zero"] = bool(lo > 0 or hi < 0)
+    return out
+
+
+def seed_spread(study: pathlib.Path, rule4: bool) -> dict:
+    """Range of the fill rate across placement sequences.
+
+    Separate from the bootstrap and answering a different question: the
+    bootstrap asks how much the result depends on WHICH SYMBOLS were sampled,
+    this asks how much it depends on WHICH ORDERS were placed. A result whose
+    seed range is comparable to the effect is not a result.
+    """
+    suffix = "rule4on" if rule4 else "rule4off"
+    path = study / f"queue_seeds_{suffix}.csv"
+    if not path.exists():
+        return {}
+    df = pd.read_csv(path)
+    out = {"seeds": int(df["seed_index"].nunique())}
+    for m in MODEL_ORDER:
+        sub = df[df["model"] == m]["fill_rate"]
+        out[f"seed_mean_{m}"] = float(sub.mean()) * 100
+        out[f"seed_range_{m}"] = float(sub.max() - sub.min()) * 100
+
+    # The spread of the BIAS, not of the level, is the one that matters. The
+    # bias is paired -- every model sees the identical placements -- so the
+    # placement-to-placement variation largely cancels, and comparing a bias
+    # against the level's seed range would overstate the noise by an order of
+    # magnitude.
+    wide = df.pivot(index="seed_index", columns="model", values="fill_rate")
+    for m in MODEL_ORDER[1:]:
+        b = (wide[m] - wide["exact"]) / wide["exact"] * 100
+        out[f"seed_bias_mean_{m}"] = float(b.mean())
+        out[f"seed_bias_range_{m}"] = float(b.max() - b.min())
+        out[f"seed_bias_all_same_sign_{m}"] = bool((b > 0).all() or (b < 0).all())
+    return out
+
+
 def value_table(bias: pd.DataFrame, rule4: bool) -> dict:
     """Realised value per filled order at each horizon.
 
@@ -239,6 +328,7 @@ def main() -> int:
     ap.add_argument("--venue", required=True)
     ap.add_argument("--date", required=True)
     ap.add_argument("--out", type=pathlib.Path, default=pathlib.Path("docs/figures"))
+    ap.add_argument("--bootstrap", type=int, default=10000)
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
@@ -251,14 +341,23 @@ def main() -> int:
 
     for rule4 in (False, True):
         print(f"\n=== rule 4 {'ON' if rule4 else 'OFF'} ===")
-        for section, values in {
+        sections = {
             "fill_rate": bias_by_depth(bias, args.out, args.venue, args.date, rule4),
+            "symbol_cluster_bootstrap": symbol_bootstrap(args.study, rule4,
+                                                         replications=args.bootstrap),
+            "seed_spread": seed_spread(args.study, rule4),
             "time_to_fill": time_to_fill(ttf, args.out, args.venue, args.date, rule4),
-            "value_per_fill_price4_units": value_table(bias, rule4),
-        }.items():
+            "value_per_fill": value_table(bias, rule4),
+        }
+        for section, values in sections.items():
             print(f"[{section}]")
             for k, v in values.items():
-                print(f"  {k:34s} {v:,.4f}" if isinstance(v, float) else f"  {k:34s} {v:,}")
+                if isinstance(v, float):
+                    print(f"  {k:34s} {v:,.4f}")
+                elif isinstance(v, (int, np.integer)):
+                    print(f"  {k:34s} {v:,}")
+                else:
+                    print(f"  {k:34s} {v}")
     return 0
 
 

@@ -47,6 +47,7 @@ struct Options {
     std::uint64_t interarrival_ms = 250;
     std::uint64_t max_life_s = 60;
     std::size_t universe = 50; // 0 means every two-sided symbol
+    int seeds = 1;             // how many placement sequences to run
 };
 
 // Picks the busiest symbols, so placements land on names whose inside is
@@ -66,8 +67,9 @@ struct UniverseCensus {
     void on(OrderReplace v) { ++messages[v.locate()]; }
 };
 
-std::vector<std::uint16_t> pick_universe(const MappedFile& mf, std::size_t n,
-                                         std::string& busiest) {
+std::vector<std::uint16_t>
+pick_universe(const MappedFile& mf, std::size_t n, std::string& busiest,
+              std::unordered_map<std::uint16_t, std::string>& names) {
     UniverseCensus c;
     Parser<UniverseCensus> parser(c);
     parser.run(mf.bytes());
@@ -84,6 +86,7 @@ std::vector<std::uint16_t> pick_universe(const MappedFile& mf, std::size_t n,
     out.reserve(ranked.size());
     for (const auto& [count, locate] : ranked) out.push_back(locate);
     if (!ranked.empty()) busiest = c.names[ranked.front().second];
+    for (const std::uint16_t locate : out) names[locate] = c.names[locate];
     return out;
 }
 
@@ -97,10 +100,11 @@ std::FILE* open_or_die(const std::string& path) {
 }
 
 QueueSimulator run_once(const MappedFile& mf, const Options& opt,
-                        const std::vector<std::uint16_t>& universe, bool rule4) {
+                        const std::vector<std::uint16_t>& universe, bool rule4,
+                        std::uint64_t seed) {
     QueueSimConfig cfg;
     cfg.universe = universe;
-    cfg.seed = opt.seed;
+    cfg.seed = seed;
     cfg.mean_interarrival_ns = opt.interarrival_ms * 1000000ULL;
     cfg.max_life_ns = opt.max_life_s * 1000000000ULL;
     cfg.rule4_non_displayed_fills = rule4;
@@ -142,7 +146,7 @@ void print_summary(const QueueSimulator& sim, bool rule4) {
     std::printf("\nfill rate by queue depth at entry (shares ahead)\n");
     std::printf("%-14s", "depth");
     for (std::size_t m = 0; m < 4; ++m) std::printf(" %13s", kQueueModelName[m]);
-    std::printf(" %12s\n", "placements");
+    std::printf(" %12s\n", "n placed");
     for (std::size_t d = 0; d < kDepthBucketEdges.size(); ++d) {
         if (r[0].placed_by_depth[d] == 0) continue;
         char label[32];
@@ -163,6 +167,69 @@ void print_summary(const QueueSimulator& sim, bool rule4) {
             std::printf(" %12.2f%%", rate * 100.0);
         }
         std::printf(" %12llu\n", (unsigned long long)r[0].placed_by_depth[d]);
+    }
+
+    // Adverse selection at every horizon, so that a headline cannot quietly
+    // pick the most favourable one. The horizon used in any headline is named
+    // beside it.
+    std::printf("\nrealised value per filled order, in half-spreads at entry\n");
+    std::printf("%-14s %12s %12s %12s %14s\n", "model", "1 s", "10 s", "60 s", "fills valued");
+    for (std::size_t m = 0; m < 4; ++m) {
+        double hs[3] = {0, 0, 0};
+        std::uint64_t n[3] = {0, 0, 0};
+        for (std::size_t d = 0; d < kDepthBucketEdges.size(); ++d) {
+            for (std::size_t h = 0; h < 3; ++h) {
+                hs[h] += r[m].value_halfspreads[d][h];
+                n[h] += r[m].valued_by_depth[d][h];
+            }
+        }
+        std::printf("%-14s", kQueueModelName[m]);
+        for (std::size_t h = 0; h < 3; ++h) {
+            std::printf(" %12.3f", n[h] ? hs[h] / static_cast<double>(n[h]) : 0.0);
+        }
+        std::printf(" %14llu\n", (unsigned long long)n[0]);
+    }
+    std::printf("  A value of 0 means the mid moved exactly far enough to give back the\n");
+    std::printf("  half spread the order earned by resting at the inside; -1 means twice\n");
+    std::printf("  that far. Unfilled orders are worth zero and are carried by the fill\n");
+    std::printf("  rate, not by this number.\n");
+
+    // Step 3(e): the proportional model's error, measured directly. For every
+    // cancel at a live synthetic order's price the exact model knows whether
+    // the cancelled order was ahead; the proportional model only assumed a
+    // fraction. Assumed above actual means it advanced the queue too fast.
+    std::printf("\ncancel attribution: what proportional assumed vs what happened\n");
+    std::printf("%-14s %14s %14s %14s %14s\n", "depth", "cancel shares", "actually ahead",
+                "assumed ahead", "assumed-actual");
+    {
+        const ModelResults& e = r[static_cast<std::size_t>(QueueModel::Exact)];
+        double tot = 0, act = 0, asm_ = 0;
+        for (std::size_t d = 0; d < kDepthBucketEdges.size(); ++d) {
+            if (e.cancel_shares_total[d] == 0) continue;
+            char label[32];
+            if (d + 1 < kDepthBucketEdges.size()) {
+                std::snprintf(label, sizeof label, "%llu-%llu",
+                              (unsigned long long)kDepthBucketEdges[d],
+                              (unsigned long long)kDepthBucketEdges[d + 1] - 1);
+            } else {
+                std::snprintf(label, sizeof label, "%llu+",
+                              (unsigned long long)kDepthBucketEdges[d]);
+            }
+            const double a = e.cancel_shares_actually_ahead[d] / e.cancel_shares_total[d];
+            const double b = e.cancel_shares_assumed_ahead[d] / e.cancel_shares_total[d];
+            std::printf("%-14s %14.0f %13.2f%% %13.2f%% %13.2fpp\n", label,
+                        e.cancel_shares_total[d], a * 100, b * 100, (b - a) * 100);
+            tot += e.cancel_shares_total[d];
+            act += e.cancel_shares_actually_ahead[d];
+            asm_ += e.cancel_shares_assumed_ahead[d];
+        }
+        if (tot > 0) {
+            std::printf("%-14s %14.0f %13.2f%% %13.2f%% %13.2fpp\n", "all", tot,
+                        act / tot * 100, asm_ / tot * 100, (asm_ - act) / tot * 100);
+        }
+        std::printf("  Positive in the last column means the proportional model attributed\n");
+        std::printf("  more of each cancel to the queue ahead than actually was there, so\n");
+        std::printf("  it advanced the queue too fast and should over-estimate fills.\n");
     }
 
     std::printf("\nwhy orders filled\n");
@@ -236,6 +303,65 @@ void write_csv(const QueueSimulator& sim, const Options& opt, bool rule4) {
     std::fclose(f);
 }
 
+// Spread of the fill rate across placement sequences. A single seed cannot
+// separate a difference between models from a difference between the orders
+// that happened to be placed; running several and reporting the range is what
+// makes that separable.
+void print_seed_spread(const std::vector<std::array<double, 4>>& rates, int seeds) {
+    if (seeds <= 1) {
+        std::printf("\nseed spread       not measured (one seed)\n");
+        return;
+    }
+    std::printf("\nfill rate across %d placement sequences\n", seeds);
+    std::printf("%-14s %10s %10s %10s %10s\n", "model", "mean", "min", "max", "range");
+    for (std::size_t m = 0; m < 4; ++m) {
+        double lo = rates[0][m], hi = rates[0][m], sum = 0.0;
+        for (const auto& r : rates) {
+            lo = r[m] < lo ? r[m] : lo;
+            hi = r[m] > hi ? r[m] : hi;
+            sum += r[m];
+        }
+        const double mean = sum / static_cast<double>(rates.size());
+        std::printf("%-14s %9.3f%% %9.3f%% %9.3f%% %9.3f%%\n", kQueueModelName[m], mean * 100,
+                    lo * 100, hi * 100, (hi - lo) * 100);
+    }
+}
+
+void write_seed_csv(const std::vector<std::array<double, 4>>& rates, const Options& opt,
+                    bool rule4) {
+    const std::string suffix = rule4 ? "rule4on" : "rule4off";
+    std::FILE* f = open_or_die(opt.out + "/queue_seeds_" + suffix + ".csv");
+    std::fprintf(f, "venue,date,rule4,seed_index,model,fill_rate\n");
+    for (std::size_t k = 0; k < rates.size(); ++k) {
+        for (std::size_t m = 0; m < 4; ++m) {
+            std::fprintf(f, "%s,%s,%d,%zu,%s,%.6f\n", opt.venue.c_str(), opt.date.c_str(),
+                         rule4 ? 1 : 0, k, kQueueModelName[m], rates[k][m]);
+        }
+    }
+    std::fclose(f);
+}
+
+// Per-symbol counts, which is what the cluster bootstrap resamples. Orders on
+// one symbol share its book, its spread and its flow, so the symbol rather
+// than the order is the unit of independent information.
+void write_symbol_csv(const QueueSimulator& sim, const Options& opt, bool rule4,
+                      const std::unordered_map<std::uint16_t, std::string>& names) {
+    const std::string suffix = rule4 ? "rule4on" : "rule4off";
+    std::FILE* f = open_or_die(opt.out + "/queue_by_symbol_" + suffix + ".csv");
+    std::fprintf(f, "venue,date,rule4,symbol,locate,model,placed,filled\n");
+    for (std::size_t m = 0; m < 4; ++m) {
+        for (const auto& [locate, counts] : sim.results()[m].by_symbol) {
+            const auto it = names.find(locate);
+            std::fprintf(f, "%s,%s,%d,%s,%u,%s,%llu,%llu\n", opt.venue.c_str(),
+                         opt.date.c_str(), rule4 ? 1 : 0,
+                         it == names.end() ? "?" : it->second.c_str(), unsigned(locate),
+                         kQueueModelName[m], (unsigned long long)counts.placed,
+                         (unsigned long long)counts.filled);
+        }
+    }
+    std::fclose(f);
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -254,6 +380,10 @@ int main(int argc, char** argv) {
             opt.interarrival_ms = std::strtoull(next("--interarrival-ms"), nullptr, 10);
         else if (std::strcmp(argv[i], "--max-life-s") == 0)
             opt.max_life_s = std::strtoull(next("--max-life-s"), nullptr, 10);
+        else if (std::strcmp(argv[i], "--universe") == 0)
+            opt.universe = std::strtoull(next("--universe"), nullptr, 10);
+        else if (std::strcmp(argv[i], "--seeds") == 0)
+            opt.seeds = std::atoi(next("--seeds"));
         else if (std::strcmp(argv[i], "--out") == 0)
             opt.out = next("--out");
         else if (std::strcmp(argv[i], "--venue") == 0)
@@ -266,7 +396,7 @@ int main(int argc, char** argv) {
     if (opt.path.empty()) {
         std::fprintf(stderr,
                      "usage: %s [--seed N] [--interarrival-ms N] [--max-life-s N]\n"
-                     "          [--universe N] [--out DIR] [--venue NAME] "
+                     "          [--universe N] [--seeds N] [--out DIR] [--venue NAME] "
                      "[--date YYYY-MM-DD]\n          <session-file>\n",
                      argv[0]);
         return 2;
@@ -281,16 +411,36 @@ int main(int argc, char** argv) {
     std::printf("max order life %llu s\n", (unsigned long long)opt.max_life_s);
 
     std::string busiest = "?";
-    const std::vector<std::uint16_t> universe = pick_universe(mf, opt.universe, busiest);
+    std::unordered_map<std::uint16_t, std::string> names;
+    const std::vector<std::uint16_t> universe = pick_universe(mf, opt.universe, busiest, names);
     std::printf("universe       %zu busiest symbols (busiest %s)\n", universe.size(),
                 busiest.c_str());
 
     // Both arms of rule 4, from the same seed, so the two runs place the same
     // orders and differ only in the rule.
     for (const bool rule4 : {false, true}) {
-        const QueueSimulator sim = run_once(mf, opt, universe, rule4);
-        print_summary(sim, rule4);
-        write_csv(sim, opt, rule4);
+        // Every seed is a different placement sequence over the same session.
+        // The spread across them is the only handle on how much of a reported
+        // difference is the models and how much is which orders happened to be
+        // placed; a single seed cannot distinguish the two.
+        std::vector<std::array<double, 4>> rates_by_seed;
+        QueueSimulator base = run_once(mf, opt, universe, rule4, opt.seed);
+        for (int k = 0; k < opt.seeds; ++k) {
+            const std::uint64_t seed = opt.seed + static_cast<std::uint64_t>(k);
+            std::array<double, 4> rates{};
+            if (k == 0) {
+                for (std::size_t m = 0; m < 4; ++m) rates[m] = base.results()[m].fill_rate();
+            } else {
+                const QueueSimulator sim = run_once(mf, opt, universe, rule4, seed);
+                for (std::size_t m = 0; m < 4; ++m) rates[m] = sim.results()[m].fill_rate();
+            }
+            rates_by_seed.push_back(rates);
+        }
+        print_summary(base, rule4);
+        print_seed_spread(rates_by_seed, opt.seeds);
+        write_csv(base, opt, rule4);
+        write_symbol_csv(base, opt, rule4, names);
+        write_seed_csv(rates_by_seed, opt, rule4);
     }
     std::printf("\nwrote %s/queue_{bias,time_to_fill}_rule4{off,on}.csv\n", opt.out.c_str());
     return 0;

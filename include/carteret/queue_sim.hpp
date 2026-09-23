@@ -185,11 +185,34 @@ struct PendingValuation {
     std::uint32_t spread_at_entry = 0;
 };
 
+// Per-symbol placement and fill counts. The queue-position result is a
+// difference of rates, and its uncertainty has to come from resampling
+// something that is plausibly independent. Placements on one symbol share that
+// symbol's book, its spread and its flow, so the symbol is the cluster unit
+// and this is what the bootstrap resamples.
+struct SymbolCount {
+    std::uint64_t placed = 0;
+    std::uint64_t filled = 0;
+};
+
 struct ModelResults {
     std::uint64_t placed = 0;
     std::uint64_t filled = 0;
+    std::unordered_map<std::uint16_t, SymbolCount> by_symbol;
     std::array<std::uint64_t, 6> reasons{};
     std::array<std::uint64_t, kFillTimeBuckets> time_to_fill{};
+
+    // Cancel attribution, measured rather than assumed. For every cancel at a
+    // live synthetic order's price, the exact model knows whether the
+    // cancelled order was ahead of it; the proportional model only assumes a
+    // fraction. Accumulating both makes the proportional model's error
+    // directly observable instead of inferred from its fill rate.
+    //
+    // Only the exact model fills these in; the arrays are per depth bucket at
+    // entry so the error can be attributed to queue position.
+    std::array<double, kDepthBucketEdges.size()> cancel_shares_total{};
+    std::array<double, kDepthBucketEdges.size()> cancel_shares_actually_ahead{};
+    std::array<double, kDepthBucketEdges.size()> cancel_shares_assumed_ahead{};
     // Per depth bucket: placements, fills, and summed value at each horizon in
     // Price(4) units times shares, kept as a double because the proportional
     // model produces fractional positions.
@@ -404,7 +427,8 @@ private:
             }
 
             ModelState& exact = o.models[static_cast<std::size_t>(QueueModel::Exact)];
-            if (exact.live && o.ahead_refs.count(r.ref)) {
+            const bool was_ahead = o.ahead_refs.count(r.ref) != 0;
+            if (exact.live && was_ahead) {
                 exact.ahead -= static_cast<double>(qty);
                 if (exact.ahead < 0.0) exact.ahead = 0.0;
                 if (qty >= r.shares) o.ahead_refs.erase(r.ref);
@@ -426,6 +450,21 @@ private:
             if (opt.live) {
                 opt.ahead -= static_cast<double>(qty);
                 if (opt.ahead < 0.0) opt.ahead = 0.0;
+            }
+
+            // Record what the proportional model assumed against what
+            // actually happened, while both are known.
+            if (before > 0.0) {
+                const std::size_t db = depth_bucket(o.depth_at_entry);
+                const std::size_t ex = static_cast<std::size_t>(QueueModel::Exact);
+                res_[ex].cancel_shares_total[db] += static_cast<double>(qty);
+                if (was_ahead) {
+                    res_[ex].cancel_shares_actually_ahead[db] += static_cast<double>(qty);
+                }
+                const double assumed =
+                    o.models[static_cast<std::size_t>(QueueModel::Proportional)].ahead / before;
+                res_[ex].cancel_shares_assumed_ahead[db] +=
+                    static_cast<double>(qty) * (assumed > 1.0 ? 1.0 : assumed);
             }
 
             ModelState& prop = o.models[static_cast<std::size_t>(QueueModel::Proportional)];
@@ -452,6 +491,7 @@ private:
         const std::size_t mi = static_cast<std::size_t>(m);
         const std::size_t db = depth_bucket(o.depth_at_entry);
         ++res_[mi].filled;
+        ++res_[mi].by_symbol[o.locate].filled;
         ++res_[mi].filled_by_depth[db];
         ++res_[mi].reasons[static_cast<std::size_t>(why)];
         const std::uint64_t ttf = ts - o.entered_ts;
@@ -576,6 +616,7 @@ private:
         const std::size_t db = depth_bucket(o.depth_at_entry);
         for (std::size_t m = 0; m < res_.size(); ++m) {
             ++res_[m].placed;
+            ++res_[m].by_symbol[locate].placed;
             ++res_[m].placed_by_depth[db];
         }
         ++placements_;

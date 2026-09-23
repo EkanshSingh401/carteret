@@ -166,12 +166,16 @@ All of the following are documented inline in `spec.hpp` at the relevant field.
 
 ## Queue-position bias
 
+**Scope: one venue, one session — NASDAQ BX, 2019-01-30 — 50 symbols, one
+order size. Every number in this section carries that scope. Nothing here is
+evidence about NASDAQ, about other dates, or about other order sizes.**
+
 The claimed contribution. Exact FIFO queue position from market-by-order data
 is **not novel** — HftBacktest ships an `L3FIFOQueueModel` and this implements
 the same idea. What is measured here is how far each **market-by-price
-approximation** departs from exact position, on real US-equity ITCH, with the
-fill rules fixed in advance (`docs/design.md` record 020) and cited by number
-from the pre-registration.
+approximation** departs from exact position, with the fill rules fixed in
+advance (`docs/design.md` record 020) and cited by number from the
+pre-registration.
 
 93,525 synthetic orders, one round lot each, placed at the inside of the 50
 busiest symbols at random times through `20190130.BX_ITCH_50`, cancelled after
@@ -181,25 +185,41 @@ is attributed, which is what isolates the bias.
 
 ![Queue model bias](docs/figures/queue_bias_bx_2019-01-30_rule4off.png)
 
-| Model | Fill rate | Bias vs exact | Median time to fill |
-|---|---:|---:|---:|
-| **Exact (market-by-order)** | **25.12%** | — | 18.1 s |
-| Conservative | 19.87% | **−20.9%** | 21.2 s |
-| Optimistic | 25.84% | +2.9% | 17.2 s |
-| Proportional | 24.99% | −0.5% | 18.2 s |
+Two independent uncertainty estimates accompany every figure below, because
+they answer different questions. The **symbol cluster bootstrap** (10,000
+replications, resampling the 50 symbols with replacement) asks how much the
+result depends on which symbols were sampled. The **seed range** across ten
+independent placement sequences asks how much it depends on which orders were
+placed. Both are reported for the *bias*, which is paired — every model sees
+the same placements — so placement noise largely cancels and a bias must not
+be compared against the seed range of the fill-rate *level*.
+
+| Model | Fill rate | Bias vs exact | 95% CI (symbol bootstrap) | Seed range | Median time to fill |
+|---|---:|---:|---|---:|---:|
+| **Exact (market-by-order)** | **25.12%** | — | — | — | 18.1 s |
+| Conservative | 19.87% | **−20.9%** | [−24.4, −17.7] | 1.01 pp | 21.2 s |
+| Optimistic | 25.84% | +2.9% | [+1.9, +4.0] | 0.44 pp | 17.2 s |
+| Proportional | 24.99% | −0.5% | [−0.79, −0.27] | 0.36 pp | 18.2 s |
+
+All three intervals exclude zero, and all three biases have the same sign in
+every one of the ten placement sequences. But the magnitudes differ by two
+orders: conservative's bias is twenty times its own seed range, while
+proportional's is barely larger than its own. **Conservative's bias is a
+finding; proportional's is a real but negligible effect**, and it would be
+wrong to present the two as comparable results.
 
 ### The bias is small in aggregate and severe where it matters
 
-Pooled, the proportional model is almost unbiased (−0.5%) and even the
-optimistic one is only 3% high. That aggregate hides the result:
+Pooled, proportional is almost unbiased and even optimistic is only 3% high.
+That aggregate hides the result:
 
-| Shares ahead at entry | Exact | Conservative | Optimistic | Proportional |
-|---|---:|---:|---:|---:|
-| 0–99 | 34.8% | −6.2% | +2.8% | +0.3% |
-| 100–499 | 26.5% | −17.9% | +1.9% | −0.5% |
-| 500–1,999 | 19.5% | −23.8% | +3.6% | −0.4% |
-| 2,000–9,999 | 26.3% | −44.0% | +9.2% | −1.5% |
-| 10,000–49,999 | 27.7% | −56.7% | +16.2% | +2.2% |
+| Shares ahead at entry | n placed | Exact | Conservative | Optimistic | Proportional |
+|---|---:|---:|---:|---:|---:|
+| 0–99 | 1,114 | 34.8% | −6.2% | +2.8% | +0.3% |
+| 100–499 | 65,462 | 26.5% | −17.9% | +1.9% | −0.5% |
+| 500–1,999 | 19,877 | 19.5% | −23.8% | +3.6% | −0.4% |
+| 2,000–9,999 | 6,403 | 26.3% | −44.0% | +9.2% | −1.5% |
+| 10,000–49,999 | **669** | 27.7% | **−56.7%** | +16.2% | +2.2% |
 
 The conservative model — the cautious choice, the one a backtest reaches for
 to avoid overstating fills — is the worst, and it gets worse the deeper the
@@ -207,23 +227,63 @@ queue, reaching a **57% understatement** at the back. Deep in the queue almost
 every fill arrives through cancellation of the orders in front, and
 conservative assumes by construction that cancellation never happens ahead.
 
-The proportional model tracks exact to within about 2% at every depth, which
-is the practical finding: if market-by-order data is unavailable,
-proportional attribution of cancels recovers most of what exact position
-gives, and conservative attribution does not.
+**The deepest bucket holds only 669 placements**, against 65,462 in the
+modal one. Its percentages move by 0.15 points per order, so the −56.7% is a
+solid finding while the +2.2% beside it is not: a dozen orders either way
+would move it across zero.
+
+### Why proportional is nearly unbiased: measured, not argued
+
+Proportional assumes a cancel of *c* shares from a level of *d* with *a* ahead
+removes *c·a/d* from in front. Whether that is right is not a matter of
+opinion — the exact model knows, for every cancel, whether the cancelled order
+was actually ahead. Recording both makes the error directly observable.
+
+| Shares ahead at entry | Cancelled shares | Actually ahead | Proportional assumed | Error |
+|---|---:|---:|---:|---:|
+| 0–99 | 1,114,909 | 1.57% | 1.70% | +0.13 pp |
+| 100–499 | 213,248,543 | 4.37% | 4.55% | +0.18 pp |
+| 500–1,999 | 138,361,218 | 11.52% | 12.16% | +0.63 pp |
+| 2,000–9,999 | 152,819,508 | 12.09% | 13.66% | +1.57 pp |
+| 10,000–49,999 | 32,577,446 | 21.26% | 25.26% | **+4.00 pp** |
+| **All** | **538,121,624** | **9.42%** | **10.34%** | **+0.92 pp** |
+
+The error is positive everywhere and grows with depth: proportional
+consistently attributes **more** of each cancel to the queue ahead than
+actually was there, so it advances the queue too fast.
+
+**This confirms the prediction from the Stage 6 lifetime data.** Cancels
+concentrate sharply among recently-added orders — 66.6% of cancelled-untouched
+orders are cancelled within one second of being added, 45% within 100 ms — and
+recently-added orders are, by construction, *behind* a synthetic order placed
+earlier. A uniform assumption therefore over-attributes to the front.
+
+**But the naive inference from that to the fill rate does not follow, and the
+data shows where it fails.** A positive attribution error should mean
+over-estimated fills, yet proportional's pooled fill-rate bias is
+*negative* (−0.5%), turning positive (+2.2%) only in the deepest bucket where
+the attribution error is largest. The reason is that the mean error is not the
+whole story: exact removes a cancel from the queue ahead all-or-nothing, while
+proportional always removes a fraction. The two differ in variance as well as
+in mean, and fill probability is not linear in the ahead-count. The attribution
+error dominates only where the queue is deep enough for queue position to be
+the binding constraint.
 
 ### Where the fills come from explains the value
 
 Value is reported in **half-spreads at entry**. An order resting at the inside
 starts half a spread better than the mid, so 0 means the mid moved exactly far
-enough to give that edge back, and −1 means it moved twice as far.
+enough to give that edge back, and −1 means it moved twice as far. All three
+horizons are shown; **the one-second figure is the one quoted in the summary
+above**, because it is the horizon at which adverse selection is largest and
+therefore the least flattering.
 
-| Model | 1 s | 10 s | 60 s | Trade-through share of fills |
-|---|---:|---:|---:|---:|
-| Exact | −0.77 | −0.61 | −0.56 | 49% |
-| Conservative | −1.28 | −1.01 | −1.06 | 79% |
-| Optimistic | −0.72 | −0.58 | −0.51 | 46% |
-| Proportional | −0.79 | −0.62 | −0.57 | 50% |
+| Model | 1 s | 10 s | 60 s | Fills valued | Trade-through share of fills |
+|---|---:|---:|---:|---:|---:|
+| Exact | **−0.77** | −0.61 | −0.56 | 23,493 | 49% |
+| Conservative | **−1.28** | −1.04 | −1.06 | 18,581 | 79% |
+| Optimistic | **−0.72** | −0.58 | −0.51 | 24,166 | 46% |
+| Proportional | **−0.79** | −0.62 | −0.57 | 23,367 | 50% |
 
 Every model is negative at every horizon: on this venue and session a passive
 fill at the inside is adversely selected by more than the half-spread it
@@ -242,20 +302,23 @@ order fills, and over-reports how badly it does when it does.
 
 A non-displayed print at the order's price is not evidence the order filled:
 `P` carries no usable side and midpoint-pegged prints trade between ticks. The
-study runs twice from the same seed.
+study runs twice from the same seeds.
 
-| | Exact fill rate | Conservative bias |
-|---|---:|---:|
-| Rule 4 off | 25.12% | −20.9% |
-| Rule 4 on | 25.82% | −18.6% |
+| | Exact fill rate | Conservative bias | Proportional bias |
+|---|---:|---:|---:|
+| Rule 4 off | 25.12% | −20.9% | −0.5% |
+| Rule 4 on | 25.82% | −18.6% | −0.5% |
 
-Enabling it lifts every fill rate by roughly 0.7 percentage points and does
-not change any conclusion above.
+Enabling it lifts every fill rate by roughly 0.7 percentage points and changes
+no conclusion above.
 
 ### Limitations
 
-- One venue, one session, 50 symbols, one order size. BX is taker-maker and
-  thin; NASDAQ may differ and is not yet measured.
+- **One venue, one session, 50 symbols, one order size.** BX is taker-maker
+  and thin; NASDAQ is maker-taker and has auctions, and is not yet measured.
+  The mechanism behind conservative's bias — that its fills are
+  trade-throughs by construction — does not depend on the venue; the
+  particular numbers do.
 - **Zero market impact.** The synthetic order never affects the flow it is
   measured against. Defensible for one round lot, assumed rather than shown.
 - **Double counting**, stated in record 020 rule 5: when the synthetic order
@@ -263,6 +326,9 @@ not change any conclusion above.
   so liquidity at the price is double counted by one round lot.
 - Hidden liquidity is invisible, so fills against it are unmodelled.
 - Value is measured against the mid on the **same venue**, not the NBBO.
+- The symbol bootstrap resamples 50 symbols from one session, so its intervals
+  describe uncertainty over symbols and **not** over days. A second session
+  could sit outside every interval above.
 
 ## Microstructure findings
 
