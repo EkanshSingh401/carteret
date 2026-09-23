@@ -23,8 +23,10 @@ record 022 forbids.
 
 ## Requirements
 
-Python 3.11 or newer, with `pandas`, `numpy` and `matplotlib`.
+Python 3.11 or newer, with `pandas`, `numpy`, `matplotlib` and `arch`. `arch`
+supplies the Politis-White block-length selector the pre-registration fixes
+for the stationary bootstrap.
 
 ```sh
-python3 -m pip install pandas numpy matplotlib
+python3 -m pip install pandas numpy matplotlib arch
 ```

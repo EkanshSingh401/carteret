@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
-"""Block length for the intraday block bootstrap, by the pre-registered rule.
+"""Block length for the stationary bootstrap, by Politis-White selection.
 
-docs/preregistration.md fixes the rule before the autocorrelation function was
-looked at: the smallest lag at which the autocorrelation of the primary metric
-stays within +/-0.05 for 30 consecutive lags, rounded up to the next whole
-minute. The rule is mechanical and has no free parameter left for a later
-choice to enter through.
+docs/preregistration.md section 4 fixes the procedure. This implements it and
+nothing else: there is no bin, no tolerance and no run length to choose, which
+is the point. An earlier autocorrelation-band rule was withdrawn because its
+unfixed time bin moved the answer from 1 minute to 319 minutes on one session;
+the amendment record keeps that evidence.
 
-The series the rule is applied to is the PRIMARY METRIC per unit of time, not
-the raw feature. For a directional metric that is the per-bin mean of the
-indicator that the signal's sign matched the label's sign; a bootstrap
-resamples blocks of that series, so its dependence is what the block length
-has to span.
+The series is the PER-WINDOW SUMMAND of the primary metric, in event order:
 
-    usage: research/block_length.py <features.csv> [--metric directional]
-           [--bin-seconds 1] [--max-lag 3600]
+    A, C  the hit indicator 1{sign(feature) == sign(label)}
+    B     the per-window squared-error term of the univariate fit
+
+That is the series the bootstrap resamples, so its dependence is what a block
+has to span. Aggregating into time bins first -- the previous rule's mistake --
+replaces it with a different series whose dependence is an artifact of the bin.
+
+Across development sessions the MAXIMUM is taken. Underestimating dependence
+narrows intervals, so the conservative direction is the longer block.
+
+    usage: research/block_length.py <features.csv> [...] [--metric hit|sqerr]
 """
 
 from __future__ import annotations
@@ -23,118 +28,73 @@ import argparse
 import pathlib
 import sys
 
-import matplotlib
+import numpy as np
+import pandas as pd
+from arch.bootstrap import optimal_block_length
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
-
-INK = "#1b1b1b"
-TOL = 0.05
-RUN = 30
+MIN_BLOCKS = 20  # section 4's guard; below this the study is exploratory
 
 
-def metric_series(df: pd.DataFrame, metric: str, bin_seconds: int) -> pd.Series:
-    """The primary metric aggregated into equal time bins of exchange time."""
-    d = df[df["label_ticks"] != 0].copy()
-    if metric == "directional":
+def summand(df: pd.DataFrame, metric: str) -> np.ndarray:
+    """The per-window summand, in event order."""
+    d = df[df["label_ticks"] != 0].sort_values("window_end_ts")
+    if metric == "hit":
         feat = d["ofi"]
-    elif metric == "queue":
+        return (np.sign(feat) == np.sign(d["label_ticks"])).astype(float).to_numpy()
+    if metric == "hit_queue":
         feat = d["queue_imbalance"]
-    else:
-        raise SystemExit(f"unknown metric {metric}")
-    d["hit"] = (np.sign(feat) == np.sign(d["label_ticks"])).astype(float)
-    ns = bin_seconds * 1_000_000_000
-    d["bin"] = (d["window_end_ts"] // ns).astype("int64")
-    # Mean over every symbol in the bin: the bootstrap resamples time, so a
-    # block carries all symbols in it and cross-symbol dependence within a
-    # block is not something the block length has to span.
-    return d.groupby("bin")["hit"].mean()
-
-
-def autocorr(x: np.ndarray, max_lag: int) -> np.ndarray:
-    x = x - x.mean()
-    denom = float(np.dot(x, x))
-    if denom == 0:
-        raise SystemExit("series has no variance")
-    n = len(x)
-    max_lag = min(max_lag, n - RUN - 1)
-    return np.array([float(np.dot(x[: n - k], x[k:])) / denom for k in range(1, max_lag + 1)])
-
-
-def rule(ac: np.ndarray, bin_seconds: int) -> tuple[int, int]:
-    """Smallest lag with |rho| <= TOL for RUN consecutive lags, in bins.
-
-    Returns the lag in bins and the rounded-up whole minutes.
-    """
-    for start in range(len(ac) - RUN + 1):
-        if np.all(np.abs(ac[start : start + RUN]) <= TOL):
-            lag_bins = start + 1  # ac[0] is lag 1
-            seconds = lag_bins * bin_seconds
-            minutes = int(np.ceil(seconds / 60.0))
-            return lag_bins, max(minutes, 1)
-    raise SystemExit(
-        f"no lag satisfies |rho| <= {TOL} for {RUN} consecutive lags within the "
-        f"range examined. The rule returns nothing, which is a finding about the "
-        f"data and is reported as one rather than worked around."
-    )
+        return (np.sign(feat) == np.sign(d["label_ticks"])).astype(float).to_numpy()
+    if metric == "sqerr":
+        # Univariate OLS of the label on the feature, in-session; the summand
+        # of an out-of-sample R2 is the squared error per window.
+        x = d["ofi"].to_numpy()
+        y = d["label_halfspreads"].to_numpy()
+        beta = float(np.dot(x, y) / np.dot(x, x)) if np.dot(x, x) else 0.0
+        return (y - beta * x) ** 2
+    raise SystemExit(f"unknown metric {metric}")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("features", type=pathlib.Path)
-    ap.add_argument("--metric", default="directional", choices=["directional", "queue"])
-    ap.add_argument("--bin-seconds", type=int, default=1)
-    ap.add_argument("--max-lag", type=int, default=3600)
-    ap.add_argument("--out", type=pathlib.Path, default=pathlib.Path("docs/figures"))
+    ap.add_argument("features", nargs="+", type=pathlib.Path)
+    ap.add_argument("--metric", default="hit", choices=["hit", "hit_queue", "sqerr"])
+    ap.add_argument("--heldout-windows", type=int, default=0,
+                    help="if given, apply the minimum-blocks guard against it")
     args = ap.parse_args()
 
-    name = args.features.stem.lower()
-    if "heldout" in name or "held_out" in name:
-        raise SystemExit(f"refusing to run: {args.features} looks like a held-out session")
+    per_session = []
+    for path in args.features:
+        name = path.stem.lower()
+        if "heldout" in name or "held_out" in name:
+            raise SystemExit(f"refusing to run: {path} looks like a held-out session")
+        df = pd.read_csv(path)
+        x = summand(df, args.metric)
+        opt = optimal_block_length(x)
+        stationary = float(np.asarray(opt["stationary"])[0])
+        circular = float(np.asarray(opt["circular"])[0])
+        per_session.append((path.stem, len(x), stationary, circular))
+        print(f"{path.stem:<24} n {len(x):>9,}  stationary {stationary:>9.2f}  "
+              f"circular {circular:>9.2f}")
 
-    df = pd.read_csv(args.features)
-    s = metric_series(df, args.metric, args.bin_seconds)
-    s = s.sort_index()
-    # Fill gaps in exchange time so lags are uniform: a missing bin is a bin
-    # with no qualifying window, and treating it as absent would compress the
-    # lag axis and understate the block length.
-    full = np.arange(s.index.min(), s.index.max() + 1)
-    s = s.reindex(full)
-    filled = int(s.isna().sum())
-    s = s.interpolate(limit_direction="both")
+    chosen = max(t[2] for t in per_session)
+    print()
+    print(f"sessions                 {len(per_session)}")
+    print(f"BLOCK LENGTH (stationary, max across sessions)  {chosen:.2f} windows")
 
-    ac = autocorr(s.to_numpy(), args.max_lag)
-    lag_bins, minutes = rule(ac, args.bin_seconds)
+    if args.heldout_windows:
+        blocks = args.heldout_windows / chosen
+        print(f"held-out windows         {args.heldout_windows:,}")
+        print(f"effective blocks         {blocks:.1f}")
+        if blocks < MIN_BLOCKS:
+            print(f"GUARD FAILS: fewer than {MIN_BLOCKS} blocks. The study is "
+                  f"declared EXPLORATORY before any held-out access.")
+        else:
+            print(f"guard passes ({MIN_BLOCKS} required)")
 
-    print(f"session            {args.features.name}")
-    print(f"metric             {args.metric}")
-    print(f"bins               {len(s):,} of {args.bin_seconds} s ({filled:,} interpolated)")
-    print(f"lags examined      {len(ac):,}")
-    print(f"rule               |rho| <= {TOL} for {RUN} consecutive lags")
-    print(f"first such lag     {lag_bins} bins = {lag_bins * args.bin_seconds} s")
-    print(f"BLOCK LENGTH       {minutes} minute(s), rounded up")
-    print(f"rho at that lag    {ac[lag_bins - 1]:+.4f}")
-    print(f"max |rho| in run   {np.max(np.abs(ac[lag_bins - 1 : lag_bins - 1 + RUN])):.4f}")
-
-    args.out.mkdir(parents=True, exist_ok=True)
-    fig, ax = plt.subplots(figsize=(7.2, 3.2))
-    lags = np.arange(1, len(ac) + 1) * args.bin_seconds
-    ax.axhspan(-TOL, TOL, color="#dddddd", zorder=0, label=f"±{TOL}")
-    ax.plot(lags, ac, color=INK, lw=0.9)
-    ax.axvline(lag_bins * args.bin_seconds, color="#b8500e", lw=1.2,
-               label=f"rule: {minutes} min")
-    ax.set_xlabel("lag (seconds of exchange time)")
-    ax.set_ylabel("autocorrelation")
-    ax.set_title(f"Primary metric autocorrelation — {args.features.stem}", fontweight="bold")
-    ax.set_xscale("log")
-    ax.legend(frameon=False, fontsize=8)
-    ax.grid(alpha=0.3, lw=0.5)
-    out = args.out / f"block_length_{args.features.stem}_{args.metric}.png"
-    fig.savefig(out, dpi=140, bbox_inches="tight")
-    plt.close(fig)
-    print(f"wrote              {out}")
+    print()
+    print("pre-committed sensitivity, section 4:")
+    for mult in (0.5, 1.0, 2.0):
+        print(f"  {mult:>3}x  {chosen * mult:.2f} windows")
     return 0
 
 

@@ -245,15 +245,42 @@ test.
 
 **1. Primary inference: the intraday block bootstrap, plan (b).**
 
-**2. Block length,** chosen by a rule applied to the primary metric on
-**development sessions only**: the smallest lag at which the autocorrelation
-stays within ±0.05 for **30 consecutive lags**, rounded up to the next whole
-minute. The rule is mechanical, it is stated before the autocorrelation
-function has been looked at, and it has no free parameter left for a later
-choice to enter through. The 30-minute figure proposed in option (b) above is
-superseded by whatever this rule returns; if the rule returns a length that
-leaves too few blocks for a bootstrap to mean anything, that is a finding
-about the data and is reported as one rather than worked around.
+**2. Block length,** by **Politis–White automatic selection** (Politis &
+White 2004, with the Patton, Politis & White 2009 correction), as implemented
+by `arch.bootstrap.optimal_block_length`. This **replaces** an
+autocorrelation-band rule that did not survive being applied; the amendment
+and the evidence for it are recorded below.
+
+- **The series.** The **per-window summand of the primary metric**, in event
+  order: the hit indicator *1{sign(feature) = sign(label)}* for candidates A
+  and C, and the per-window squared-error term for candidate B. **No time
+  binning.** The quantity resampled is the quantity whose dependence the block
+  length must span, and binning was the free parameter that broke the previous
+  rule.
+- **The estimate used** is the selector's **stationary** figure, because the
+  bootstrap below is the stationary bootstrap.
+- **Across development sessions:** computed per session, and the **maximum**
+  is taken. Underestimating dependence narrows intervals, so the conservative
+  direction is the longer block.
+
+**2b. The bootstrap** is the **stationary bootstrap** (Politis & Romano 1994)
+at that expected block length, resampling **within sessions only**. A block
+never crosses a session boundary: an overnight gap is not a dependence
+structure the bootstrap should be free to splice across.
+
+**2c. Minimum-blocks guard.** If
+
+> (held-out windows) / (selected block length) **< 20**
+
+the study is **declared exploratory before any held-out access**. A bootstrap
+over fewer than twenty effective blocks is the same degeneracy that two
+session-level clusters produce, arriving by a different route, and it is
+better caught by a stated arithmetic than by judgement after the fact.
+
+**2d. Pre-committed sensitivity.** Every reported interval also appears at
+**0.5× and 2× the selected block length**. The selector is an estimator with
+its own error; reporting one interval from one estimate would present that
+error as absent.
 
 **3. Symbol clustering, plan (c), is a sensitivity analysis only.** It is
 reported beside the primary result, never in place of it, and every interval
@@ -322,12 +349,47 @@ The block length used in step 2 is whatever the ±0.05-for-30-lags rule
 returns on the development sessions, rounded up to the next whole minute. It
 is recorded in the table below as a measured quantity, not chosen.
 
-#### The block-length rule has an unfixed parameter, and it decides the answer
+#### Amendment: the autocorrelation-band rule was withdrawn and replaced
 
-**This is an open item for the author. It is reported rather than resolved,
-because it can no longer be resolved innocently.**
+**Status: amended. The rule below is no longer in force; section 4's
+Politis–White procedure replaces it. The evidence that retired it is kept
+here, because an amendment whose grounds are deleted is indistinguishable
+from a change of mind.**
 
-The rule fixes the tolerance (±0.05), the run length (30 consecutive lags) and
+**The two defects.**
+
+1. **Underspecified.** The rule named "the autocorrelation of the primary
+   metric" without defining the series it is computed on. A per-window metric
+   has no autocorrelation function until it is aggregated into something with
+   a time index, and the aggregation was left open. That is not a detail: the
+   table below shows the choice moving the answer by two orders of magnitude,
+   from 1 minute to 319 minutes.
+2. **Miscalibrated.** A **fixed** ±0.05 band was tested against an estimator
+   whose own standard error is about **1/√n** and therefore varies with the
+   same choice. At a 60-second bin the band equals one standard error, so ρ
+   leaves it by chance every few lags and "30 consecutive lags inside" is
+   reached only by luck. A tolerance that does not scale with the precision of
+   what it is testing is not a criterion.
+
+**Why the replacement has no free parameter to steer.** Politis–White takes
+the series and returns a length; there is no bin, no band and no run length to
+choose. The one remaining choice — which series — is now fixed explicitly as
+the metric's own per-window summand in event order, which is the series the
+bootstrap actually resamples. The stationary/circular choice is determined by
+the bootstrap used, and the multi-session rule is fixed as the maximum in the
+conservative direction.
+
+**Circumstances of the amendment, stated because they matter.** The
+sensitivity table below existed, for **one** development session, before this
+amendment was written. Any bin chosen from that point would have been chosen
+knowing the block length it produced, which is why no bin was chosen and the
+rule was replaced outright rather than repaired. **The replacement's output
+had not been computed when this amendment was committed** — the selector had
+been run only on synthetic AR(1) data to confirm the call signature. The
+sequence is visible in the history: this amendment, then a push, then CI, then
+the computation.
+
+**The evidence.** The rule fixes the tolerance (±0.05), the run length (30 consecutive lags) and
 the rounding. It does not fix **the time bin the metric is aggregated into
 before the autocorrelation is taken**, and on `12302019.NASDAQ_ITCH50` that
 choice moves the answer by two orders of magnitude:
@@ -374,18 +436,12 @@ not mostly noise **and** small enough that ±0.05 is several standard errors of
 ρ. Those two requirements point in opposite directions, and nothing in the
 registration says where to stand between them.
 
-**Why this is not fixed here.** The remedy is to fix the bin in the
-registration on a stated principle — a minimum number of observations per bin,
-or a tolerance scaled to SE(ρ) rather than a constant. Either is defensible.
-But the table above has now been seen, so any bin chosen from here is chosen
-knowing which block length it produces, which is the precise thing a
-pre-registered rule exists to prevent. The author fixes the amendment, and
-this section records that the choice was made with the sensitivity already
-visible.
-
-**Provisional status.** Until then no block length is registered, and the MDE
-cells below stay empty. The figure and the two tables above are the evidence
-for the amendment, computed on development data only.
+**Both remedies were available** — fix the bin by a minimum count per bin, or
+scale the tolerance to SE(ρ) — and **neither was taken**, because the table
+above had already been seen and either would have been a parameter chosen with
+its consequence visible. The rule was withdrawn instead. The figure and the
+two tables are computed on development data only and are retained as the
+grounds for that withdrawal.
 
 #### The economic thresholds, fixed before any MDE was computed
 
@@ -407,16 +463,52 @@ against a captured 1.0, leaving roughly the rebate. A threshold of "positive"
 would therefore be cleared by a signal worth nothing. The requirement above is
 what the signal itself must add.
 
-**Converted into each metric.** For a directional metric, shifting the
-expected move by 0.10 half-spreads is *2p − 1 = 0.10*. For the R² metric, the
-same edge under a Gaussian sign relation, *p = ½ + arcsin(ρ)/π*, gives
-*ρ = sin(0.05π) = 0.1564* and *R² = ρ²*.
+**Converted into each metric, in full.** The conversion needs one measured
+quantity, and an earlier version of this section used it without stating it or
+measuring it.
 
-| Candidate | Metric | **Economic threshold** |
-|---|---|---:|
-| A — OFI, directional | held-out directional accuracy | **55.0%** |
-| B — OFI, out-of-sample R² | held-out out-of-sample R² | **0.0245** |
-| C — queue imbalance, directional | held-out directional accuracy | **55.0%** |
+*The scale.* Let **d** be the mean absolute mid-price change per window, in
+half-spreads, over windows whose change is nonzero — the same conditioning the
+directional metric uses. This is a **scale of the data, not an effect size of
+any signal**, and it is measured on development sessions only. It enters
+because an edge expressed in half-spreads has to be compared against how far
+the mid actually moves in a window.
+
+*Directional metrics (A, C).* A signal that picks the side and is right with
+probability *p* earns, in expectation per window,
+
+> E[Δ · sign(signal)] = (2p − 1) · d   half-spreads,
+
+assuming |Δ| is independent of whether the signal was right. Setting that
+equal to the 0.10 half-spread requirement gives
+
+> **p = ½ + 0.05 / d**
+
+*Magnitude metric (B).* The same edge under the Gaussian sign relation
+*p = ½ + arcsin(ρ)/π* gives *ρ = sin(π(p − ½))* and *R² = ρ²*.
+
+*The measured value.* On `12302019.NASDAQ_ITCH50`, over 239,162 windows with a
+nonzero move, **d = 1.5543 half-spreads** (median 1.50; mean absolute move
+1.66 ticks against a mean spread of 2.93 ticks). The final value is the same
+statistic pooled over all seven development sessions; the thresholds below are
+**provisional on one session** until those are in hand. No freedom remains in
+them — the economic requirement and the formula are fixed here, and *d* is
+measured, not chosen.
+
+| Candidate | Metric | **Economic threshold** | Provisional |
+|---|---|---:|---|
+| A — OFI, directional | held-out directional accuracy | ½ + 0.05/d | **53.22%** |
+| B — OFI, out-of-sample R² | held-out out-of-sample R² | sin²(π(p−½)) | **0.0102** |
+| C — queue imbalance, directional | held-out directional accuracy | ½ + 0.05/d | **53.22%** |
+
+**Correction.** The first version of this table read 55.0% and 0.0245. Those
+numbers assumed **d = 1**, silently: they took "shift the expected move by
+0.10 half-spreads" to mean *2p − 1 = 0.10*, which holds only if a window's
+typical move is exactly one half-spread. It is not — it is about one and a
+half — so the bar was set roughly 1.8 percentage points of accuracy too high,
+and the R² bar was more than twice too high. The requirement itself is
+unchanged at 0.10 half-spreads per window; what changed is that the conversion
+now states its assumption and measures it.
 
 A and C carry the same threshold because they are the same claim about the
 same quantity, made from different features. **The tie-break in the selection
@@ -428,9 +520,9 @@ order flow imbalance is a flow accumulated over a window.
 
 | Candidate | Economic threshold | MDE, plan (b) — **primary** | Ratio | MDE, plan (c) — sensitivity |
 |---|---:|---|---|---|
-| A — OFI, directional | 55.0% | *(to be filled)* | *(to be filled)* | *(to be filled)* |
-| B — OFI, out-of-sample R² | 0.0245 | *(to be filled)* | *(to be filled)* | *(to be filled)* |
-| C — queue imbalance, directional | 55.0% | *(to be filled)* | *(to be filled)* | *(to be filled)* |
+| A — OFI, directional | 53.22% | *(to be filled)* | *(to be filled)* | *(to be filled)* |
+| B — OFI, out-of-sample R² | 0.0102 | *(to be filled)* | *(to be filled)* | *(to be filled)* |
+| C — queue imbalance, directional | 53.22% | *(to be filled)* | *(to be filled)* | *(to be filled)* |
 
 The **Ratio** column is the selection rule, and the smallest value in it
 selects the hypothesis. Plan (c)'s column is reported for the sensitivity
