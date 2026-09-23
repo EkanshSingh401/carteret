@@ -262,6 +262,99 @@ the same archive entry.
 |---|---:|---|
 | `12302019.NASDAQ_ITCH50.gz` | 3,524,013,057 | `ef03df46a27e6bda4dead017f84c2e3979df7211f02c7868b51d53fceb99c689` |
 
+## Whole-file transfer does not work for the larger sessions
+
+Measured on 2026-09-23, from the development Mac. Progress at the moment each
+connection dropped, as a fraction of the advertised length:
+
+| Session | Advertised | att 1 | att 2 | att 3 | att 4 |
+|---|---:|---:|---:|---:|---:|
+| `01302019.NASDAQ_ITCH50.gz` | 4.76 GB | 1.5% | **67.6%** | 0.4% | 0.4% |
+| `03272019.NASDAQ_ITCH50.gz` | 5.51 GB | 0.7% | none | none | none |
+
+**All eight attempts failed.** The pattern is not a connection-duration cap:
+attempt 2 carried **3.22 GB** in one connection, so a long transfer is
+possible, and the attempts after it died at 0.4% or produced no progress at
+all. Degradation across successive requests, with the later ones failing
+almost immediately, is the shape of **server-side throttling** rather than a
+fixed limit any single connection would hit. Retrying the whole file is
+therefore not a strategy for these sessions — each retry starts from zero and
+the later retries are the ones most likely to be refused.
+
+The server was not down: a `HEAD` during the same period returned 200 with the
+correct `content-length`, `accept-ranges: bytes` and an `etag`.
+
+### Ranges are honoured, so the transfer is chunked
+
+```
+GET /ITCH/Nasdaq%20ITCH/01302019.NASDAQ_ITCH50.gz   Range: bytes=0-1023
+  HTTP/2 206
+  content-range: bytes 0-1023/4764426091
+  content-length: 1024
+  etag: "29fda95e24b9d41:0"
+```
+
+206 with a `Content-Range` exactly matching the request, so
+`tools/fetch_chunked.sh` fetches 64 MiB at a time and resumes from whatever it
+already has. Measured immediately after the eight whole-file failures, it
+sustained about **11.6 MB/s**, which is the same archive answering a different
+request shape.
+
+**What each chunk must prove before a byte of it is appended.** This is the
+failure the script exists to prevent, and it has already happened here: an
+earlier attempt used `curl --continue-at`, a retry returned the *whole* body,
+curl appended it to the partial, and the result was **4,038,899,612 bytes
+against an advertised 3,524,013,057** — 115% of the file, with a valid gzip
+stream at the front, so it looked finished.
+
+- status exactly **206**; a **200 is rejected**, because it is the whole file
+  rather than the range asked for;
+- `Content-Range` exactly `bytes START-END/TOTAL` for the range requested;
+- `ETag` identical to the first chunk's, so the file cannot change mid-fetch;
+- body length exactly `END-START+1`.
+
+`tests/chunk_negative.cmake` drives each of those rejections offline, plus a
+positive control, plus the corrupted-byte case below.
+
+### What the gzip trailer establishes, and what it does not
+
+A gzip member ends with a **CRC-32 over the entire uncompressed stream** and
+the uncompressed length. `gzip -t` inflates the whole file and checks both, so
+it is a genuine **end-to-end integrity check on the transfer**: every byte
+took part in the CRC, and a single flipped byte anywhere fails it without
+changing the file's length. That matters here precisely because length is what
+a chunked assembly is most likely to get right while getting content wrong.
+`tests/chunk_negative.cmake` flips one byte mid-stream and requires
+verification to fail at unchanged length.
+
+**It establishes:** that the bytes now on disk inflate to a stream whose
+CRC-32 and length match what the compressor recorded when the file was
+created. Truncation, appended data, a dropped or duplicated chunk, and
+in-flight corruption are all caught.
+
+**It does not establish:** that this is the file the publisher intended to
+serve. A CRC-32 is a 32-bit error-detecting code, not a cryptographic digest —
+it is trivial to construct a different file with the same CRC, so it carries
+no authenticity claim at all. And it can only compare the archive against
+*itself*: if the stored file were replaced with a different, internally
+consistent gzip, every check here would pass. **No session in this repository
+has a publisher-verified digest**, because every `.md5sum` URL 404s. The
+SHA-256 values recorded here are computed on arrival and establish that a
+later copy is the same bytes — not that those bytes are the ones NASDAQ
+served.
+
+### Download method, per file
+
+| Session | Method | Outcome |
+|---|---|---|
+| `20190130.BX_ITCH_50.gz` | whole file | completed |
+| `12302019.NASDAQ_ITCH50.gz` | whole file, after two corrupted attempts | completed; see *three attempts to get it right* |
+| `20190530.PSX_ITCH_50.gz` | whole file (0.54 GB) | completed |
+| `01302019.NASDAQ_ITCH50.gz` | **chunked**, after 4 whole-file failures | in progress |
+| `03272019.NASDAQ_ITCH50.gz` | **chunked**, after 4 whole-file failures | pending |
+| `07302019.NASDAQ_ITCH50.gz` | **chunked** | pending |
+| `05302019`, `08302019`, `S101819` | pending the Linux throughput measurement | pending |
+
 ## Fetching the remaining development sessions on a second machine
 
 Three sessions are fetched on the Linux box and transferred; three are fetched
