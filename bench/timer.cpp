@@ -92,6 +92,43 @@ ClockInfo probe_clock(int rounds, int calibration_ms) {
     std::sort(overhead.begin(), overhead.end());
     info.overhead_ticks = overhead[overhead.size() / 2];
 
+    // The clock's own resolution: the smallest nonzero step it takes. Read it
+    // by spinning until the value changes, repeatedly, and keeping the
+    // smallest change seen. A clock that reports in nanoseconds but advances
+    // in steps of 41.667 of them is reporting a unit it cannot resolve, and
+    // every percentile taken from it is a multiple of that step.
+    {
+        std::vector<std::uint64_t> steps;
+        steps.reserve(256);
+        for (int r = 0; r < 256; ++r) {
+            const std::uint64_t a = tick_begin();
+            std::uint64_t b = a;
+            // Bounded so a pathological clock cannot hang the probe.
+            for (int spin = 0; spin < 1000000 && b == a; ++spin) b = tick_end();
+            if (b > a) steps.push_back(b - a);
+        }
+        std::uint64_t smallest = 0;
+        std::uint64_t typical = 0;
+        if (!steps.empty()) {
+            std::sort(steps.begin(), steps.end());
+            smallest = steps.front();
+            // The MEDIAN, not the maximum. A spin that is preempted between
+            // the two reads returns a step of several quanta, and taking the
+            // largest would report that scheduling artifact as the clock's
+            // resolution -- it measured 125 against a true 41.667 on the
+            // development Mac. The median is unmoved by a handful of them.
+            typical = steps[steps.size() / 2];
+        }
+        // Both ends are kept because a clock whose reported unit is FINER than
+        // its counter does not take a constant step: the development Mac
+        // reports nanoseconds from a 24 MHz counter, so consecutive steps
+        // alternate between 41 and 42 ns and the true quantum of 41.667 is
+        // neither. Reporting only the minimum would state a resolution better
+        // than the clock has.
+        info.resolution_ticks = smallest;
+        info.resolution_ticks_max = typical;
+    }
+
     return info;
 }
 

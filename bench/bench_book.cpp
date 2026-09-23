@@ -169,14 +169,22 @@ struct PlainHandler {
     void on(BrokenTrade v) { book.on(v); }
 };
 
-void print_hist_row(const char* label, const hdr_histogram* h, double ns_per_tick) {
+// On a host that cannot produce a publishable number the rows are printed in
+// TICKS, not nanoseconds. Multiplying a tick count by ns_per_tick on such a
+// host manufactures precision the clock does not have: the development Mac's
+// counter runs at 24 MHz, so a tick is 41.667 ns and every sample is an
+// integer multiple of it. A p50 printed as "42.0 ns" is one tick and nothing
+// more -- it is a resolution floor being reported as a measurement, and two
+// operations differing by 30 ns would print identically. Ticks make that
+// visible: a p50 of 1 says the median is at or below the clock's resolution.
+void print_hist_row(const char* label, const hdr_histogram* h, double scale) {
     if (!h || h->total_count == 0) return;
     const auto q = [&](double pct) {
-        return static_cast<double>(hdr_value_at_percentile(h, pct)) * ns_per_tick;
+        return static_cast<double>(hdr_value_at_percentile(h, pct)) * scale;
     };
     std::printf("  %-4s %13lld %9.1f %9.1f %9.1f %9.1f %9.1f %9.1f\n", label,
                 static_cast<long long>(h->total_count), q(50.0), q(90.0), q(99.0), q(99.9),
-                q(99.99), static_cast<double>(hdr_max(h)) * ns_per_tick);
+                q(99.99), static_cast<double>(hdr_max(h)) * scale);
 }
 
 void print_clock(const ClockInfo& ci) {
@@ -264,12 +272,33 @@ int run(const Options& opt) {
             recorded += h.recorded;
         }
 
+        // Nanoseconds on a host that can publish one; otherwise the clock's
+        // own resolution quantum, because that is the finest thing it can say.
+        const double quantum =
+            static_cast<double>(ci.resolution_ticks ? ci.resolution_ticks : 1);
+        const double scale = ci.publishable() ? ci.ns_per_tick : 1.0 / quantum;
+        const char* unit = ci.publishable() ? "ns" : "ticks";
+
         std::printf("per-message-timed  (fenced region per message, instrument cost "
                     "subtracted)\n");
+        if (!ci.publishable()) {
+            std::printf("  RESOLUTION-LIMITED, REPORTED IN TICKS OF THIS CLOCK.\n");
+            std::printf(
+                "  One tick is %llu of the units this clock reports in (smallest step\n",
+                (unsigned long long)ci.resolution_ticks_max);
+            std::printf(
+                "  seen %llu; the reported unit is finer than the counter behind it, so\n",
+                (unsigned long long)ci.resolution_ticks);
+            std::printf(
+                "  the step alternates). Every sample is a multiple of that quantum.\n");
+            std::printf("  p50 of 1 means \"at or below the clock's resolution\", and two\n");
+            std::printf("  operations differing by less than one tick print identically.\n");
+            std::printf("  Nothing here is a latency measurement. See docs/benchmarks.md.\n");
+        }
         std::printf("  every sample from every run is recorded; %d runs, %llu samples\n",
                     opt.runs, (unsigned long long)recorded);
-        std::printf("  %-4s %13s %9s %9s %9s %9s %9s %9s\n", "type", "samples", "p50", "p90",
-                    "p99", "p99.9", "p99.99", "max");
+        std::printf("  %-4s %13s %9s %9s %9s %9s %9s %9s   (%s)\n", "type", "samples", "p50",
+                    "p90", "p99", "p99.9", "p99.99", "max", unit);
 
         hdr_histogram* all = nullptr;
         hdr_init(1, 10000000, 3, &all);
@@ -277,11 +306,11 @@ int run(const Options& opt) {
             const hdr_histogram* h = merged.h[static_cast<unsigned char>(*t)];
             if (!h || h->total_count == 0) continue;
             const char label[2] = {*t, 0};
-            print_hist_row(label, h, ci.ns_per_tick);
+            print_hist_row(label, h, scale);
             if (all) hdr_add(all, h);
         }
         if (all && all->total_count > 0) {
-            print_hist_row("all", all, ci.ns_per_tick);
+            print_hist_row("all", all, scale);
             per_median_ns =
                 static_cast<double>(hdr_value_at_percentile(all, 50.0)) * ci.ns_per_tick;
         }
@@ -302,8 +331,8 @@ int run(const Options& opt) {
         std::printf("  window recenters, separated (docs/design.md record 033)\n");
         std::printf("  %-4s %13s %9s %9s %9s %9s %9s %9s\n", "kind", "samples", "p50", "p90",
                     "p99", "p99.9", "p99.99", "max");
-        print_hist_row("rest", ord, ci.ns_per_tick);
-        print_hist_row("rcnt", rc, ci.ns_per_tick);
+        print_hist_row("rest", ord, scale);
+        print_hist_row("rcnt", rc, scale);
         if (rc_n + ord_n > 0) {
             std::printf("  recenter share  %.4f%% of timed messages\n",
                         100.0 * static_cast<double>(rc_n) / static_cast<double>(rc_n + ord_n));

@@ -81,6 +81,16 @@ struct ClockInfo {
     double ns_per_tick = 0.0;         // from calibration against CLOCK_MONOTONIC
     double calibration_error = 0.0;   // relative spread across calibration rounds
     std::uint64_t overhead_ticks = 0; // median cost of one begin/end pair
+    // The smallest nonzero difference between two consecutive clock reads:
+    // the quantum the clock actually resolves, which is not the same as the
+    // unit it reports in. The development Mac's portable clock reports
+    // nanoseconds and advances in steps of 41.667 of them, because it is
+    // backed by a 24 MHz counter. Reporting a percentile of "42 ns" from it
+    // states one tick of that counter and nothing finer -- two operations
+    // differing by 30 ns print identically. Measured rather than assumed, so
+    // a host whose clock is finer is not penalised by a constant.
+    std::uint64_t resolution_ticks = 0;     // smallest nonzero step observed
+    std::uint64_t resolution_ticks_max = 0; // median step; robust to preemption
     std::string note;
 
     // True only when a published latency number may be derived from this host.

@@ -131,6 +131,26 @@ gets its own record and its own prediction before it is measured. **The
 latency consequence of an overflow hit has not been measured**, so the cost of
 33.8% is currently unknown — it is a structural fact in search of a price.
 
+### Timings from the development host are reported in ticks
+
+The development Mac has no invariant TSC read through fenced rdtsc, so its
+clock is `std::chrono::steady_clock`. That clock **reports nanoseconds and
+resolves 41.667 of them**: it is backed by a 24 MHz counter, and because the
+reported unit is finer than the counter the step alternates between 41 and 42.
+
+A percentile printed as "42.0 ns" from that clock is therefore **one tick and
+nothing finer**. Two operations differing by 30 ns print identically. Quoting
+it in nanoseconds states a precision the instrument does not have, so
+`bench_book` prints ticks on any host it cannot publish from, labels the block
+resolution-limited, and states the quantum it measured by spinning on the
+clock. The quantum is taken as the **median** step rather than the largest: a
+spin preempted between two reads returns several quanta, and using the maximum
+reported 125 against a true 41.667.
+
+**No nanosecond-denominated latency from this host appears anywhere in this
+document.** What the Mac runs are for is structural counts, which are
+deterministic and do not depend on the clock at all.
+
 ### S-002 — the window slides: overflow falls by a factor of 14
 
 **Prediction, recorded before the run.** S-001 diagnosed the fixed origin as
