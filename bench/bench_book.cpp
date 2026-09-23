@@ -50,6 +50,15 @@ struct Options {
 
 constexpr char kTypeOrder[] = "AFECXDUPQB";
 
+// Two synthetic labels alongside the message types. A window recenter rebuilds
+// one side of one symbol, so it is rare and its cost is proportional to what
+// that side holds rather than to anything about the message that triggered it.
+// Pooled into the type histograms it would be invisible at the median and
+// would own the tail with no way to say so; separated, the tail can be
+// attributed. See docs/design.md record 033.
+constexpr unsigned char kSlotRecenter = 0xFEu; // messages that triggered a recenter
+constexpr unsigned char kSlotOrdinary = 0xFFu; // every other timed message
+
 // A histogram per message type, recording every sample. hdr_histogram is used
 // rather than a vector of raw samples because a session produces tens of
 // millions of samples per type: capping a vector would keep only the start of
@@ -65,6 +74,8 @@ struct TypeHistograms {
         for (const char* t = kTypeOrder; *t; ++t) {
             hdr_init(1, 10000000, 3, &h[static_cast<unsigned char>(*t)]);
         }
+        hdr_init(1, 10000000, 3, &h[kSlotRecenter]);
+        hdr_init(1, 10000000, 3, &h[kSlotOrdinary]);
     }
     ~TypeHistograms() {
         for (hdr_histogram* p : h) {
@@ -108,14 +119,22 @@ struct TimedHandler {
             book.on(v);
             return;
         }
+        // The recenter counter is read OUTSIDE the fenced region on both
+        // sides, so the two loads are not in what is being measured. Reading
+        // it is how a message is classified after the fact: a recenter is
+        // triggered from inside the book and there is nothing about the
+        // message itself that predicts one.
+        const std::uint64_t r0 = book.counters().recenters;
         const std::uint64_t t0 = tick_begin();
         book.on(v);
         const std::uint64_t t1 = tick_end();
+        const std::uint64_t r1 = book.counters().recenters;
         const std::uint64_t raw = t1 - t0;
         // The instrument's own cost is subtracted, and a sample at or below it
         // is recorded at the floor rather than wrapping.
         const std::uint64_t net = raw > overhead ? raw - overhead : 0;
         hist->record(v.type(), net);
+        hist->record(r1 != r0 ? kSlotRecenter : kSlotOrdinary, net);
         ++recorded;
     }
 
@@ -267,6 +286,31 @@ int run(const Options& opt) {
                 static_cast<double>(hdr_value_at_percentile(all, 50.0)) * ci.ns_per_tick;
         }
         if (all) hdr_close(all);
+        std::printf("\n");
+
+        // The same samples, split by whether the message triggered a window
+        // recenter. Every timed message appears in exactly one of these two
+        // rows, and their sample counts sum to the "all" row above. A recenter
+        // rebuilds one side of one symbol from its occupancy bitmap, so the
+        // question this answers is whether the rebuilds are cheap on average
+        // or merely rare -- and whether they own the tail that the per-type
+        // rows report but cannot explain.
+        const hdr_histogram* rc = merged.h[kSlotRecenter];
+        const hdr_histogram* ord = merged.h[kSlotOrdinary];
+        const long long rc_n = rc ? static_cast<long long>(rc->total_count) : 0;
+        const long long ord_n = ord ? static_cast<long long>(ord->total_count) : 0;
+        std::printf("  window recenters, separated (docs/design.md record 033)\n");
+        std::printf("  %-4s %13s %9s %9s %9s %9s %9s %9s\n", "kind", "samples", "p50", "p90",
+                    "p99", "p99.9", "p99.99", "max");
+        print_hist_row("rest", ord, ci.ns_per_tick);
+        print_hist_row("rcnt", rc, ci.ns_per_tick);
+        if (rc_n + ord_n > 0) {
+            std::printf("  recenter share  %.4f%% of timed messages\n",
+                        100.0 * static_cast<double>(rc_n) / static_cast<double>(rc_n + ord_n));
+        }
+        if (rc_n == 0) {
+            std::printf("  no message in this run triggered a recenter\n");
+        }
         std::printf("\n");
     }
 
