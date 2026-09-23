@@ -157,6 +157,16 @@ add_test(NAME integrity_negative
     -DVERIFY=${CMAKE_SOURCE_DIR}/tools/verify_archive.sh
     -P ${CMAKE_SOURCE_DIR}/tests/integrity_negative.cmake)
 
+# The chunked downloader's per-chunk validation, driven against the responses
+# that would corrupt a partial file: a 200 to a range request, a mismatched or
+# absent Content-Range, a changed ETag, and an assembled file with one flipped
+# byte that only the gzip trailer's CRC-32 can catch.
+add_test(NAME chunk_negative
+  COMMAND ${CMAKE_COMMAND}
+    -DSCRIPT=${CMAKE_SOURCE_DIR}/tools/fetch_chunked.sh
+    -DVERIFY=${CMAKE_SOURCE_DIR}/tools/verify_archive.sh
+    -P ${CMAKE_SOURCE_DIR}/tests/chunk_negative.cmake)
+
 # Pins every random draw. The CI matrix runs this under both compilers, which
 # is the point: an implementation-defined distribution would diverge between
 # them and this is what makes that visible.
