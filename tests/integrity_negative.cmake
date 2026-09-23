@@ -44,7 +44,7 @@ endmacro()
 
 # Positive control first. If this fails, every negative below is meaningless:
 # a script that rejects everything is not a gate either.
-expect_exit("a good archive passes" 0 "${GOOD}" "${GOOD_SIZE}")
+expect_exit("a good archive passes" 0 "--no-published-digest" "${GOOD}" "${GOOD_SIZE}")
 
 # 1. Short file -- the shape of a dropped connection.
 expect_exit("length mismatch is rejected" 2 "${GOOD}" "999999999")
@@ -78,5 +78,12 @@ expect_exit("a wrong sha256 is rejected" 5 "${GOOD}" "${GOOD_SIZE}"
 
 # 5. Missing file.
 expect_exit("a missing file is rejected" 1 "${WORK}/not-there.gz")
+
+# 6. No digest and no acknowledgement that none exists. Most of this archive
+#    serves no checksum, so skipping is often correct -- but it has to be
+#    asked for. An earlier version exited 0 here, which made "verified against
+#    the publisher" and "nothing was checked" indistinguishable.
+expect_exit("a missing digest is not silently skipped" 6 "${GOOD}" "${GOOD_SIZE}")
+
 
 message(STATUS "integrity gate rejects every corruption tested")

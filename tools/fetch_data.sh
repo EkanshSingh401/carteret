@@ -112,7 +112,12 @@ echo "verifying the gzip stream ..."
 # be run against deliberately corrupted input; tests/integrity_negative.cmake
 # does exactly that on every build. Keeping them here would have meant a gate
 # that only ever saw good data.
-if ! sh "$(dirname "$0")/verify_archive.sh" "data/${FILE}" "${EXPECTED:-}"; then
+# --no-published-digest: this archive serves no checksum for any session --
+# every .md5sum URL 404s (see docs/data.md). The digest is computed and
+# printed for the record so a later copy can be checked against it, and the
+# flag is what makes that distinction explicit rather than silent.
+if ! sh "$(dirname "$0")/verify_archive.sh" --no-published-digest \
+     "data/${FILE}" "${EXPECTED:-}"; then
   echo "delete data/${FILE} and re-run" >&2
   exit 1
 fi
