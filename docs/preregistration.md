@@ -564,9 +564,9 @@ fixed by this section.
 
 #### Disclosure: what had been computed when the thresholds were revised
 
-The revision from 55.0%/0.0245 to the formula above is commit `48fd13d`
-(2026-09-23 10:08:52 −0400). The original bars are commit `2989984`
-(09:58:45), and the retired block-length rule's evidence is `8ac3964`
+The revision from 55.0%/0.0245 to the formula above is commit `126778b`
+(2026-09-23 10:08:52 −0400). The original bars are commit `57c70cc`
+(09:58:45), and the retired block-length rule's evidence is `6f75527`
 (10:03:13). Between those commits a directional **hit series was built**, so
 the question of what had been seen is a fair one and is answered exactly.
 
@@ -594,7 +594,7 @@ the question of what had been seen is a fair one and is answered exactly.
 
 **One mean was computed by the machine and never surfaced.** The
 autocorrelation function centred the series with `x = x - x.mean()`
-(`research/block_length.py` at `8ac3964`, line 57). That grand mean *is*
+(`research/block_length.py` at `6f75527`, line 57). That grand mean *is*
 candidate A's development directional accuracy. It was never returned,
 printed, logged or recorded, and it has not been seen.
 
