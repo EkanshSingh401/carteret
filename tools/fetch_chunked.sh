@@ -121,12 +121,34 @@ while [ "$have" -lt "$TOTAL" ]; do
 
   # Body and headers to separate temporaries. The body is NOT appended until
   # the headers have been validated against the request.
+  #
+  # A chunk is retried in place rather than failing the run. The throughput
+  # this archive offers varies by more than an order of magnitude -- 11.6 MB/s
+  # was measured on one session and 0.34-0.76 MB/s on the next -- and a
+  # connection that stalls completely is common. --speed-limit abandons a
+  # chunk that drops below 24 KB/s for 45 s, which turns a stall into a fast
+  # retry instead of a fifteen-minute wait on a dead socket. Only the chunk is
+  # lost, because nothing is appended until it is validated.
   tmp="data/.${FILE}.chunk"
-  if ! curl -sS --fail-with-body --max-time 900 -D "$HDR" -o "$tmp" \
-        -H "Range: bytes=${start}-${end}" "$URL"; then
-    echo "chunk ${start}-${end}: transfer failed; re-run to resume" >&2
-    rm -f "$tmp"; exit 1
-  fi
+  attempt=1
+  while : ; do
+    if curl -sS --fail-with-body --max-time 1800 \
+          --speed-limit 24576 --speed-time 45 --retry 0 \
+          -D "$HDR" -o "$tmp" -H "Range: bytes=${start}-${end}" "$URL"; then
+      break
+    fi
+    rm -f "$tmp"
+    if [ "$attempt" -ge 20 ]; then
+      echo "" >&2
+      echo "chunk ${start}-${end}: 20 attempts failed; re-run to resume from $have" >&2
+      exit 1
+    fi
+    back=$((attempt * 5))
+    [ "$back" -gt 60 ] && back=60
+    printf '\r  chunk %s-%s stalled, retry %s in %ss   ' "$start" "$end" "$attempt" "$back" >&2
+    sleep "$back"
+    attempt=$((attempt + 1))
+  done
 
   if ! check_headers "$HDR" "$start" "$end" "$TOTAL" "$ETAG"; then
     rc=$?
