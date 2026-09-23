@@ -1607,6 +1607,43 @@ record says so rather than reading four points out of six as agreement.
 
 ---
 
+### 035c — The decomposition reproduces on the NASDAQ session
+
+`12302019.NASDAQ_ITCH50`, same 93,525 placements, same models, same seeds.
+Read with record 037: this is a second session, not a second venue, and the
+two are not comparable in level.
+
+| Term | BX 2019-01-30 | NASDAQ 2019-12-30 |
+|---|---:|---:|
+| Shape (proportional − Bernoulli) | −2.0% | −3.5% |
+| Attribution (Bernoulli − exact) | +1.4% | +2.8% |
+| **Net (proportional − exact)** | **−0.5%** | **−0.7%** |
+
+The **structure** reproduces: two terms of opposite sign and comparable
+magnitude, cancelling to a small net. Both terms are roughly twice as large on
+the NASDAQ session and the net is almost unchanged, which is the point of
+record 035b stated again — proportional's near-unbiasedness is a cancellation
+whose size is not stable, not an accuracy that is.
+
+The measured attribution error behaves as before and is larger throughout:
+**+4.03 pp pooled** over 3.8 billion cancelled shares, against BX's +0.92 pp,
+rising monotonically with depth to **+6.70 pp** in the 50,000+ bucket. The
+Bernoulli residual rises with depth on this session too — +0.3, +2.1, +3.4,
++3.7, +4.0, +11.1 — in the same order as that error, while proportional's own
+bias stays flat near zero until the deepest bucket.
+
+The one BX figure this record could not resolve is now resolved. Proportional's
+**+2.2%** at 10,000–49,999 shares ahead came from 669 placements; the same
+bucket here holds 7,207 and reports **−0.6%**. The sign flip was
+thin-cell noise, and only the deepest NASDAQ bucket — 50,000+, which BX never
+reached — shows a genuine positive at **+5.5%**, where the attribution error
+is +6.70 pp.
+
+**Scope.** Two sessions, one per venue, eleven months apart, 50 symbols each,
+21 shared. Not a venue comparison (record 037).
+
+---
+
 ## 036 — A crossed book is a reconstruction error only while the venue is matching
 
 **Status:** in force. Supersedes the gate condition of record 027; that

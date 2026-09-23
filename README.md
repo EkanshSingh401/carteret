@@ -338,11 +338,16 @@ and not at all on a miss. Same mean as proportional, same all-or-nothing shape
 as exact, so what is left when it is compared against exact is the attribution
 error alone.
 
-| Term | Estimate | What it is |
-|---|---:|---|
-| Shape | **−2.0%** | proportional minus Bernoulli: the cost of removing cancels as a fraction rather than in jumps |
-| Attribution | **+1.4%** | Bernoulli minus exact: what remains once the shape matches |
-| **Net** | **−0.5%** | proportional minus exact — the figure reported above as near-unbiasedness |
+| Term | BX | NASDAQ | What it is |
+|---|---:|---:|---|
+| Shape | **−2.0%** | **−3.5%** | proportional minus Bernoulli: the cost of removing cancels as a fraction rather than in jumps |
+| Attribution | **+1.4%** | **+2.8%** | Bernoulli minus exact: what remains once the shape matches |
+| **Net** | **−0.5%** | **−0.7%** | proportional minus exact — the figure reported above as near-unbiasedness |
+
+**The structure reproduces on both sessions and the magnitudes do not.** Both
+terms are roughly twice as large on the NASDAQ session while the net barely
+moves, which is the argument in one line: proportional's near-unbiasedness is
+a cancellation whose size is not stable, not an accuracy that is.
 
 The residual is positive in every depth bucket and rises with depth — 1.0,
 0.9, 2.1, 4.9, 4.9 — in the same order as the attribution error's 0.13, 0.18,
