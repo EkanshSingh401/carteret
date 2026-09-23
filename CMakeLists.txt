@@ -82,6 +82,10 @@ add_executable(gen_synthetic  tools/gen_synthetic.cpp)
 # Checksums the exact draws the study consumes, so the benchmark host can make
 # the glibc/x86-64 comparison directly instead of it being inferred on arm64.
 add_executable(draw_checksum  tools/draw_checksum.cpp)
+# Decides a session's venue from its content rather than its path. The archive
+# files a NASDAQ session under the PSX directory, and venue decides the fee
+# model and therefore what may be pooled with what.
+add_executable(venue_profile  tools/venue_profile.cpp)
 target_link_libraries(census        PRIVATE carteret)
 target_link_libraries(replay       PRIVATE carteret)
 target_link_libraries(determinism  PRIVATE carteret)
@@ -90,6 +94,7 @@ target_link_libraries(queue_study  PRIVATE carteret)
 target_link_libraries(export_features PRIVATE carteret)
 target_link_libraries(gen_synthetic PRIVATE carteret)
 target_link_libraries(draw_checksum PRIVATE carteret)
+target_link_libraries(venue_profile PRIVATE carteret)
 
 if(CARTERET_BENCH)
   add_executable(bench_book bench/bench_book.cpp bench/timer.cpp)
