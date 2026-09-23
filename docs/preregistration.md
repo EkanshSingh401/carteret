@@ -322,11 +322,50 @@ The block length used in step 2 is whatever the ±0.05-for-30-lags rule
 returns on the development sessions, rounded up to the next whole minute. It
 is recorded in the table below as a measured quantity, not chosen.
 
-| Candidate | Economic threshold (section 7) | MDE, plan (b) — **primary** | Ratio | MDE, plan (c) — sensitivity |
-|---|---|---|---|---|
-| A — OFI, directional | *(to be filled)* | *(to be filled)* | *(to be filled)* | *(to be filled)* |
-| B — OFI, out-of-sample R² | *(to be filled)* | *(to be filled)* | *(to be filled)* | *(to be filled)* |
-| C — queue imbalance, directional | *(to be filled)* | *(to be filled)* | *(to be filled)* | *(to be filled)* |
+#### The economic thresholds, fixed before any MDE was computed
+
+One economic requirement, expressed in each metric's own units. Stating it
+once and converting keeps the three candidates commensurable, which is what
+the selection rule's ratio depends on.
+
+**The requirement.** The signal must shift the expected mid move by at least
+**0.10 half-spreads per window**. On the one-cent inside spread that is modal
+for these names that is **$0.0005 per share**: one third of the $0.0015 add
+rebate the strategy is paid at the base tier, and one sixth of the $0.0030
+take fee. Below that the signal is not worth acting on, because the edge is
+smaller than the rounding in the fee schedule it has to survive.
+
+Why this rather than "positive net P&L": a passive fill captures the half
+spread, so a strategy with *no signal at all* is close to break-even at the
+base tier — Stage 7 measures adverse selection at 0.77 to 1.06 half-spreads
+against a captured 1.0, leaving roughly the rebate. A threshold of "positive"
+would therefore be cleared by a signal worth nothing. The requirement above is
+what the signal itself must add.
+
+**Converted into each metric.** For a directional metric, shifting the
+expected move by 0.10 half-spreads is *2p − 1 = 0.10*. For the R² metric, the
+same edge under a Gaussian sign relation, *p = ½ + arcsin(ρ)/π*, gives
+*ρ = sin(0.05π) = 0.1564* and *R² = ρ²*.
+
+| Candidate | Metric | **Economic threshold** |
+|---|---|---:|
+| A — OFI, directional | held-out directional accuracy | **55.0%** |
+| B — OFI, out-of-sample R² | held-out out-of-sample R² | **0.0245** |
+| C — queue imbalance, directional | held-out directional accuracy | **55.0%** |
+
+A and C carry the same threshold because they are the same claim about the
+same quantity, made from different features. **The tie-break in the selection
+rule therefore matters and is already fixed: ties go to the simpler feature,
+which is C** — queue imbalance is a state variable read at one instant, while
+order flow imbalance is a flow accumulated over a window.
+
+#### The MDE table
+
+| Candidate | Economic threshold | MDE, plan (b) — **primary** | Ratio | MDE, plan (c) — sensitivity |
+|---|---:|---|---|---|
+| A — OFI, directional | 55.0% | *(to be filled)* | *(to be filled)* | *(to be filled)* |
+| B — OFI, out-of-sample R² | 0.0245 | *(to be filled)* | *(to be filled)* | *(to be filled)* |
+| C — queue imbalance, directional | 55.0% | *(to be filled)* | *(to be filled)* | *(to be filled)* |
 
 The **Ratio** column is the selection rule, and the smallest value in it
 selects the hypothesis. Plan (c)'s column is reported for the sensitivity
@@ -342,7 +381,7 @@ analysis and takes no part in the selection.
 | Intraday block-bootstrap SE, block length *L* | *(to be filled)* |
 | Symbol-clustered SE | *(to be filled)* |
 | Fraction of metric variance common to the session | *(to be filled)* |
-| Smallest economically meaningful effect after costs | *(to be filled)* |
+| Smallest economically meaningful effect after costs | 0.10 half-spreads per window = $0.0005/share |
 
 **If the selected hypothesis's MDE under plan (b) exceeds its economic
 threshold, the study as designed cannot answer its own question**, and the
