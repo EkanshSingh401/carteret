@@ -179,7 +179,7 @@ pre-registration.
 
 93,525 synthetic orders, one round lot each, placed at the inside of the 50
 busiest symbols at random times through `20190130.BX_ITCH_50`, cancelled after
-60 seconds if unfilled. All four models see the identical placements and the
+60 seconds if unfilled. All five models see the identical placements and the
 identical executed volume; they differ **only** in how a cancel at the price
 is attributed, which is what isolates the bias.
 
@@ -200,26 +200,33 @@ be compared against the seed range of the fill-rate *level*.
 | Conservative | 19.87% | **−20.9%** | [−24.4, −17.7] | 1.01 pp | 21.2 s |
 | Optimistic | 25.84% | +2.9% | [+1.9, +4.0] | 0.44 pp | 17.2 s |
 | Proportional | 24.99% | −0.5% | [−0.79, −0.27] | 0.36 pp | 18.2 s |
+| Bernoulli-proportional | 25.48% | +1.4% | [+0.80, +2.16] | 0.40 pp | 17.7 s |
 
-All three intervals exclude zero, and all three biases have the same sign in
-every one of the ten placement sequences. But the magnitudes differ by two
-orders: conservative's bias is twenty times its own seed range, while
-proportional's is barely larger than its own. **Conservative's bias is a
-finding; proportional's is a real but negligible effect**, and it would be
-wrong to present the two as comparable results.
+Every interval excludes zero, and every bias has the same sign in all ten
+placement sequences. But the magnitudes differ by two orders: conservative's
+bias is twenty times its own seed range, while proportional's is barely larger
+than its own. **Conservative's bias is a finding; proportional's is a real but
+negligible effect**, and it would be wrong to present the two as comparable
+results.
+
+The fifth model is an instrument rather than a candidate. It takes the
+proportional model's assumed ahead-share as a coin instead of an average and
+removes the cancelled order all-or-nothing, so it has proportional's mean and
+exact's shape; it exists to separate the two, and what it shows about
+proportional is below.
 
 ### The bias is small in aggregate and severe where it matters
 
 Pooled, proportional is almost unbiased and even optimistic is only 3% high.
 That aggregate hides the result:
 
-| Shares ahead at entry | n placed | Exact | Conservative | Optimistic | Proportional |
-|---|---:|---:|---:|---:|---:|
-| 0–99 | 1,114 | 34.8% | −6.2% | +2.8% | +0.3% |
-| 100–499 | 65,462 | 26.5% | −17.9% | +1.9% | −0.5% |
-| 500–1,999 | 19,877 | 19.5% | −23.8% | +3.6% | −0.4% |
-| 2,000–9,999 | 6,403 | 26.3% | −44.0% | +9.2% | −1.5% |
-| 10,000–49,999 | **669** | 27.7% | **−56.7%** | +16.2% | +2.2% |
+| Shares ahead at entry | n placed | Exact | Conservative | Optimistic | Proportional | Bernoulli |
+|---|---:|---:|---:|---:|---:|---:|
+| 0–99 | 1,114 | 34.8% | −6.2% | +2.8% | +0.3% | +1.0% |
+| 100–499 | 65,462 | 26.5% | −17.9% | +1.9% | −0.5% | +0.9% |
+| 500–1,999 | 19,877 | 19.5% | −23.8% | +3.6% | −0.4% | +2.1% |
+| 2,000–9,999 | 6,403 | 26.3% | −44.0% | +9.2% | −1.5% | +4.9% |
+| 10,000–49,999 | **669** | 27.7% | **−56.7%** | +16.2% | +2.2% | +4.9% |
 
 The conservative model — the cautious choice, the one a backtest reaches for
 to avoid overstating fills — is the worst, and it gets worse the deeper the
@@ -262,12 +269,55 @@ earlier. A uniform assumption therefore over-attributes to the front.
 data shows where it fails.** A positive attribution error should mean
 over-estimated fills, yet proportional's pooled fill-rate bias is
 *negative* (−0.5%), turning positive (+2.2%) only in the deepest bucket where
-the attribution error is largest. The reason is that the mean error is not the
-whole story: exact removes a cancel from the queue ahead all-or-nothing, while
-proportional always removes a fraction. The two differ in variance as well as
-in mean, and fill probability is not linear in the ahead-count. The attribution
-error dominates only where the queue is deep enough for queue position to be
-the binding constraint.
+the attribution error is largest.
+
+### Separating the two errors, with the prediction recorded first
+
+The explanation for that is a second error of the opposite sign: exact removes
+a cancel from the queue ahead all-or-nothing, while proportional always
+removes a fraction, so the two differ in the *variance* of the ahead-count as
+well as its mean. That was an argument, not a measurement, so it was given a
+test — and the test's prediction was written into `docs/design.md` record 035a
+and committed before the instrument existed.
+
+The instrument is the **Bernoulli-proportional** model: proportional's assumed
+ahead-share taken as a coin, with the cancelled order removed in full on a hit
+and not at all on a miss. Same mean as proportional, same all-or-nothing shape
+as exact, so what is left when it is compared against exact is the attribution
+error alone.
+
+| Term | Estimate | What it is |
+|---|---:|---|
+| Shape | **−2.0%** | proportional minus Bernoulli: the cost of removing cancels as a fraction rather than in jumps |
+| Attribution | **+1.4%** | Bernoulli minus exact: what remains once the shape matches |
+| **Net** | **−0.5%** | proportional minus exact — the figure reported above as near-unbiasedness |
+
+The residual is positive in every depth bucket and rises with depth — 1.0,
+0.9, 2.1, 4.9, 4.9 — in the same order as the attribution error's 0.13, 0.18,
+0.63, 1.57, 4.00 pp. Proportional's own bias does neither: it is non-monotone
+and changes sign twice. Matching the shape is what makes the residual behave
+like the error that is known to be there.
+
+**The prediction was half wrong, and the correction matters.** Record 035a
+predicted that matching the shape would *close most of the gap* to exact. It
+did the opposite: the Bernoulli model's bias is nearly three times
+proportional's, because the two terms are of comparable size rather than one
+dominating. So **proportional is not nearly unbiased because it is nearly
+right — it is nearly unbiased because two errors of comparable magnitude
+cancel on this session**, and nothing holds that balance in place. The shape
+term depends on how fill probability curves with queue position; the
+attribution term depends on how concentrated cancellation is among young
+orders. Those are different properties of a market, and there is no reason for
+them to stay matched on another venue, date or order size. Expect the
+proportional model's bias to be small; do not expect it to be reliably small.
+
+A second check, on the curvature of fill probability against the ahead-count,
+**did not settle its question** and is reported as inconclusive in record 035b
+rather than counted as agreement. The pooled curve is confounded — depth at
+entry is not assigned at random, and a symbol with a deep queue is one that
+trades often — and the within-symbol curve can only be estimated over the
+range where enough symbols contribute, which excludes exactly the deep region
+where the effect would be largest.
 
 ### Where the fills come from explains the value
 

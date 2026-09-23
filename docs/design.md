@@ -1516,3 +1516,88 @@ curve is concave over that region, the Jensen term has the wrong sign and the
 explanation fails regardless of what the Bernoulli model does.
 
 Results follow in 035b, which was written after this section was committed.
+
+---
+
+### 035b — Results: the mechanism holds, the prediction did not
+
+Same session, same 93,525 placements, rule 4 off. Every model sees the
+identical synthetic orders; the Bernoulli model's coin comes from its own
+generator and moves none of them.
+
+| Model | Fill rate | Bias vs exact | 95% CI (symbol bootstrap) | Seed range |
+|---|---:|---:|---|---:|
+| Exact | 25.124% | — | — | — |
+| Proportional | 24.989% | −0.5% | [−0.79, −0.27] | 0.36 pp |
+| **Bernoulli-proportional** | **25.481%** | **+1.4%** | **[+0.80, +2.16]** | 0.40 pp |
+
+**Prediction 1 failed.** Bernoulli-proportional did not close the gap to
+exact. Its bias is nearly three times proportional's in magnitude, and larger
+in every depth bucket:
+
+| Shares ahead at entry | n | Exact | Proportional | Bernoulli |
+|---|---:|---:|---:|---:|
+| 0–99 | 1,114 | 34.83% | +0.26% | +1.03% |
+| 100–499 | 65,462 | 26.52% | −0.53% | +0.91% |
+| 500–1,999 | 19,877 | 19.54% | −0.36% | +2.10% |
+| 2,000–9,999 | 6,403 | 26.25% | −1.52% | +4.88% |
+| 10,000–49,999 | 669 | 27.65% | +2.17% | +4.88% |
+
+**Predictions 2 and 3 held, and held cleanly.** The Bernoulli model's residual
+bias is positive in every bucket and rises with depth — 1.0, 0.9, 2.1, 4.9,
+4.9 — in the same order as the measured attribution error of 0.13, 0.18,
+0.63, 1.57 and 4.00 pp. Proportional's own bias does neither: it is
+non-monotone and changes sign twice across the same buckets. Matching the
+shape of the process is what makes the residual behave like the attribution
+error that is known to be there.
+
+**What this says, and it is not what 035a expected.** The two effects are of
+comparable size and opposite sign, and they very nearly cancel:
+
+| Term | Estimate | What it is |
+|---|---:|---|
+| Shape | **−2.0%** | proportional minus Bernoulli: the cost of removing cancels as a fraction rather than in jumps |
+| Attribution | **+1.4%** | Bernoulli minus exact: what is left once the shape matches, which is the +0.92 pp mean error |
+| Net | −0.5% | proportional minus exact, the figure previously reported as near-unbiasedness |
+
+So the mechanism in record 035 — two terms, opposite signs, partial offset —
+is **confirmed in its structure**. What was wrong was the assumption behind
+prediction 1, that the shape term accounted for *most* of proportional's small
+negative bias and that removing it would leave nearly nothing. It accounts for
+rather more than all of it.
+
+**The practical consequence is a correction, not a refinement.** Proportional
+attribution is not nearly unbiased because it is nearly right. It is nearly
+unbiased on this session because two errors of comparable magnitude happened
+to cancel, and **nothing holds that balance in place**. The shape term depends
+on how fill probability curves with queue position; the attribution term
+depends on how concentrated cancellation is among young orders. Those are
+different properties of a market and there is no reason for them to stay
+matched on another venue, another date or another order size. A user of the
+proportional model should expect its bias to be small and should not expect it
+to be reliably small.
+
+**The curvature check did not settle its question.** The pooled curve of fill
+probability against the ahead-count is unusable: it *rises* from 19.3% at
+about 2,300 shares ahead to 37.8% at about 6,300, because depth at entry is
+confounded with symbol activity — a symbol with a deep queue is a symbol that
+trades often. Removing that by fitting bin effects alongside symbol effects,
+weighted by placements, gives a curve that falls monotonically from 29.4% at
+about 100 shares to 14.0% at about 3,700.
+
+On the linear ahead-count axis, which is the axis the models perturb, **four
+of the six interior points of that adjusted curve are convex**. That is
+consistent with the Jensen argument and does not establish it. Seven of the
+fifteen bins are dropped for sparsity, and three of the deepest return fitted
+rates outside [0, 1] — the linear probability model reporting that it has been
+asked to extrapolate from two or three symbols. The region where the Jensen
+term would be largest is precisely the region where this session cannot
+estimate the curve at all.
+
+**Status of the explanation.** The Bernoulli test supports the two-term
+decomposition and makes the attribution term directly visible. The curvature
+check is inconclusive. Record 035's account stands as a decomposition that has
+been measured, not as a mechanism that has been traced end to end, and this
+record says so rather than reading four points out of six as agreement.
+
+**Scope.** One venue, one session, 50 symbols, one order size.
