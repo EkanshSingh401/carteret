@@ -122,8 +122,10 @@ that the held-out universe is not chosen after seeing held-out data.
 
 ### The inference problem, and four ways out
 
-**This section is a draft for the author to choose between. It is not a
-decision.**
+**The four options below were drafted for the author to choose between. The
+choice has been made and is recorded in the next section; the options are kept
+here because the reasoning that rejected three of them is part of the
+registration, not scaffolding to be deleted once a decision exists.**
 
 `docs/data.md` lists **nine** NASDAQ ITCH 5.0 sessions in the 2017-2020
 window. Seven are development and **two are held out**. Three further NASDAQ
@@ -228,6 +230,64 @@ reporting it as a confirmatory finding without stating the assumption that
 produced it. Both are anti-conservative in a known direction, and an interval
 that is too narrow by an unstated amount is not evidence.
 
+### The inference plan — decided
+
+**Fixed on 2026-09-22, before any minimum detectable effect had been
+computed.** The ordering matters and is the reason it is stated: choosing
+between inference plans by comparing their minimum detectable effects would
+systematically select the plan with the narrowest intervals, and the two plans
+available here are both anti-conservative in a known direction. A rule that
+picks whichever estimator reports the smallest standard error is a rule that
+picks whichever estimator assumes away the most dependence. The plan is
+therefore chosen on its assumptions alone, and the MDEs are computed
+afterwards and used only for the separate question of which hypothesis to
+test.
+
+**1. Primary inference: the intraday block bootstrap, plan (b).**
+
+**2. Block length,** chosen by a rule applied to the primary metric on
+**development sessions only**: the smallest lag at which the autocorrelation
+stays within ±0.05 for **30 consecutive lags**, rounded up to the next whole
+minute. The rule is mechanical, it is stated before the autocorrelation
+function has been looked at, and it has no free parameter left for a later
+choice to enter through. The 30-minute figure proposed in option (b) above is
+superseded by whatever this rule returns; if the rule returns a length that
+leaves too few blocks for a bootstrap to mean anything, that is a finding
+about the data and is reported as one rather than worked around.
+
+**3. Symbol clustering, plan (c), is a sensitivity analysis only.** It is
+reported beside the primary result, never in place of it, and every interval
+it produces carries the sentence that it is **anti-conservative under common
+market moves**: symbols on one day share index moves, sector moves and
+market-wide liquidity events, and the primary metric is a function of exactly
+the order flow that responds to them.
+
+**4. Hypothesis selection.** Among the three candidates in section 3, the one
+tested on the held-out set is the one with the **smallest ratio of its MDE
+under plan (b), at the planned held-out size, to its own pre-stated economic
+threshold**. Ties go to the simpler feature. **Development effect sizes are
+not used for selection** — only the MDE, which is a property of the estimator
+and the sample size, and the threshold, which is a property of the cost model
+in section 7. Selecting on development effect size would make the held-out
+test a test of the largest of three development estimates, which is the
+multiple-comparison problem this document exists to avoid, arriving through
+the selection step instead of the testing step.
+
+**5. Pre-committed fallback.** If the selected hypothesis's MDE under plan (b)
+**exceeds its economic threshold**, the study is declared **exploratory before
+any held-out access**, and every result is reported as exploratory. This is
+option (d), committed to in advance rather than reached for afterwards. The
+fallback is not a failure of the study: a design that can state before looking
+that it cannot resolve an effect worth having is doing its job.
+
+**6. Scope of any confirmatory claim.** With two held-out sessions,
+**confirmatory claims apply to those sessions and are not generalised beyond
+them.** This sentence appears in the write-up wherever a confirmatory result
+is stated. A block bootstrap within two days estimates the uncertainty of a
+quantity measured on those two days; it says nothing about the distribution of
+days from which they were drawn, and no amount of resampling inside them can
+make it say anything.
+
 ### Power — completed on development sessions only
 
 Intraday observations within a session are heavily autocorrelated, so the
@@ -253,33 +313,48 @@ Procedure, run by `research/power.py` on development sessions:
    made knowing what each can resolve.
 4. Record them below, beside the smallest effect that is economically
    meaningful after the costs in section 7.
+5. Apply the selection rule fixed in the previous section: the hypothesis
+   tested is the one with the smallest MDE-to-threshold ratio under plan (b),
+   ties to the simpler feature; and if that ratio exceeds one, the study is
+   declared exploratory before any held-out access.
 
-| Candidate | Plan (b) block bootstrap | Plan (c) symbol clustering |
-|---|---|---|
-| A — OFI, directional | *(MDE to be filled)* | *(MDE to be filled)* |
-| B — OFI, out-of-sample R² | *(MDE to be filled)* | *(MDE to be filled)* |
-| C — queue imbalance, directional | *(MDE to be filled)* | *(MDE to be filled)* |
+The block length used in step 2 is whatever the ±0.05-for-30-lags rule
+returns on the development sessions, rounded up to the next whole minute. It
+is recorded in the table below as a measured quantity, not chosen.
+
+| Candidate | Economic threshold (section 7) | MDE, plan (b) — **primary** | Ratio | MDE, plan (c) — sensitivity |
+|---|---|---|---|---|
+| A — OFI, directional | *(to be filled)* | *(to be filled)* | *(to be filled)* | *(to be filled)* |
+| B — OFI, out-of-sample R² | *(to be filled)* | *(to be filled)* | *(to be filled)* | *(to be filled)* |
+| C — queue imbalance, directional | *(to be filled)* | *(to be filled)* | *(to be filled)* | *(to be filled)* |
+
+The **Ratio** column is the selection rule, and the smallest value in it
+selects the hypothesis. Plan (c)'s column is reported for the sensitivity
+analysis and takes no part in the selection.
 
 | | Value |
 |---|---|
 | Development estimate of the chosen metric | *(to be filled)* |
 | Session-clustered SE, development set (7 sessions) | *(to be filled)* |
 | Session block-bootstrap SE, development set | *(to be filled)* |
+| Block length *L* returned by the ±0.05-for-30-lags rule | *(to be filled)* |
+| Blocks per session at that length, and across the held-out set | *(to be filled)* |
 | Intraday block-bootstrap SE, block length *L* | *(to be filled)* |
 | Symbol-clustered SE | *(to be filled)* |
 | Fraction of metric variance common to the session | *(to be filled)* |
 | Smallest economically meaningful effect after costs | *(to be filled)* |
 
-**If the MDE exceeds the economically meaningful effect under every plan the
-author is willing to assume, the study as designed cannot answer its own
-question**, and the honest response is option (d) above: report the point
-estimate and call the study exploratory.
+**If the selected hypothesis's MDE under plan (b) exceeds its economic
+threshold, the study as designed cannot answer its own question**, and the
+pre-committed response is option (d): report the point estimate and call the
+study exploratory. That is a decision rule, not a judgement to be made when
+the number appears.
 
 Doing none of this and running anyway, then reporting whichever interval
 happens to exclude the null, is not an option: it would produce a number with
 no power to be wrong.
 
-**The inference plan is chosen and recorded here before the registration
+**The inference plan is chosen and recorded above before the registration
 commit, and not changed afterwards.** Switching plans after seeing the
 held-out result is the specific failure this whole document exists to prevent,
 and it would be undetectable from the outside — which is why the choice, and
@@ -413,19 +488,36 @@ Written before the held-out run. Thresholds marked *(to be filled)* are set
 from the section 4 power analysis, on development sessions only, before the
 registration commit.
 
+**Every interval below is the intraday block bootstrap of section 4 at the
+block length that section's rule returns.** An earlier draft of these rules
+said "session-clustered", which with two held-out sessions is the degenerate
+estimator section 4 rejects; the correction is recorded here rather than made
+silently. The symbol-clustered interval is reported alongside as a
+sensitivity, carries its anti-conservative label, and **decides nothing**: if
+the two disagree, the verdict follows the block bootstrap and the
+disagreement is reported.
+
 - **Signal holds.** The primary metric on the held-out sessions exceeds
-  *(threshold)*, with a session-clustered 95% confidence interval excluding
-  the null (50% for a directional metric, zero for an R² metric).
-- **Signal fails.** The 95% confidence interval excludes every effect at or
-  above the economically meaningful size from section 4.
-- **Signal inconclusive.** The confidence interval contains both the null and
-  the economically meaningful effect. This is the expected outcome at this
-  sample size, and reporting it as a failure would be wrong.
+  *(threshold)*, with a 95% block-bootstrap confidence interval excluding the
+  null (50% for a directional metric, zero for an R² metric).
+- **Signal fails.** The 95% interval excludes every effect at or above the
+  economically meaningful size from section 4.
+- **Signal inconclusive.** The interval contains both the null and the
+  economically meaningful effect. This is the expected outcome at this sample
+  size, and reporting it as a failure would be wrong.
 - **Strategy is profitable.** Mean net P&L per round trip, after every cost in
-  section 7, is strictly positive at the **base tier**, with a
-  session-clustered 95% confidence interval excluding zero.
+  section 7, is strictly positive at the **base tier**, with a 95%
+  block-bootstrap confidence interval excluding zero.
 - **Strategy is unprofitable.** The same interval lies entirely below zero.
 - **Strategy inconclusive.** Otherwise.
+
+**If the study has been declared exploratory** under the section 4 fallback,
+none of the six verdicts above is available. The point estimate is reported,
+the interval is omitted rather than computed, and the write-up says so.
+
+Every confirmatory verdict is stated with the scope sentence fixed in
+section 4: with two held-out sessions, it applies to those sessions and is not
+generalised beyond them.
 
 The signal verdict and the strategy verdict are reported **separately**. A
 signal that holds while the strategy loses money is a coherent and likely
