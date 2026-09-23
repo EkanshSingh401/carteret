@@ -245,7 +245,10 @@ proportional is below.
 
 ### The bias is small in aggregate and severe where it matters
 
-Pooled, proportional is almost unbiased and even optimistic is only 3% high.
+Pooled, proportional's bias is small on both sessions and even optimistic is
+only 3% high on BX. **A small pooled bias is not accuracy** -- it is two
+errors of opposite sign cancelling, and the decomposition below shows both
+roughly double between the two sessions while the net barely moves.
 That aggregate hides the result:
 
 **BX 2019-01-30**
@@ -291,7 +294,7 @@ it across zero. The NASDAQ session, with 7,207 placements in the same bucket,
 reports **−0.6%** — which is what a thinly-populated cell not reproducing
 looks like, and why the BX figure was flagged rather than quoted.
 
-### Why proportional is nearly unbiased: measured, not argued
+### Why proportional's bias is small, and why that is not accuracy
 
 Proportional assumes a cancel of *c* shares from a level of *d* with *a* ahead
 removes *c·a/d* from in front. Whether that is right is not a matter of
@@ -342,12 +345,12 @@ error alone.
 |---|---:|---:|---|
 | Shape | **−2.0%** | **−3.5%** | proportional minus Bernoulli: the cost of removing cancels as a fraction rather than in jumps |
 | Attribution | **+1.4%** | **+2.8%** | Bernoulli minus exact: what remains once the shape matches |
-| **Net** | **−0.5%** | **−0.7%** | proportional minus exact — the figure reported above as near-unbiasedness |
+| **Net** | **−0.5%** | **−0.7%** | proportional minus exact — the small figure reported above |
 
 **The structure reproduces on both sessions and the magnitudes do not.** Both
 terms are roughly twice as large on the NASDAQ session while the net barely
-moves, which is the argument in one line: proportional's near-unbiasedness is
-a cancellation whose size is not stable, not an accuracy that is.
+moves, which is the argument in one line: the small net is a cancellation
+whose size is not stable, not an accuracy that is.
 
 The residual is positive in every depth bucket and rises with depth — 1.0,
 0.9, 2.1, 4.9, 4.9 — in the same order as the attribution error's 0.13, 0.18,
@@ -359,14 +362,23 @@ like the error that is known to be there.
 predicted that matching the shape would *close most of the gap* to exact. It
 did the opposite: the Bernoulli model's bias is nearly three times
 proportional's, because the two terms are of comparable size rather than one
-dominating. So **proportional is not nearly unbiased because it is nearly
-right — it is nearly unbiased because two errors of comparable magnitude
-cancel on this session**, and nothing holds that balance in place. The shape
-term depends on how fill probability curves with queue position; the
-attribution term depends on how concentrated cancellation is among young
-orders. Those are different properties of a market, and there is no reason for
-them to stay matched on another venue, date or order size. Expect the
-proportional model's bias to be small; do not expect it to be reliably small.
+dominating. So **proportional's bias is not small because the model is nearly
+right — it is small because two errors of comparable magnitude cancel**, and
+nothing holds that balance in place. The shape term depends on how fill
+probability curves with queue position; the attribution term depends on how
+concentrated cancellation is among young orders. Those are different
+properties of a market, and there is no reason for them to stay matched.
+
+**The near-zero net is not evidence that the approximation transfers.** It
+reproduced on a second session, and that is worth exactly as much as two
+observations are worth: both component terms roughly *doubled* between them
+while the net stayed put, which is what a cancellation looks like when it
+happens to survive, not what a stable property looks like. And the two
+sessions differ in venue, date and symbol basket simultaneously (record 037),
+so even the reproduction cannot be attributed to any one of the three. A user
+of the proportional model should expect its bias to be small on data
+resembling these two sessions, and should not expect it to be reliably small
+anywhere else.
 
 A second check, on the curvature of fill probability against the ahead-count,
 **did not settle its question** and is reported as inconclusive in record 035b

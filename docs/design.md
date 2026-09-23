@@ -1429,10 +1429,12 @@ zero is the binding constraint on filling at all.
 **Consequences.** The practical recommendation in record 030 is unchanged:
 proportional is the approximation to use when market-by-order data is
 unavailable. What changes is the explanation offered for it. Proportional is
-not nearly unbiased because its assumption is nearly right — the assumption is
+not accurate because its assumption is nearly right — the assumption is
 measurably wrong, by 0.92 percentage points pooled and 4.00 at depth — but
 because that error is small in absolute terms and partly offset by a
-difference in how the two processes approach zero.
+difference in how the two processes approach zero. Record 035b measures that
+offset and record 035c shows both halves of it roughly doubling between
+sessions while the net stays put.
 
 **Alternatives considered.**
 - *Infer the mechanism from the fill-rate bias alone.* That is what produced
@@ -1561,7 +1563,7 @@ comparable size and opposite sign, and they very nearly cancel:
 |---|---:|---|
 | Shape | **−2.0%** | proportional minus Bernoulli: the cost of removing cancels as a fraction rather than in jumps |
 | Attribution | **+1.4%** | Bernoulli minus exact: what is left once the shape matches, which is the +0.92 pp mean error |
-| Net | −0.5% | proportional minus exact, the figure previously reported as near-unbiasedness |
+| Net | −0.5% | proportional minus exact, the small figure previously reported |
 
 So the mechanism in record 035 — two terms, opposite signs, partial offset —
 is **confirmed in its structure**. What was wrong was the assumption behind
@@ -1570,9 +1572,9 @@ negative bias and that removing it would leave nearly nothing. It accounts for
 rather more than all of it.
 
 **The practical consequence is a correction, not a refinement.** Proportional
-attribution is not nearly unbiased because it is nearly right. It is nearly
-unbiased on this session because two errors of comparable magnitude happened
-to cancel, and **nothing holds that balance in place**. The shape term depends
+attribution's bias is not small because the model is nearly right. It is small
+on this session because two errors of comparable magnitude happened to cancel,
+and **nothing holds that balance in place**. The shape term depends
 on how fill probability curves with queue position; the attribution term
 depends on how concentrated cancellation is among young orders. Those are
 different properties of a market and there is no reason for them to stay
@@ -1622,8 +1624,15 @@ two are not comparable in level.
 The **structure** reproduces: two terms of opposite sign and comparable
 magnitude, cancelling to a small net. Both terms are roughly twice as large on
 the NASDAQ session and the net is almost unchanged, which is the point of
-record 035b stated again — proportional's near-unbiasedness is a cancellation
-whose size is not stable, not an accuracy that is.
+record 035b stated again — the small net is a cancellation whose size is not
+stable, not an accuracy that is.
+
+**A near-zero net on two sessions is not evidence that the approximation
+transfers.** Both component terms roughly doubled while the net stayed put,
+which is what a cancellation looks like when it happens to survive rather than
+what a stable property looks like. And the two sessions differ in venue, date
+and symbol basket at once (record 037), so even the reproduction cannot be
+attributed to any one of them.
 
 The measured attribution error behaves as before and is larger throughout:
 **+4.03 pp pooled** over 3.8 billion cancelled shares, against BX's +0.92 pp,
