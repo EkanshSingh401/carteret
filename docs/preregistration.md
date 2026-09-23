@@ -69,7 +69,8 @@ Whichever is chosen, the other two move to section 3 as secondaries.
 The features not chosen as primary are secondary: order flow imbalance, queue
 imbalance, micro-price deviation **in ticks**, trade-sign imbalance, and
 queue-position-conditioned order flow imbalance, each at the horizons in
-section 5. That is five distinct features.
+section 5. That is five distinct features, and the direct-value test
+registered below is a sixth member of the family.
 
 **The family size depends on the primary metric**, and is fixed here rather
 than discovered later. Micro-price deviation and queue imbalance are related
@@ -77,16 +78,46 @@ by *micro − mid = (s/2) · QI* with the spread *s* strictly positive
 (`docs/design.md` record 031), so:
 
 - If the primary metric uses **magnitude** (candidate B), the two are distinct
-  — their correlation is 0.22 — and the family is **five**.
+  — their correlation is 0.22 — and the family is **five**, plus the
+  direct-value test below: **six**.
 - If the primary metric uses **only the sign** (candidates A and C), the two
   are identical, because they always share a sign. Micro-price deviation is
-  then dropped and the family is **four**.
+  then dropped and the family is **four**, plus the direct-value test:
+  **five**.
+
+The direct-value test is counted in the family. It is a distinct claim about a
+distinct quantity, and exempting it because it happens to test the same
+economic requirement as the primary would be the multiple-comparison problem
+by another name.
 
 Registering both under a sign-based metric would have entered one feature
 twice, tightening every other feature's corrected threshold for no added
 evidence and presenting one result as two. Any feature added to this family in
 future is checked for an algebraic relationship to the existing ones, in
 magnitude and in sign, before registration.
+
+**Direct-value secondary, registered here.** The primary's conversion from an
+economic requirement to an accuracy bar assumes |Δ| is independent of whether
+the signal was right (section 4). This secondary tests the requirement with
+**no conversion at all**:
+
+> **V** = the mean **signed** mid-price change in the predicted direction, in
+> half-spreads, over windows with a nonzero move —
+> *V = mean( Δ · sign(feature) )* — tested against **0.10**, one-sided,
+> under the same stationary bootstrap and block length as the primary.
+
+0.10 is the economic requirement itself, in the units it was stated in, so
+this test needs neither *m* nor the independence assumption. It is a member of
+the secondary family and carries the Holm–Bonferroni correction like any
+other.
+
+**If the primary and this secondary disagree, the disagreement is the
+finding** and is reported as one: it localises the failure to the
+independence assumption rather than to the signal. Accuracy clearing while
+value does not means the signal is right on small moves and wrong on large
+ones; value clearing while accuracy does not means the reverse, and the
+accuracy bar was the wrong instrument. Neither is reported as a bare win for
+whichever test happened to pass.
 
 Secondaries are tested under a **Holm–Bonferroni** correction across the
 secondary family, with the family size fixed here once the primary is chosen
@@ -467,7 +498,7 @@ what the signal itself must add.
 quantity, and an earlier version of this section used it without stating it or
 measuring it.
 
-*The scale.* Let **d** be the mean absolute mid-price change per window, in
+*The scale.* Let **m** be the mean absolute mid-price change per window, in
 half-spreads, over windows whose change is nonzero — the same conditioning the
 directional metric uses. This is a **scale of the data, not an effect size of
 any signal**, and it is measured on development sessions only. It enters
@@ -477,32 +508,115 @@ the mid actually moves in a window.
 *Directional metrics (A, C).* A signal that picks the side and is right with
 probability *p* earns, in expectation per window,
 
-> E[Δ · sign(signal)] = (2p − 1) · d   half-spreads,
+> E[Δ · sign(signal)] = (2p − 1) · m   half-spreads,
 
-assuming |Δ| is independent of whether the signal was right. Setting that
-equal to the 0.10 half-spread requirement gives
+**and that step assumes |Δ| is independent of whether the signal was right.**
+The assumption is stated because it is not obviously true and could fail in
+either direction. A signal that is right mainly on small moves and wrong on
+large ones clears the accuracy bar while losing money; one that is right on
+the large moves and wrong on the small ones makes money while missing the bar.
+Order flow imbalance is a plausible candidate for the second: large imbalances
+both predict more strongly and precede larger moves. So the conversion is a
+convenience, and section 3 registers a secondary that does not need it.
 
-> **p = ½ + 0.05 / d**
+Setting the expectation equal to the 0.10 half-spread requirement gives
+
+> **p = ½ + 0.05 / m**
 
 *Magnitude metric (B).* The same edge under the Gaussian sign relation
 *p = ½ + arcsin(ρ)/π* gives *ρ = sin(π(p − ½))* and *R² = ρ²*.
 
 *The measured value.* On `12302019.NASDAQ_ITCH50`, over 239,162 windows with a
-nonzero move, **d = 1.5543 half-spreads** (median 1.50; mean absolute move
+nonzero move, **m = 1.5543 half-spreads** (median 1.50; mean absolute move
 1.66 ticks against a mean spread of 2.93 ticks). The final value is the same
 statistic pooled over all seven development sessions; the thresholds below are
 **provisional on one session** until those are in hand. No freedom remains in
-them — the economic requirement and the formula are fixed here, and *d* is
+them — the economic requirement and the formula are fixed here, and *m* is
 measured, not chosen.
 
 | Candidate | Metric | **Economic threshold** | Provisional |
 |---|---|---:|---|
-| A — OFI, directional | held-out directional accuracy | ½ + 0.05/d | **53.22%** |
+| A — OFI, directional | held-out directional accuracy | ½ + 0.05/m | **53.22%** |
 | B — OFI, out-of-sample R² | held-out out-of-sample R² | sin²(π(p−½)) | **0.0102** |
-| C — queue imbalance, directional | held-out directional accuracy | ½ + 0.05/d | **53.22%** |
+| C — queue imbalance, directional | held-out directional accuracy | ½ + 0.05/m | **53.22%** |
+
+#### Registered form: the thresholds are functions, not numbers
+
+**Fixed here. Only *m* is measured later.**
+
+> **Accuracy bar (A, C):**  p\* = ½ + 0.05 / m
+> **R² bar (B):**  R²\* = sin²( π · (0.05 / m) )
+
+*m* is the **window-weighted** mean of |Δ| in half-spreads over every window
+with a nonzero move, pooled across **all seven development sessions** — not
+the mean of per-session means, which would weight a quiet session equally with
+a busy one.
+
+At the gated step *m* is computed **before the MDE table**, and the
+one-session value (1.5543) and the seven-session value are reported **side by
+side**, with the resulting bars for each. If they differ materially that is
+itself worth seeing: it says the scale is session-dependent, and therefore
+that a bar calibrated on one session would have been the wrong bar.
+
+**Nothing about the bars is decided after the MDEs exist.** The formula, the
+definition of *m*, the pooling rule and the order of computation are all
+fixed by this section.
+
+#### Disclosure: what had been computed when the thresholds were revised
+
+The revision from 55.0%/0.0245 to the formula above is commit `48fd13d`
+(2026-09-23 10:08:52 −0400). The original bars are commit `2989984`
+(09:58:45), and the retired block-length rule's evidence is `8ac3964`
+(10:03:13). Between those commits a directional **hit series was built**, so
+the question of what had been seen is a fair one and is answered exactly.
+
+**Computed and displayed at the time of the revision:**
+
+- Feature and label distributions: mean, standard deviation, min and max of
+  `ofi`, `queue_imbalance`, `label_ticks` and `spread_ticks`; the share of
+  windows with a nonzero label (0.5866).
+- The scale that drove the revision: mean, median and quartiles of |Δ| in
+  half-spreads (**m = 1.5543**), mean |Δ| in ticks (1.6645), mean spread in
+  ticks (2.9312).
+- For **candidate A's hit series only**: per-bin hit-rate **standard
+  deviations** at 1, 5, 10, 30 and 60-second bins; a binomial reference
+  standard deviation computed at an **assumed** p = 0.5; their ratio; lag-1
+  autocorrelations; the full autocorrelation functions; and the block lengths
+  the retired rule returned.
+
+**Not computed and not displayed:**
+
+- **Any candidate's directional accuracy** — the mean of the hit series.
+- Any R², any MDE, any P&L, or any comparison of a candidate against a
+  threshold.
+- **Candidate C's hit series was never built.** The retired script had a
+  `queue` option; it was never run.
+
+**One mean was computed by the machine and never surfaced.** The
+autocorrelation function centred the series with `x = x - x.mean()`
+(`research/block_length.py` at `8ac3964`, line 57). That grand mean *is*
+candidate A's development directional accuracy. It was never returned,
+printed, logged or recorded, and it has not been seen.
+
+**Do the displayed statistics identify it?** No.
+
+- Dispersion and autocorrelation are **location-invariant**; neither moves
+  with the level.
+- The binomial reference was computed **at an assumed p = 0.5**, so it is not
+  a measurement of anything.
+- The observed per-bin dispersion cannot be inverted for the level: at a
+  1-second bin, reproducing the observed 0.2393 as binomial noise over 10.4
+  windows would require p(1−p) = 0.596, which exceeds the maximum possible
+  0.25. The dispersion is dominated by heterogeneity between bins, not by the
+  hit rate, and carries no information about it.
+
+**And the revision did not use a performance quantity at all.** *m* is a
+property of the **label distribution alone** — it involves no feature, no
+signal and no prediction — so it cannot encode any candidate's performance
+even in principle.
 
 **Correction.** The first version of this table read 55.0% and 0.0245. Those
-numbers assumed **d = 1**, silently: they took "shift the expected move by
+numbers assumed **m = 1**, silently: they took "shift the expected move by
 0.10 half-spreads" to mean *2p − 1 = 0.10*, which holds only if a window's
 typical move is exactly one half-spread. It is not — it is about one and a
 half — so the bar was set roughly 1.8 percentage points of accuracy too high,
