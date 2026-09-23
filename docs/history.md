@@ -82,6 +82,10 @@ gated computation was run. The threshold-before-MDE ordering fixed by
 `docs/preregistration.md` section 10 is therefore witnessed by commits that
 exist on the rewritten history, not only on the old one.
 
+The rewritten history went green on CI run **35935764431**, head
+`09687fc54079586a45fc08b8ec1fb97532a261f2`, all eight jobs. That run is the
+first on the rewritten SHAs and is the one to cite from here on.
+
 ## Recurrence
 
 The trailer is disabled at the source in the generating client's settings,
