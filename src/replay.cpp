@@ -6,6 +6,7 @@
 //
 //   usage: replay [--hash identity|multiply-shift|std] [--full-every N]
 //                 [--invariant-every N] [--max-orders N] [--max-symbols N]
+//                 [--market Q|B|X]
 //                 <session-file>
 //
 // Structural invariants are checked every --invariant-every messages, which
@@ -36,7 +37,20 @@ struct Options {
     std::uint64_t full_every = 1u << 22;
     std::uint64_t invariant_every = Differential<>::kDefaultInvariantEvery;
     FastBookConfig cfg;
+    unsigned char market = 0; // 0 means infer from the file name
 };
+
+// Which market's 'h' Operational Halt messages apply to this replay. The
+// archive names its files by venue, so the default is read from the path and
+// --market overrides it. Guessing wrong would silently ignore a real halt, so
+// an unrecognised name is refused rather than defaulted.
+unsigned char market_for(const std::string& path, unsigned char override_) {
+    if (override_) return override_;
+    if (path.find("BX_ITCH") != std::string::npos) return 'B';
+    if (path.find("PSX_ITCH") != std::string::npos) return 'X';
+    if (path.find("NASDAQ_ITCH") != std::string::npos) return 'Q';
+    return 0;
+}
 
 void print_counters(const ReferenceBook& ref, const FastCounters& f) {
     const RefCounters& r = ref.counters();
@@ -75,7 +89,17 @@ void print_counters(const ReferenceBook& ref, const FastCounters& f) {
 template<class Policy>
 int run(const Options& opt) {
     MappedFile mf(opt.path);
+    const unsigned char market = market_for(opt.path, opt.market);
+    if (market == 0) {
+        std::fprintf(stderr,
+                     "cannot tell which market %s is from its name, so 'h' Operational\n"
+                     "Halt messages could not be matched. Pass --market Q, B or X.\n",
+                     opt.path.c_str());
+        return 2;
+    }
+
     Differential<Policy> d(opt.cfg, opt.full_every, opt.invariant_every);
+    d.set_venue_market_code(market);
     Parser<Differential<Policy>> parser(d);
 
     const auto t0 = std::chrono::steady_clock::now();
@@ -144,8 +168,8 @@ int run(const Options& opt) {
     // what keeps it inside the check.
     const bool books_agree = rc.crossed_observations == fc.crossed_observations &&
                              rc.locked_observations == fc.locked_observations;
-    const bool no_crossing =
-        rc.crossed_unexplained == 0 && rc.locked_unexplained == 0 && books_agree;
+    const bool no_crossing = rc.crossed_unexplained == 0 && rc.locked_unexplained == 0 &&
+                             rc.reopen_windows_capped == 0 && books_agree;
 
     const bool ok = !d.divergence().found && full_ok && ref_bad == 0 && fast_bad == 0 &&
                     no_crossing && st.end != ParseEnd::Truncated && st.trailing == 0 &&
@@ -169,6 +193,12 @@ int run(const Options& opt) {
         std::printf("  %-26s %12llu %12llu\n", "total",
                     (unsigned long long)rc.crossed_observations,
                     (unsigned long long)rc.locked_observations);
+        std::printf("  %-26s %12llu %12llu\n", "  no trading action yet",
+                    (unsigned long long)rc.crossed_before_first_action,
+                    (unsigned long long)rc.locked_before_first_action);
+        std::printf("  %-26s %12llu %12llu\n", "  operationally halted",
+                    (unsigned long long)rc.crossed_operational_halt,
+                    (unsigned long long)rc.locked_operational_halt);
         std::printf("  %-26s %12llu %12llu\n", "  symbol not trading",
                     (unsigned long long)rc.crossed_while_not_trading,
                     (unsigned long long)rc.locked_while_not_trading);
@@ -188,9 +218,16 @@ int run(const Options& opt) {
                     (unsigned long long)rc.locked_symbols.size());
         std::printf("  deepest crossing          %12llu ticks\n",
                     (unsigned long long)rc.crossed_worst_ticks);
-        std::printf("  reopening windows         %12llu, longest %.3f s\n",
+        std::printf("  reopening windows         %12llu, longest %.3f s, cap %.3f s\n",
                     (unsigned long long)rc.reopen_windows,
-                    static_cast<double>(rc.reopen_window_max_ns) / 1e9);
+                    static_cast<double>(rc.reopen_window_max_ns) / 1e9,
+                    static_cast<double>(ReferenceBook::kReopenCapNs) / 1e9);
+        std::printf("  windows closed by the cap %12llu   <- fails the gate\n",
+                    (unsigned long long)rc.reopen_windows_capped);
+        std::printf("  operational halts         %12llu halted, %llu released (market '%c')\n",
+                    (unsigned long long)rc.operational_halts,
+                    (unsigned long long)rc.operational_halt_releases,
+                    d.reference().venue_market_code());
     }
     if (!no_crossing) {
         std::fprintf(stderr,
@@ -223,6 +260,8 @@ int main(int argc, char** argv) {
         };
         if (std::strcmp(argv[i], "--hash") == 0)
             opt.hash = next("--hash");
+        else if (std::strcmp(argv[i], "--market") == 0)
+            opt.market = static_cast<unsigned char>(next("--market")[0]);
         else if (std::strcmp(argv[i], "--full-every") == 0)
             opt.full_every = std::strtoull(next("--full-every"), nullptr, 10);
         else if (std::strcmp(argv[i], "--invariant-every") == 0)
@@ -238,6 +277,7 @@ int main(int argc, char** argv) {
         std::fprintf(stderr,
                      "usage: %s [--hash identity|multiply-shift|std] [--full-every N]\n"
                      "          [--invariant-every N] [--max-orders N] [--max-symbols N]\n"
+                     "          [--market Q|B|X]\n"
                      "          <session-file>\n",
                      argv[0]);
         return 2;

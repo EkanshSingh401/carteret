@@ -136,6 +136,24 @@ struct RefCounters {
     std::uint64_t crossed_unexplained = 0;
     std::uint64_t locked_unexplained = 0;
     std::set<std::uint16_t> unexplained_symbols;
+    // Observations on a symbol whose Trading Action has not been seen yet.
+    // The specification's pre-opening spin lists every security, and one
+    // absent from it is to be treated as halted, so these are excused -- but
+    // they are counted apart from explicit halts so that reliance on the
+    // default is visible rather than folded into the halt total.
+    std::uint64_t crossed_before_first_action = 0;
+    std::uint64_t locked_before_first_action = 0;
+    // Reopening windows that hit the hard cap instead of being closed by a
+    // reopening cross or by the book uncrossing. Any of these fails the gate:
+    // a window that has to be timed out is a window whose closing event was
+    // never observed, and the excuse it grants is no longer backed by
+    // anything in the feed.
+    std::uint64_t reopen_windows_capped = 0;
+    // Operational halts ('h') for the replayed venue.
+    std::uint64_t operational_halts = 0;
+    std::uint64_t operational_halt_releases = 0;
+    std::uint64_t crossed_operational_halt = 0;
+    std::uint64_t locked_operational_halt = 0;
 
     [[nodiscard]] std::uint64_t orphans() const noexcept {
         return orphan_execute + orphan_execute_price + orphan_cancel + orphan_delete +
@@ -153,6 +171,21 @@ struct LevelSnapshot {
 
 class ReferenceBook {
 public:
+    static constexpr std::uint64_t kOpenNs = 34'200'000'000'000ULL;  // 09:30:00
+    static constexpr std::uint64_t kCloseNs = 57'600'000'000'000ULL; // 16:00:00
+    // Hard cap on a reopening window. The longest observed on
+    // `12302019.NASDAQ_ITCH50` is 1 ms across 33 windows; this is a hundred
+    // times that, so it cannot be reached by the mechanism it excuses. It is
+    // not a tolerance that grants an excuse -- reaching it FAILS the gate.
+    static constexpr std::uint64_t kReopenCapNs = 100'000'000ULL; // 100 ms
+
+    // Set before replaying so that 'h' Operational Halt messages for other
+    // markets are ignored. 'Q' NASDAQ, 'B' BX, 'X' PSX.
+    void set_venue_market_code(unsigned char c) noexcept { venue_market_code_ = c; }
+    [[nodiscard]] unsigned char venue_market_code() const noexcept {
+        return venue_market_code_;
+    }
+
     // A handler for Parser. Book-affecting types are applied; 'P', 'Q' and 'B'
     // are observed for their counters only.
     void on(SystemEvent v) {
@@ -180,6 +213,29 @@ public:
         }
         slot.state = st;
         ++counters_.trading_state_changes;
+    }
+
+    // 'h' Operational Halt. Distinct from 'H': it halts a security on ONE
+    // market rather than market-wide, so only a message whose Market Code
+    // names the venue being replayed applies. Halt Action 'H' halts, 'T'
+    // releases. While operationally halted the venue is not matching that
+    // symbol, exactly as for a regulatory halt.
+    //
+    // Neither session held locally contains an 'h' message, so this path is
+    // covered by tests/test_gate_negatives.cpp and by nothing else. It is
+    // implemented because the gate's correctness depends on the set of
+    // not-matching states being complete, and an unexercised branch that is
+    // right is better than a missing one that is wrong.
+    void on(OperationalHalt v) {
+        if (v.market_code() != venue_market_code_) return;
+        auto& slot = trading_state_[v.locate()];
+        if (v.halt_action() == 'H') {
+            slot.operationally_halted = true;
+            ++counters_.operational_halts;
+        } else if (v.halt_action() == 'T') {
+            slot.operationally_halted = false;
+            ++counters_.operational_halt_releases;
+        }
     }
 
     void on(StockDirectory v) {
@@ -485,8 +541,6 @@ private:
     // Counted per observation, never repaired (record 007). A nonzero count
     // fails the replay gate (record 027), so the location is recorded along
     // with the count: continuous session, and the first and last instant.
-    static constexpr std::uint64_t kOpenNs = 34'200'000'000'000ULL;  // 09:30:00
-    static constexpr std::uint64_t kCloseNs = 57'600'000'000'000ULL; // 16:00:00
 
     void check_bbo(std::uint16_t locate, std::uint64_t ts) {
         const auto it = symbols_.find(locate);
@@ -494,14 +548,41 @@ private:
         const RefSymbol& s = it->second;
         if (!s.has_bid() || !s.has_ask()) return;
         const bool continuous = ts >= kOpenNs && ts < kCloseNs;
+        // The excuse classification, in order. Each observation lands in
+        // exactly one bucket and the last is the one that fails the gate.
         const auto ts_it = trading_state_.find(locate);
-        const bool known = ts_it != trading_state_.end();
-        const bool trading = known && ts_it->second.state == 'T';
-        const bool awaiting = known && ts_it->second.awaiting_reopen;
+        const bool known = ts_it != trading_state_.end() && ts_it->second.state != 0;
+        // Specification 1.2.2: a security absent from the pre-opening Trading
+        // Action spin is to be treated as HALTED, not as trading. Defaulting
+        // the other way would have the gate fail on a book that the venue was
+        // never matching.
+        const bool no_action_yet = !known;
+        const bool op_halted =
+            ts_it != trading_state_.end() && ts_it->second.operationally_halted;
+        const bool trading = known && ts_it->second.state == 'T' && !op_halted;
+        bool awaiting = ts_it != trading_state_.end() && ts_it->second.awaiting_reopen;
+        // The cap applies only where the window is actually being relied on
+        // to excuse something. A window whose symbol simply had no crossed
+        // book is closed below by the clean-observation branch however long it
+        // has been open, and that is not a failure -- there was nothing to
+        // excuse. Charging the cap against it would fail a session for the
+        // absence of the very condition the gate exists to catch, which is
+        // what an earlier version of this check did to BX.
+        const bool crossed_or_locked = s.best_bid() >= s.best_ask();
+        if (awaiting && crossed_or_locked && ts >= ts_it->second.entered_t_ts &&
+            ts - ts_it->second.entered_t_ts > kReopenCapNs) {
+            ts_it->second.awaiting_reopen = false;
+            awaiting = false;
+            ++counters_.reopen_windows_capped;
+        }
         if (s.best_bid() > s.best_ask()) {
             ++counters_.crossed_observations;
             if (continuous) ++counters_.crossed_continuous;
-            if (!trading) {
+            if (no_action_yet) {
+                ++counters_.crossed_before_first_action;
+            } else if (op_halted) {
+                ++counters_.crossed_operational_halt;
+            } else if (!trading) {
                 ++counters_.crossed_while_not_trading;
             } else if (awaiting) {
                 ++counters_.crossed_awaiting_reopen;
@@ -517,7 +598,11 @@ private:
         } else if (s.best_bid() == s.best_ask()) {
             ++counters_.locked_observations;
             if (continuous) ++counters_.locked_continuous;
-            if (!trading) {
+            if (no_action_yet) {
+                ++counters_.locked_before_first_action;
+            } else if (op_halted) {
+                ++counters_.locked_operational_halt;
+            } else if (!trading) {
                 ++counters_.locked_while_not_trading;
             } else if (awaiting) {
                 ++counters_.locked_awaiting_reopen;
@@ -542,9 +627,13 @@ private:
     std::unordered_map<Ref, RefOrder> orders_;
     std::map<std::uint16_t, std::array<char, 8>> names_;
     RefCounters counters_;
+    // Which venue this replay is of, for 'h' Market Code matching: 'Q'
+    // NASDAQ, 'B' BX, 'X' PSX. Defaults to NASDAQ.
+    unsigned char venue_market_code_ = 'Q';
     struct TradingState {
-        unsigned char state = 0;
+        unsigned char state = 0; // 0 means no Trading Action seen yet
         bool awaiting_reopen = false;
+        bool operationally_halted = false;
         std::uint64_t entered_t_ts = 0;
     };
     std::unordered_map<std::uint16_t, TradingState> trading_state_;

@@ -1667,8 +1667,12 @@ book uncrossed in a symbol it is **not matching**, and "matching" is not the
 same as the clock, nor quite the same as the trading state. Two conditions
 excuse an observation, both read from the feed:
 
-1. The symbol is **not in state `T`** — halted, paused, or quotation-only.
-2. The symbol has resumed but is **inside an open reopening window**.
+1. The symbol is **not in state `T`** — halted, paused, or quotation-only,
+   including the specification's default for a symbol not yet named by a
+   Trading Action at all.
+2. The symbol is under an **operational halt** (`'h'`) whose Market Code names
+   the venue being replayed, until the matching release.
+3. The symbol has resumed but is **inside an open reopening window**.
 
 Everything else fails the gate. Observations in categories 1 and 2 are
 counted and reported with their instants, symbol counts and depth, and fail
@@ -1692,6 +1696,24 @@ this session reached **23,203 seconds — 6.4 hours** on one symbol. Nothing
 wrong got through it, but an excuse that can stay open for an afternoon is not
 a gate. With both bounds the longest window on the same session is **1
 millisecond**, and the unexplained count is unchanged at zero.
+
+**A third bound, a hard cap of 100 ms.** Both bounds above are events, and an
+event that never arrives never closes the window. The cap is the backstop: a
+window still open 100 ms after the resumption is closed by force, and **closing
+that way fails the gate**. It is not a tolerance that grants an excuse — it is
+the opposite, a declaration that an unclosed window is itself a defect. The cap
+is a hundred times the longest window observed across 33 of them, so it cannot
+be reached by the mechanism it bounds; if it is ever reached, something the
+feed was supposed to say was not said.
+
+The cap applies **only where a window is actually excusing a crossed or locked
+observation**. The first version did not make that distinction and failed
+`20190130.BX_ITCH_50` — a session with zero crossed and zero locked
+observations — because a window opens on every resumption, and a symbol whose
+book never crosses leaves one open until some clean observation much later,
+which was then billed as a timeout. A gate that fails on clean data is as
+broken as one that passes on dirty data. `tests/test_gate_negatives.cpp` holds
+that case as a permanent regression test.
 
 The reference book retains the trading state and the window; the fast book
 does not, so the gate additionally requires the two books' totals to agree,
@@ -1718,10 +1740,18 @@ the new gate makes.
   thing itself.
 - *Exclude the thirteen symbols.* Fits this session and generalises to
   nothing.
-- *Treat an absent `'H'` as not trading.* Rejected: absence of a state is
-  ignorance, not a halt, and it would silently excuse a real error on any
-  session whose directory messages were incomplete. The gate treats only an
-  explicit non-`T` state as permission, so a missing `'H'` fails loudly.
+- *Treat an absent `'H'` as trading.* Rejected, and an earlier draft of this
+  record got it backwards. That draft argued that absence of a state is
+  ignorance rather than a halt, and that a missing `'H'` should therefore fail
+  loudly. **Specification 1.2.2 says the opposite**: a security absent from
+  the pre-opening Trading Action spin is to be treated as halted. Defaulting
+  to trading would fail the gate on a book the venue was never matching. The
+  implementation had it right and the record had it wrong; the two are now the
+  same, and observations that fall back on the default are counted separately
+  as `no trading action yet` so that reliance on it is visible rather than
+  folded into the halt total. On `12302019.NASDAQ_ITCH50` that count is
+  **zero** — every crossing follows the symbol's first `'H'` — so the default
+  is load-bearing nowhere in the present evidence.
 - *Excuse the post-resumption crossings with a time tolerance.* Rejected above. A
   threshold set just past the largest value observed is fitted to the session
   that produced it, and it would go on excusing anything that happened to fall
@@ -1733,12 +1763,24 @@ divergence, zero invariant violations, zero orphans:
 | | Crossed | Locked |
 |---|---:|---:|
 | Total | 8,580 | 70 |
+| No Trading Action yet (spec 1.2.2 default) | 0 | 0 |
+| Operationally halted (`'h'`) | 0 | 0 |
 | Symbol not in state `T` | 7,945 | 62 |
 | Inside a reopening window | 635 | 8 |
 | **Unexplained** | **0** | **0** |
 | In continuous trading | 8,372 | 70 |
 | Distinct symbols | 13 | 6 |
 
-Deepest crossing 140,000 Price(4) units. 33 reopening windows, longest 1 ms.
-`20190130.BX_ITCH_50` is unchanged under the new gate: zero of everything,
-and `RESULT: identical`.
+Deepest crossing 140,000 Price(4) units. 33 reopening windows, longest **1 ms**
+against a **100 ms** cap, none closed by the cap. Adding the specification
+default and the operational-halt path moved **no count**: the split is exactly
+what it was before, which is the useful result — neither path is quietly
+carrying the session.
+
+`'h'` does not occur in either session held locally, so that branch is covered
+by `tests/test_gate_negatives.cpp` and by nothing else. It is implemented
+because the gate's correctness depends on the set of not-matching states being
+complete.
+
+`20190130.BX_ITCH_50` is unchanged under the new gate: zero of everything, and
+`RESULT: identical`.
