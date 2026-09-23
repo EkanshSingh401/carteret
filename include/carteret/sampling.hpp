@@ -20,14 +20,25 @@
 // That draw is QUANTIZED TO INTEGER NANOSECONDS in the same expression that
 // generates it, and no floating-point value derived from libm is ever
 // returned, stored or compared. The quantization is what contains the
-// dependency, and the margin is large: for a mean of 250 ms a gap is of order
-// 1e8, one ulp of which is about 3e-8 ns, so a one-ulp disagreement changes
-// the returned integer only when the product falls within 3e-8 of an integer
-// boundary -- about three chances in a hundred million per draw. A libm that
-// differs by one ulp therefore produces bit-identical study output; a libm
-// that differs by more than that fails tests/test_rng_golden.cpp, which pins
-// six values directly and checksums a million more. Either the difference
-// vanishes or it is reported, and neither outcome is a quiet divergence.
+// dependency, and the size of that containment has been measured rather than
+// argued.
+//
+// The margin that matters is not the average one. A one-ulp disagreement
+// changes the returned integer only where the unquantized product falls
+// within one ulp of an integer boundary, so what decides the outcome is the
+// CLOSEST APPROACH across the draws actually taken, not the ratio of 1 ns to
+// an ulp. Over the million draws tests/test_rng_golden.cpp checksums, that
+// closest approach is 1.75e-6 ns, against 1.31e-7 ns for one ulp of the gap
+// concerned: a margin of 13.3x, computed in 60-digit decimal arithmetic so
+// the check does not rest on the platform being checked.
+//
+// So a libm differing by one ulp produces bit-identical study output, with
+// room to spare but not with the four-thousand-fold room a comparison against
+// the quantization step would suggest. A libm differing by more than about
+// thirteen ulp at the wrong point changes a draw and fails the golden test,
+// which pins six values directly and checksums a million more. Either the
+// difference vanishes or it is reported, and neither outcome is a quiet
+// divergence.
 //
 // bernoulli() is deliberately integer-only for the same reason: the
 // Bernoulli-proportional model draws once per cancel, far more often than

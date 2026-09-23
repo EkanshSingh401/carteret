@@ -97,10 +97,12 @@ void test_exponential_gap() {
 // The exponential is the only draw that touches the platform's math library,
 // and the six values above are six chances to notice a libm that disagrees.
 // This checksums a million of them instead. A libm differing by one ulp still
-// produces identical integers -- the quantization in exponential_ns is thirty
-// million times coarser than an ulp of the product, so that difference is
-// designed to vanish. A libm differing by more than that changes some of these
-// million draws and fails here. See sampling.hpp.
+// produces identical integers, but the margin is 13.3x rather than the
+// thirty-million-fold one a comparison against the quantization step would
+// suggest: what decides the outcome is how close the closest of these million
+// draws comes to an integer boundary, which is 1.75e-6 ns against 1.31e-7 ns
+// for one ulp there. A libm differing by more than about thirteen ulp at the
+// wrong point changes one of these draws and fails here. See sampling.hpp.
 void test_exponential_sweep_checksum() {
     Sampler s(20190130);
     std::uint64_t h = 1469598103934665603ULL; // FNV-1a offset basis
