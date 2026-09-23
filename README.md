@@ -667,3 +667,25 @@ docs/data.md          sessions, venues, provenance, study split
 docs/preregistration.md
 docs/figures/         committed figures; never market data
 ```
+
+## Milestones
+
+Tags mark verified states, not intentions, and are monotonic in commit order.
+A tag is applied only once the evidence for it exists in the repository.
+
+| Tag | Stage | State |
+|---|---|---|
+| `v0.1.0` | 0–1 | framing, parser and census, per-type counts verified against an independent implementation |
+| `v0.2.0` | 3 | differential book verified on two venues, 339M messages compared, `RESULT: identical` |
+| `v0.3.0` | 5 | feed handling — MoldUDP64 framing, gap detection, line arbitration, determinism hashes — **pending a green CI run** |
+| `v0.4.0` | 7 | queue-position bias on two sessions, reported per session |
+| `v0.5.0` | 4 | latency from the benchmark host, `bench/run_linux.sh` on an isolated x86-64 Linux machine |
+| `v1.0.0` | 8 | the pre-registered study, held-out result reported under the registered decision rules |
+
+Stages did not complete in numeric order. Stage 3's gate needed a 3.5 GB
+NASDAQ session whose download failed three times, so Stage 5's code landed
+first and Stage 3's verification came later; the tags follow the order in
+which each stage's evidence arrived, not the order the stages are numbered.
+`v0.3.0` is deliberately unapplied until CI has run, because what it marks is
+a claim about two compilers and two platforms agreeing, and that claim cannot
+be made from one machine.
