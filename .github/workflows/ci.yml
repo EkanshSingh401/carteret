@@ -75,9 +75,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The version is PINNED, because the gate is version-dependent and was
+      # failing for that reason alone. Ubuntu ships clang-format 18, which
+      # formats `struct stat st{}` differently from the 20-and-later the tree
+      # is written against; every build and test job passed while this one
+      # failed on a brace. Installing an exact version from PyPI gives the
+      # same binary on every runner and on a developer's machine, which is
+      # what makes the check mean anything.
+      - name: install the pinned clang-format
+        run: pip install "clang-format==$(cat .clang-format-version)"
       - name: check formatting
         run: |
           clang-format --version
+          test "$(clang-format --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')" \
+            = "$(cat .clang-format-version)"
           find include src tests tools bench -type f \( -name '*.hpp' -o -name '*.cpp' \) \
             | xargs --no-run-if-empty clang-format --dry-run --Werror
 
