@@ -1784,3 +1784,76 @@ complete.
 
 `20190130.BX_ITCH_50` is unchanged under the new gate: zero of everything, and
 `RESULT: identical`.
+
+---
+
+## 037 — The second session is a second session, not a second venue
+
+**Status:** in force. Governs how every Stage 7 result is presented.
+
+**Context.** Stage 7 now has two sessions: `20190130.BX_ITCH_50` and
+`12302019.NASDAQ_ITCH50`. The obvious way to report them is as a venue
+comparison, and it would be wrong.
+
+There is **one session per venue**, and they are **eleven months apart**. Any
+difference between them is a difference between *BX on 2019-01-30* and *NASDAQ
+on 2019-12-30* jointly. Venue, date and symbol basket all move together:
+
+- **Venue.** Different matching engine, different participant mix, different
+  fee model — BX is taker-maker, NASDAQ maker-taker.
+- **Date.** Eleven months apart, with whatever differed in volatility, volume
+  and market structure over that period.
+- **Basket.** The selection rule is identical — the 50 symbols with the most
+  book messages in that session — but it is applied to each session's own
+  activity, so the sets differ. They share **21 of 50** names.
+
+**Decision.** Results are reported **per session, side by side**, with the
+confound stated wherever the numbers appear. No result is attributed to venue.
+A pooled figure may appear only alongside the per-session ones and must state
+its weights; because the placement schedule is identical by construction the
+weights are exactly 50/50, so a pooled fill rate is the unweighted mean of
+25.12% and 57.21% and describes neither session.
+
+**No cost-inclusive figure pools the two venues at all**, under any weighting.
+A rebate-bearing number averaged across a taker-maker and a maker-taker venue
+is not a quantity.
+
+**Consequences.** The second session is still worth having, and the reason is
+not comparison. It is **resolution**. BX's deepest bucket held 669 placements
+and its percentages moved 0.15 points per order; the same bucket on NASDAQ
+holds 7,207, and a 50,000+ bucket exists that BX never reached. That is what
+settled the one BX figure this document had flagged as unreliable: the +2.2%
+proportional bias at 10,000+ shares ahead does **not** reproduce, coming back
+at −0.6% on the better-resolved session.
+
+It also shows which results travel and which do not:
+
+| | BX | NASDAQ | Reproduces |
+|---|---:|---:|---|
+| Exact fill rate | 25.12% | 57.21% | no — the sessions are not comparable |
+| Conservative bias | −20.9% | −21.2% | **yes** |
+| Optimistic bias | +2.9% | +6.2% | no — doubles |
+| Proportional bias | −0.5% | −0.7% | yes, and negligible on both |
+| Bernoulli bias | +1.4% | +2.8% | no — doubles |
+| Conservative worsens with depth | −6% to −57% | −3% to −64% | **yes** |
+| Adverse selection over 1–60 s | decays | deepens | **no — opposite** |
+
+Two sessions is not a sample and agreement across two could be coincidence.
+The table is a statement about what has been observed twice, not an estimate
+of anything.
+
+**Alternatives considered.**
+- *Report a venue comparison with a caveat.* A caveat does not remove a
+  confound, and a table headed "BX vs NASDAQ" will be read as a venue result
+  however it is annotated.
+- *Restrict both sessions to the 21 shared symbols.* Removes one of the three
+  confounded factors and leaves the other two, while discarding more than half
+  the data and the entire 50,000+ depth bucket. It would look more controlled
+  without being more interpretable.
+- *Wait for matched dates.* The archive has the sessions, and this is the
+  right fix. It is out of scope here and is named in `docs/data.md` as what a
+  venue claim would require.
+
+**Evidence.** Both sessions, 93,525 placements each, 50 symbols each, 21
+shared, 10 placement sequences and a 10,000-replication symbol cluster
+bootstrap per session.

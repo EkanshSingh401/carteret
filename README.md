@@ -166,9 +166,19 @@ All of the following are documented inline in `spec.hpp` at the relevant field.
 
 ## Queue-position bias
 
-**Scope: one venue, one session — NASDAQ BX, 2019-01-30 — 50 symbols, one
-order size. Every number in this section carries that scope. Nothing here is
-evidence about NASDAQ, about other dates, or about other order sizes.**
+**Scope: two sessions, one per venue — NASDAQ BX 2019-01-30 and NASDAQ
+2019-12-30 — 50 symbols each, one order size. Every number in this section
+carries that scope.**
+
+**Venue and date are confounded and cannot be separated.** There is one
+session per venue and they are eleven months apart, so any difference between
+the two columns below is a difference between *BX on 2019-01-30* and *NASDAQ
+on 2019-12-30* together. It is **not** attributable to venue: December 2019
+differs from January 2019 in volatility, in tick-size regime participation, in
+the symbols that were active, and in whatever else moved over eleven months.
+Separating the two would need several sessions per venue on overlapping dates,
+which this project does not have. Nothing below should be read as "BX behaves
+like X and NASDAQ like Y".
 
 The claimed contribution. Exact FIFO queue position from market-by-order data
 is **not novel** — HftBacktest ships an `L3FIFOQueueModel` and this implements
@@ -177,11 +187,19 @@ approximation** departs from exact position, with the fill rules fixed in
 advance (`docs/design.md` record 020) and cited by number from the
 pre-registration.
 
-93,525 synthetic orders, one round lot each, placed at the inside of the 50
-busiest symbols at random times through `20190130.BX_ITCH_50`, cancelled after
-60 seconds if unfilled. All five models see the identical placements and the
-identical executed volume; they differ **only** in how a cancel at the price
-is attributed, which is what isolates the bias.
+93,525 synthetic orders per session, one round lot each, placed at the inside
+at random times, cancelled after 60 seconds if unfilled. All five models see
+the identical placements and the identical executed volume; they differ
+**only** in how a cancel at the price is attributed, which is what isolates
+the bias.
+
+**Symbol selection, applied identically to both sessions:** the 50 symbols
+with the most book messages in that session, chosen from that session's own
+activity. The rule is the same; **the resulting symbol sets are not**. They
+share 21 of 50 names — AMD, BABA, FB, INTC, MU, QQQ, SPY and other large
+ETFs and liquid single names — and differ on the remaining 29. So the two
+columns describe different baskets as well as different venues and different
+dates, which is a third reason not to read the difference as a venue effect.
 
 ![Queue model bias](docs/figures/queue_bias_bx_2019-01-30_rule4off.png)
 
@@ -203,11 +221,21 @@ be compared against the seed range of the fill-rate *level*.
 | Bernoulli-proportional | 25.48% | +1.4% | [+0.80, +2.16] | 0.40 pp | 17.7 s |
 
 Every interval excludes zero, and every bias has the same sign in all ten
-placement sequences. But the magnitudes differ by two orders: conservative's
-bias is twenty times its own seed range, while proportional's is barely larger
-than its own. **Conservative's bias is a finding; proportional's is a real but
-negligible effect**, and it would be wrong to present the two as comparable
-results.
+placement sequences on both sessions. But the magnitudes differ by two
+orders: conservative's bias is twenty times its own seed range on BX and
+forty-seven times on NASDAQ, while proportional's is barely larger than its
+own on either. **Conservative's bias is a finding; proportional's is a real
+but negligible effect**, and it would be wrong to present the two as
+comparable results.
+
+**On pooling.** No pooled figure is quoted above. If one were, its weight
+would be placements, which is exactly 50/50 here because the placement
+schedule is identical across sessions by construction — so a pooled fill rate
+would be the unweighted mean of 25.12% and 57.21%, a number describing
+neither session. Pooling is doubly inappropriate for anything cost-inclusive:
+**BX is taker-maker and NASDAQ is maker-taker**, so a rebate-bearing figure
+pooled across them is not a quantity at all. No cost-inclusive result in this
+repository pools the two venues.
 
 The fifth model is an instrument rather than a candidate. It takes the
 proportional model's assumed ahead-share as a coin instead of an average and
@@ -220,6 +248,8 @@ proportional is below.
 Pooled, proportional is almost unbiased and even optimistic is only 3% high.
 That aggregate hides the result:
 
+**BX 2019-01-30**
+
 | Shares ahead at entry | n placed | Exact | Conservative | Optimistic | Proportional | Bernoulli |
 |---|---:|---:|---:|---:|---:|---:|
 | 0–99 | 1,114 | 34.8% | −6.2% | +2.8% | +0.3% | +1.0% |
@@ -228,16 +258,38 @@ That aggregate hides the result:
 | 2,000–9,999 | 6,403 | 26.3% | −44.0% | +9.2% | −1.5% | +4.9% |
 | 10,000–49,999 | **669** | 27.7% | **−56.7%** | +16.2% | +2.2% | +4.9% |
 
+**NASDAQ 2019-12-30.** Deeper queues and far more of them: the 10,000+ bucket
+holds 7,207 placements against BX's 669, and a 50,000+ bucket exists at all.
+
+| Shares ahead at entry | n placed | Exact | Conservative | Optimistic | Proportional | Bernoulli |
+|---|---:|---:|---:|---:|---:|---:|
+| 0–99 | 7,415 | 58.9% | −3.3% | +1.6% | −0.3% | +0.3% |
+| 100–499 | 29,413 | 62.6% | −10.0% | +3.4% | −0.8% | +2.1% |
+| 500–1,999 | 30,144 | 58.7% | −24.3% | +6.2% | −1.0% | +3.4% |
+| 2,000–9,999 | 17,051 | 55.2% | −35.0% | +9.9% | −0.4% | +3.7% |
+| 10,000–49,999 | 7,207 | 46.0% | **−47.0%** | +14.6% | −0.6% | +4.0% |
+| 50,000+ | 2,295 | 13.4% | **−63.8%** | +34.5% | +5.5% | +11.1% |
+
+**This is where the NASDAQ session earns its place.** The BX result's weakest
+number was the +2.2% in its 669-placement bucket, which a dozen orders could
+have moved across zero. NASDAQ resolves the same region with 7,207 placements
+and puts proportional at **−0.6%** there, not +2.2% — so the apparent sign
+flip at depth on BX does not reproduce. What does reproduce is conservative
+worsening monotonically with depth, on both sessions, reaching −56.7% and
+−63.8% at the back of the queue.
+
 The conservative model — the cautious choice, the one a backtest reaches for
 to avoid overstating fills — is the worst, and it gets worse the deeper the
 queue, reaching a **57% understatement** at the back. Deep in the queue almost
 every fill arrives through cancellation of the orders in front, and
 conservative assumes by construction that cancellation never happens ahead.
 
-**The deepest bucket holds only 669 placements**, against 65,462 in the
-modal one. Its percentages move by 0.15 points per order, so the −56.7% is a
-solid finding while the +2.2% beside it is not: a dozen orders either way
-would move it across zero.
+**BX's deepest bucket holds only 669 placements**, against 65,462 in its modal
+one. Its percentages move by 0.15 points per order, so the −56.7% is a solid
+finding while the +2.2% beside it is not: a dozen orders either way would move
+it across zero. The NASDAQ session, with 7,207 placements in the same bucket,
+reports **−0.6%** — which is what a thinly-populated cell not reproducing
+looks like, and why the BX figure was flagged rather than quoted.
 
 ### Why proportional is nearly unbiased: measured, not argued
 
@@ -328,12 +380,39 @@ horizons are shown; **the one-second figure is the one quoted in the summary
 above**, because it is the horizon at which adverse selection is largest and
 therefore the least flattering.
 
+**BX 2019-01-30**
+
 | Model | 1 s | 10 s | 60 s | Fills valued | Trade-through share of fills |
 |---|---:|---:|---:|---:|---:|
 | Exact | **−0.77** | −0.61 | −0.56 | 23,493 | 49% |
 | Conservative | **−1.28** | −1.04 | −1.06 | 18,581 | 79% |
 | Optimistic | **−0.72** | −0.58 | −0.51 | 24,166 | 46% |
 | Proportional | **−0.79** | −0.62 | −0.57 | 23,367 | 50% |
+| Bernoulli-proportional | **−0.74** | −0.59 | −0.53 | 23,827 | — |
+
+**NASDAQ 2019-12-30**
+
+| Model | 1 s | 10 s | 60 s | Fills valued |
+|---|---:|---:|---:|---:|
+| Exact | **−1.06** | −1.15 | −1.21 | 53,508 |
+| Conservative | **−1.85** | −2.00 | −2.06 | 42,169 |
+| Optimistic | **−0.84** | −0.95 | −1.02 | 56,807 |
+| Proportional | **−1.09** | −1.21 | −1.28 | 53,131 |
+| Bernoulli-proportional | **−0.97** | −1.08 | −1.16 | 55,020 |
+
+**The two sessions disagree about the shape of adverse selection over time,
+and the disagreement is not small.** On BX it *decays*: −0.77 at one second
+improving to −0.56 at a minute. On NASDAQ it *deepens*: −1.06 worsening to
+−1.21. On BX the one-second figure is the least flattering and is therefore
+the headline; on NASDAQ the least flattering is the sixty-second figure. This
+is exactly the kind of difference the confound makes uninterpretable — venue,
+date and basket all differ — and it is reported rather than reconciled.
+
+What holds on both is the ordering. Conservative's filled orders are much the
+worst on both sessions, because the fills it does admit are dominated by
+trade-throughs: it refuses to advance the queue on cancellations, so the only
+way its orders fill is for the market to run them over. That is a mechanical
+consequence of the model and it appears on both sessions.
 
 Every model is negative at every horizon: on this venue and session a passive
 fill at the inside is adversely selected by more than the half-spread it
