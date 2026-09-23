@@ -224,6 +224,17 @@ struct SymbolCount {
     std::uint64_t filled = 0;
 };
 
+// The fill-probability curve, per symbol. Depth at entry is not assigned at
+// random: a symbol with a deep queue is also a symbol that trades often, so a
+// curve pooled across symbols mixes the effect of queue position with the
+// effect of symbol activity and can rise where the conditional curve falls.
+// Keeping the counts per symbol is what allows the pooled shape to be checked
+// against a within-symbol one.
+struct SymbolAhead {
+    std::array<std::uint64_t, 18> placed{};
+    std::array<std::uint64_t, 18> filled{};
+};
+
 struct ModelResults {
     std::uint64_t placed = 0;
     std::uint64_t filled = 0;
@@ -262,6 +273,7 @@ struct ModelResults {
     std::array<std::uint64_t, kAheadGridEdges.size()> placed_by_ahead{};
     std::array<std::uint64_t, kAheadGridEdges.size()> filled_by_ahead{};
     std::array<double, kAheadGridEdges.size()> ahead_sum{};
+    std::unordered_map<std::uint16_t, SymbolAhead> by_symbol_ahead;
     std::uint64_t sum_time_to_fill_ns = 0;
 
     [[nodiscard]] double fill_rate() const noexcept {
@@ -558,6 +570,7 @@ private:
         ++res_[mi].by_symbol[o.locate].filled;
         ++res_[mi].filled_by_depth[db];
         ++res_[mi].filled_by_ahead[ahead_grid(o.depth_at_entry)];
+        ++res_[mi].by_symbol_ahead[o.locate].filled[ahead_grid(o.depth_at_entry)];
         ++res_[mi].reasons[static_cast<std::size_t>(why)];
         const std::uint64_t ttf = ts - o.entered_ts;
         res_[mi].sum_time_to_fill_ns += ttf;
@@ -685,6 +698,7 @@ private:
             ++res_[m].by_symbol[locate].placed;
             ++res_[m].placed_by_depth[db];
             ++res_[m].placed_by_ahead[ag];
+            ++res_[m].by_symbol_ahead[locate].placed[ag];
             res_[m].ahead_sum[ag] += static_cast<double>(o.depth_at_entry);
         }
         ++placements_;

@@ -417,6 +417,27 @@ void write_symbol_csv(const QueueSimulator& sim, const Options& opt, bool rule4,
         }
     }
     std::fclose(f);
+
+    // The same curve as queue_fill_curve, broken out per symbol. Depth at
+    // entry is confounded with symbol activity, so the pooled curve cannot be
+    // read as a conditional fill probability without this.
+    f = open_or_die(opt.out + "/queue_fill_curve_by_symbol_" + suffix + ".csv");
+    std::fprintf(f, "venue,date,rule4,symbol,locate,model,bin,ahead_low,placed,filled\n");
+    for (std::size_t m = 0; m < kModelCount; ++m) {
+        for (const auto& [locate, ca] : sim.results()[m].by_symbol_ahead) {
+            const auto it = names.find(locate);
+            for (std::size_t g = 0; g < kAheadGridEdges.size(); ++g) {
+                if (ca.placed[g] == 0) continue;
+                std::fprintf(f, "%s,%s,%d,%s,%u,%s,%zu,%llu,%llu,%llu\n", opt.venue.c_str(),
+                             opt.date.c_str(), rule4 ? 1 : 0,
+                             it == names.end() ? "?" : it->second.c_str(), unsigned(locate),
+                             kQueueModelName[m], g, (unsigned long long)kAheadGridEdges[g],
+                             (unsigned long long)ca.placed[g],
+                             (unsigned long long)ca.filled[g]);
+            }
+        }
+    }
+    std::fclose(f);
 }
 
 } // namespace

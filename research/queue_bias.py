@@ -29,8 +29,9 @@ MODEL_COLOUR = {
     "conservative": "#0b6e99",
     "optimistic": "#b8500e",
     "proportional": "#4a9e5c",
+    "bernoulli-prop": "#7a5ea8",
 }
-MODEL_ORDER = ["exact", "conservative", "optimistic", "proportional"]
+MODEL_ORDER = ["exact", "conservative", "optimistic", "proportional", "bernoulli-prop"]
 
 plt.rcParams.update(
     {
