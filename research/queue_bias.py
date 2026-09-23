@@ -292,6 +292,127 @@ def seed_spread(study: pathlib.Path, rule4: bool) -> dict:
     return out
 
 
+def fill_curve(study: pathlib.Path, rule4: bool, model: str = "exact") -> dict:
+    """Fill probability against the ahead-count at entry, pooled and adjusted.
+
+    The curvature of this curve fixes the sign of the Jensen term that
+    ``docs/design.md`` record 035 appeals to: randomising a quantity raises
+    the expected value of a convex function of it and lowers a concave one. So
+    the explanation requires convexity over the range where the proportional
+    model's bias is negative, and that has to be measured rather than assumed.
+
+    The pooled curve cannot settle it. Depth at entry is not assigned at
+    random -- a symbol with a deep queue is also a symbol that trades often --
+    so the pooled curve mixes the effect of queue position with the effect of
+    symbol activity. The adjusted curve is a weighted least-squares fit of the
+    fill indicator on bin dummies and symbol dummies, which removes the level
+    of each symbol and leaves only within-symbol variation in the bin
+    coefficients. Cells are (symbol, bin) aggregates weighted by placements,
+    which is algebraically the same fit as one row per placement.
+    """
+    suffix = "rule4on" if rule4 else "rule4off"
+    path = study / f"queue_fill_curve_by_symbol_{suffix}.csv"
+    if not path.exists():
+        return {}
+    df = pd.read_csv(path)
+    df = df[df["model"] == model]
+    df = df[df["placed"] > 0]
+    if df.empty:
+        return {}
+
+    bins = np.sort(df["bin"].unique())
+    syms = np.sort(df["locate"].unique())
+    bin_ix = {b: i for i, b in enumerate(bins)}
+    sym_ix = {sv: i for i, sv in enumerate(syms)}
+
+    # Design: one column per bin, plus one per symbol after the first. The
+    # dropped symbol column makes the bin coefficients the fitted fill rate on
+    # that symbol; the reported curve adds back the placement-weighted mean
+    # symbol effect so it sits at the level of the pooled curve.
+    n_rows = len(df)
+    X = np.zeros((n_rows, len(bins) + len(syms) - 1))
+    y = np.empty(n_rows)
+    w = np.empty(n_rows)
+    for r, (_, row) in enumerate(df.iterrows()):
+        X[r, bin_ix[row["bin"]]] = 1.0
+        j = sym_ix[row["locate"]]
+        if j > 0:
+            X[r, len(bins) + j - 1] = 1.0
+        y[r] = row["filled"] / row["placed"]
+        w[r] = float(row["placed"])
+
+    sw = np.sqrt(w)
+    beta, *_ = np.linalg.lstsq(X * sw[:, None], y * sw, rcond=None)
+
+    placed_by_sym = df.groupby("locate")["placed"].sum()
+    total = float(placed_by_sym.sum())
+    mean_sym_effect = 0.0
+    for sv, cnt in placed_by_sym.items():
+        j = sym_ix[sv]
+        eff = 0.0 if j == 0 else float(beta[len(bins) + j - 1])
+        mean_sym_effect += eff * float(cnt) / total
+
+    pooled = df.groupby("bin")[["placed", "filled"]].sum()
+    pooled["rate"] = pooled["filled"] / pooled["placed"]
+    lows = df.groupby("bin")["ahead_low"].first()
+    n_syms = df.groupby("bin")["locate"].nunique()
+
+    # The x axis is the MEAN AHEAD-COUNT IN SHARES, taken from the pooled
+    # curve, and not the log of it. The Jensen term is about the curvature of
+    # fill probability with respect to the quantity the models perturb, and
+    # they perturb the ahead-count additively in shares. Curvature against a
+    # log axis answers a different question and would report convexity
+    # wherever the curve merely declines.
+    pooled_path = study / f"queue_fill_curve_{suffix}.csv"
+    means = {}
+    if pooled_path.exists():
+        pdf = pd.read_csv(pooled_path)
+        pdf = pdf[pdf["model"] == model]
+        means = dict(zip(pdf["bin"], pdf["mean_ahead"]))
+
+    out = {"model": model, "symbols": int(len(syms)), "bins": int(len(bins))}
+    adjusted, xs_all = {}, {}
+    for b in bins:
+        i = bin_ix[b]
+        adj = float(beta[i]) + mean_sym_effect
+        adjusted[int(b)] = adj
+        xs_all[int(b)] = float(means.get(b, lows.loc[b]))
+        out[f"bin{int(b):02d}_ahead_at_least"] = int(lows.loc[b])
+        out[f"bin{int(b):02d}_symbols"] = int(n_syms.loc[b])
+        out[f"bin{int(b):02d}_placed"] = int(pooled.loc[b, "placed"])
+        out[f"bin{int(b):02d}_pooled_pct"] = float(pooled.loc[b, "rate"]) * 100
+        out[f"bin{int(b):02d}_adjusted_pct"] = adj * 100
+
+    # Bins kept for the curvature statement, by a rule fixed here rather than
+    # after looking: at least 1,000 placements and at least 20 of the 50
+    # symbols contributing. Below that the symbol effects and the bin effect
+    # are barely separable -- the fit returns rates outside [0, 1] in the
+    # deepest bins, which is the linear probability model announcing that it
+    # has been asked to extrapolate. Those bins are reported above and are not
+    # used for the conclusion.
+    keep = [int(b) for b in bins
+            if int(pooled.loc[b, "placed"]) >= 1000 and int(n_syms.loc[b]) >= 20]
+    out["curvature_bins_kept"] = len(keep)
+    out["curvature_bins_dropped_for_sparsity"] = int(len(bins) - len(keep))
+    out["adjusted_rate_outside_unit_interval"] = int(
+        sum(1 for b in bins if not 0.0 <= adjusted[b] <= 1.0))
+    if len(keep) >= 3:
+        x = np.array([xs_all[b] for b in keep])
+        y = np.array([adjusted[b] for b in keep])
+        # Second derivative on an unequally spaced grid. Positive is convex,
+        # which is the sign the Jensen argument needs.
+        d2 = np.array([
+            2.0 * (((y[i + 1] - y[i]) / (x[i + 1] - x[i]))
+                   - ((y[i] - y[i - 1]) / (x[i] - x[i - 1]))) / (x[i + 1] - x[i - 1])
+            for i in range(1, len(keep) - 1)])
+        out["curvature_points"] = int(len(d2))
+        out["curvature_positive"] = int((d2 > 0).sum())
+        out["curvature_first_x_shares"] = float(x[0])
+        out["curvature_last_x_shares"] = float(x[-1])
+        out["curve_falls_over_kept_range"] = bool(y[-1] < y[0])
+    return out
+
+
 def value_table(bias: pd.DataFrame, rule4: bool) -> dict:
     """Realised value per filled order at each horizon.
 
@@ -349,6 +470,7 @@ def main() -> int:
             "seed_spread": seed_spread(args.study, rule4),
             "time_to_fill": time_to_fill(ttf, args.out, args.venue, args.date, rule4),
             "value_per_fill": value_table(bias, rule4),
+            "fill_curve_exact": fill_curve(args.study, rule4, "exact"),
         }
         for section, values in sections.items():
             print(f"[{section}]")
