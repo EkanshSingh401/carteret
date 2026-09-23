@@ -2,11 +2,11 @@
 # fetch_development_set.sh -- fetch and verify the seven development sessions.
 #
 # One session at a time: fetch it, then run its five arrival checks, then the
-# next. Sequential on purpose. This archive throttles -- 11.6 MB/s was measured
-# before a large transfer and 0.3-0.8 MB/s after one (docs/data.md) -- and
-# parallel streams against a throttling public archive make that worse rather
-# than better. A download and a replay competing for the same disk also cost
-# more than they save: measured at 0.6 MB/s overlapped against 11.6 MB/s clean.
+# next. Sequential on purpose. This archive throttles per client and
+# cumulatively -- 11.6 MB/s was measured before a large transfer and 0.3-0.8
+# MB/s on FRESH connections after one (docs/data.md) -- so parallel streams
+# make it worse rather than better: the limit does not reset with a new
+# connection, and more connections are more of what provoked it.
 #
 # Run it under caffeinate so the machine cannot idle-sleep mid-transfer:
 #

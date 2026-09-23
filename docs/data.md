@@ -309,14 +309,14 @@ recorded here as though it characterised the archive. **It does not.** It was
 the *pre-throttle* rate, available before this client had pulled several
 gigabytes in a sitting.
 
-Measured on the next session, on fresh connections, immediately afterwards:
+Measured on the next session, on **fresh** connections, immediately
+afterwards:
 
 | Probe | Rate |
 |---|---|
 | 1 MiB range | ~0.4 MB/s |
 | 8 MiB range | 0.34 MB/s |
 | 32 MiB range | 0.76 MB/s |
-| 64 MiB chunk already in flight | stalled entirely, zero bytes for minutes |
 
 So **sustained throughput after a large transfer is 0.3–0.8 MB/s**, roughly
 twenty times slower, and the 11.6 MB/s figure describes only the first session
@@ -324,23 +324,48 @@ fetched in a quiet period. Planning on it understates a seven-session fetch by
 about an order of magnitude: at the sustained rate the remaining sessions are
 hours rather than minutes.
 
-The throttle is per-client and cumulative rather than per-connection: while one
-chunk was stalled at zero bytes, a **fresh** request for a different range of
-the *same* file returned 206 with a correct `Content-Range` and delivered data.
-That is also why parallel streams are not used — they are more of what
-provoked the throttling, not a way around it.
+Two distinct phenomena were observed here, and they have distinct evidence.
+Conflating them leads to fixing the wrong one.
 
-A second measurement worth recording: a download and a differential replay
-running together fell to **0.6 MB/s** against 11.6 MB/s for the download alone.
-Disk contention, not the network. `tools/fetch_development_set.sh` therefore
-fetches and verifies strictly one session at a time.
+**A per-client, cumulative throttle.** The evidence is the table above. Those
+rates were measured on connections opened *after* the large transfer, and they
+sit twenty times below the pre-throttle rate. A per-*connection* throttle would
+have reset when the connection did, so a fresh connection would have started
+fast; it did not. Whatever the server is limiting therefore accumulates against
+the client and survives across connections. That is also why parallel streams
+are not used — more connections are more of what provoked the throttling, not a
+way around it.
 
-**Stall handling.** The first version gave each chunk a 15-minute timeout, so a
-socket that stopped delivering cost fifteen minutes of nothing. A chunk is now
-abandoned if it drops below **24 KB/s for 45 seconds** and retried in place
-with linear backoff, up to twenty attempts, rather than failing the run. Only
-the chunk is lost, because nothing is appended until the response has been
-validated as the range that was asked for.
+**Connection-level stalls.** Separately, an individual chunk already in flight
+stopped delivering entirely — zero bytes for minutes — while a **fresh** range
+request for a different part of the *same* file returned 206 with a correct
+`Content-Range` and delivered data. The new connection working while the old
+one did not is what makes this a property of the connection, not of the client.
+It is the opposite inference from the one above, drawn from the opposite
+observation, which is why the two are recorded separately.
+
+**Stall handling addresses the second, not the first.** The first version gave
+each chunk a 15-minute timeout, so a socket that stopped delivering cost
+fifteen minutes of nothing. A chunk is now abandoned if it drops below
+**24 KB/s for 45 seconds** and retried in place with linear backoff, up to
+twenty attempts, rather than failing the run. Only the chunk is lost, because
+nothing is appended until the response has been validated as the range that was
+asked for. This turns a dead socket into a fast retry. It does **not** raise the
+throttled rate, and nothing in this pipeline is a way around the throttle.
+
+**A measurement whose cause is untested.** A download and a differential replay
+running together were measured at **0.6 MB/s**, against 11.6 MB/s for the
+download alone in the quiet period. This was previously attributed here to disk
+contention. That attribution is withdrawn as untested: 0.6 MB/s falls inside
+the 0.3–0.8 MB/s band measured on fresh connections with no replay running at
+all, and local SSD bandwidth exceeds both figures by orders of magnitude. The
+throttle alone accounts for the number, and the replay need not have
+contributed anything. Settling it would take a measurement that was never made
+— the transfer rate recovering when the replay stops, with nothing else
+changing — so no disk effect is claimed. `tools/fetch_development_set.sh`
+fetches and verifies strictly one session at a time regardless, not on disk
+grounds but because a cumulative per-client throttle is not relieved by adding
+work.
 
 **Resumption is verified, not assumed.** The pipeline was interrupted twice
 mid-session and both times continued from the bytes already on disk rather
