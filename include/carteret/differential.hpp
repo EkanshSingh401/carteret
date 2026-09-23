@@ -59,7 +59,12 @@ struct DifferentialStats {
 // Drives both books and compares them. Constructed with the fast book's
 // configuration so that a sizing failure is visible as a divergence rather
 // than as a silently smaller book.
-template<class HashPolicy = MultiplyShiftHash>
+// The Book parameter exists so that the comparison can be tested against a
+// book that is deliberately wrong. A gate that has never been seen to fail is
+// not known to work, and the only way to make this one fail is to give it two
+// books that disagree. tests/test_gate_negatives.cpp substitutes a wrapper
+// that drops one removal; every other use takes the default and is unchanged.
+template<class HashPolicy = MultiplyShiftHash, class Book = FastBook<HashPolicy>>
 class Differential {
 public:
     // invariant_every: how often the structural invariants of both books are
@@ -94,6 +99,13 @@ public:
     // crossed book the venue allowed -- because it was not matching the
     // symbol -- from one this reconstruction produced.
     void on(StockTradingAction v) {
+        ref_.on(v);
+        ++stats_.messages;
+    }
+
+    // 'h' changes no book state either; the reference book uses it for the
+    // same reason it uses 'H'.
+    void on(OperationalHalt v) {
         ref_.on(v);
         ++stats_.messages;
     }
@@ -155,8 +167,12 @@ public:
 
     [[nodiscard]] const Divergence& divergence() const noexcept { return div_; }
     [[nodiscard]] const DifferentialStats& stats() const noexcept { return stats_; }
+    // Which venue is being replayed, for 'h' Operational Halt market-code
+    // matching. Set before the run; see ReferenceBook.
+    void set_venue_market_code(unsigned char c) noexcept { ref_.set_venue_market_code(c); }
+
     [[nodiscard]] const ReferenceBook& reference() const noexcept { return ref_; }
-    [[nodiscard]] const FastBook<HashPolicy>& fast() const noexcept { return fast_; }
+    [[nodiscard]] const Book& fast() const noexcept { return fast_; }
 
     // Run at end of session. Compares every level of every symbol, so a
     // divergence that no message touched again is still caught.
@@ -362,7 +378,7 @@ private:
     }
 
     ReferenceBook ref_;
-    FastBook<HashPolicy> fast_;
+    Book fast_;
     Divergence div_;
     DifferentialStats stats_;
     std::uint64_t full_every_;

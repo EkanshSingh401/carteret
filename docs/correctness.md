@@ -256,6 +256,58 @@ them; stopping at `E` would silently lose them.
 
 ---
 
+## Every gate, and the test that proves it can fail
+
+A gate that has only ever been seen to pass supports no claim: it may be
+checking nothing. Each gate below has a test that constructs the defect it
+exists to catch and requires it to be caught, and where the distinction
+matters a positive control requires the clean case to still pass.
+
+This is not a formality. The reopening-window cap failed
+`20190130.BX_ITCH_50` on its first run — a session with **zero** crossed and
+zero locked observations — because it charged the cap against windows that
+were excusing nothing. A gate that fails on clean data is as broken as one
+that passes on dirty data, and only running it against both finds that out.
+Separately, `Differential` was silently dropping `'H'`, which disabled the
+trading-state half of the crossing gate without changing any result.
+
+| Gate | What it fails on | Negative test |
+|---|---|---|
+| Crossed or locked book | an observation while the venue is matching | `gate_negatives`: `crossing_while_trading_is_caught` |
+| — its halt excuse | *(control)* a crossing while halted must pass | `crossing_while_halted_is_excused` |
+| — its spec 1.2.2 default | *(control)* a crossing before any `'H'` must pass, counted apart | `crossing_before_any_trading_action_is_excused_and_counted_apart` |
+| Reopening window | a crossing after the reopening cross has run | `crossing_after_the_reopening_cross_is_not_excused` |
+| — its 100 ms cap | a window closed by timing out rather than by an event | `reopening_window_past_the_cap_fails` |
+| — its clean-book case | *(control)* an open window on an uncrossed book must pass | `an_open_window_on_a_clean_book_does_not_trip_the_cap` |
+| Operational halt `'h'` | a halt on another market must excuse nothing | `operational_halt_for_another_market_excuses_nothing` |
+| Trading-state tracking | a stream whose `'H'` messages never arrive | `stripping_trading_actions_is_an_error_not_a_quiet_pass` |
+| Differential comparison | a fast book that drops one removal | `the_differential_detects_a_book_that_is_wrong` |
+| Census — unknown type | a type outside ITCH 5.0 | `census_rejects_an_unknown_message_type` |
+| Census — length mismatch | a prefix disagreeing with the known body size | `census_rejects_a_length_mismatch` |
+| Census — truncation | a body running past the end of the buffer | `census_rejects_a_truncated_body` |
+| Census — trailing bytes | bytes after the last whole message | `census_rejects_trailing_bytes` |
+| Census — final `'C'` | a session that is a well-formed prefix | `a_session_without_the_final_c_is_a_well_formed_prefix` |
+| Determinism | two sessions that differ by one share | `determinism_hash_separates_two_different_sessions` |
+| Integrity — length | a short file, the shape of a dropped connection | `integrity_negative`, exit 2 |
+| Integrity — gzip stream | a truncated stream | `integrity_negative`, exit 3 |
+| Integrity — trailing garbage | appended bytes from a bad continued transfer | `integrity_negative`, exit 4 |
+| Integrity — SHA-256 | a wrong digest on an otherwise perfect file | `integrity_negative`, exit 5 |
+| Integrity — *(control)* | a good archive must pass | `integrity_negative`, exit 0 |
+
+The differential test substitutes a deliberately wrong book through
+`Differential`'s book template parameter, so what is exercised is the
+**production** comparator rather than a reimplementation of it in the test.
+The integrity checks live in `tools/verify_archive.sh`, which
+`tools/fetch_data.sh` calls, so the tested code is the code that runs.
+
+**Not covered this way.** The fast book's structural failure counters — pool
+exhaustion, index insert failure, symbol table overflow — are gated in
+`replay` but have no negative test yet; provoking them needs a configuration
+small enough that the harness itself becomes the subject. They are listed
+here as a gap rather than left to be assumed.
+
+---
+
 ## What the five layers together do not establish
 
 - **Nothing about latency.** Correctness and performance are measured by

@@ -123,6 +123,21 @@ add_executable(test_queue_sim tests/test_queue_sim.cpp)
 target_link_libraries(test_queue_sim PRIVATE carteret_testing)
 add_test(NAME queue_sim COMMAND test_queue_sim)
 
+# One test per correctness gate, each constructing the defect that gate exists
+# to catch. A gate that has only ever been seen to pass is not known to check
+# anything -- and the reopening-window cap failed a clean session on its first
+# run, which is how that stopped being a hypothetical.
+add_executable(test_gate_negatives tests/test_gate_negatives.cpp)
+target_link_libraries(test_gate_negatives PRIVATE carteret_testing)
+add_test(NAME gate_negatives COMMAND test_gate_negatives)
+
+# The download integrity gate, driven against each corruption the archive has
+# produced: a short file, a truncated stream, appended bytes, a wrong digest.
+add_test(NAME integrity_negative
+  COMMAND ${CMAKE_COMMAND}
+    -DVERIFY=${CMAKE_SOURCE_DIR}/tools/verify_archive.sh
+    -P ${CMAKE_SOURCE_DIR}/tests/integrity_negative.cmake)
+
 # Pins every random draw. The CI matrix runs this under both compilers, which
 # is the point: an implementation-defined distribution would diverge between
 # them and this is what makes that visible.

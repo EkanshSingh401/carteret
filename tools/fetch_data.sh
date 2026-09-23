@@ -108,15 +108,12 @@ fi
 # warning. Both are checked -- a nonzero exit, and any output at all -- so the
 # result does not depend on which gzip is installed.
 echo "verifying the gzip stream ..."
-gz_err=$(gzip -t "data/${FILE}" 2>&1) || {
-  echo "$gz_err" >&2
-  echo "gzip stream is corrupt; delete data/${FILE} and re-run" >&2
-  exit 1
-}
-if [ -n "$gz_err" ]; then
-  echo "$gz_err" >&2
-  echo "gzip reported a warning, which on this archive has meant appended" >&2
-  echo "bytes from a bad transfer; delete data/${FILE} and re-run" >&2
+# The length and gzip checks live in tools/verify_archive.sh so that they can
+# be run against deliberately corrupted input; tests/integrity_negative.cmake
+# does exactly that on every build. Keeping them here would have meant a gate
+# that only ever saw good data.
+if ! sh "$(dirname "$0")/verify_archive.sh" "data/${FILE}" "${EXPECTED:-}"; then
+  echo "delete data/${FILE} and re-run" >&2
   exit 1
 fi
 echo "gzip ok, no trailing garbage"
