@@ -76,9 +76,60 @@ for raw in mt_stream(20190130, 1000000):
     if worst is None or d < worst:
         worst = d
         worst_at = (n, gap)
-print(f"draws                {n}")
-print(f"closest to a boundary {worst:.3E}")
-print(f"at draw              {worst_at[0]}, gap {worst_at[1]:.6f} ns")
+print(f"draws sampled          {n:,}")
+print(f"closest to a boundary  {worst:.3E} ns")
 ulp = Decimal(2) ** -52
-print(f"one ulp of that gap  {(worst_at[1] * ulp):.3E}")
-print(f"margin               {(worst / (worst_at[1] * ulp)):.1f}x one ulp")
+one_ulp = worst_at[1] * ulp
+print(f"one ulp of that gap    {one_ulp:.3E} ns")
+print(f"margin                 {(worst / one_ulp):.1f}x one ulp")
+print()
+
+# THE MARGIN ABOVE IS A PROPERTY OF THIS SAMPLE, NOT OF THE METHOD.
+#
+# A draw is at risk when its unquantized gap falls within one ulp of an
+# integer boundary. The fractional part is effectively uniform, and the
+# boundary zone has width 2 x ulp in nanoseconds, so the per-draw probability
+# is 2 x ulp and the expected number at risk grows LINEARLY with the number of
+# draws taken. Observing a 13.3x margin over a million draws says only that
+# this particular million happened not to contain one; it says nothing about
+# what ten million will contain.
+mean_gap = mean  # E[gap] = mean for an exponential
+typical_ulp = mean_gap * ulp
+p_at_risk = 2 * typical_ulp
+print(f"typical gap            {mean_gap:.3E} ns")
+print(f"one ulp there          {typical_ulp:.3E} ns")
+print(f"P(draw within 1 ulp of a boundary) = 2 x ulp = {p_at_risk:.3E}")
+print()
+
+# Draw counts. Only exponential_ns touches libm; pick(), coin() and
+# bernoulli() are integer arithmetic and cannot diverge.
+PLACEMENTS_PER_RUN = 93_525
+RUNS_PER_SESSION = 11 * 2   # base run plus ten seeds, each with rule 4 off and on
+SESSIONS_STAGE7 = 2
+stage7 = PLACEMENTS_PER_RUN * RUNS_PER_SESSION * SESSIONS_STAGE7
+
+# Stage 8 plans seven development sessions and two held out, at the same
+# placement rate, with one run per rule-4 arm and no seed sweep on the
+# held-out set.
+STUDY_SESSIONS = 9
+study = PLACEMENTS_PER_RUN * 2 * STUDY_SESSIONS
+
+for label, N in (("golden sweep", n), ("full Stage 7 run", stage7),
+                 ("planned study", study), ("both together", stage7 + study)):
+    expected = Decimal(N) * p_at_risk
+    print(f"{label:22s} {N:>12,} draws   expected at risk {expected:.2f}")
+print()
+import math
+total = stage7 + study
+lam = float(Decimal(total) * p_at_risk)
+print(f"Across Stage 7 and the planned study together the expected count is")
+print(f"{lam:.2f}, so the chance that at least one draw sits within one ulp of a")
+print(f"boundary is {100 * (1 - math.exp(-lam)):.0f}%. It is not a remote possibility and it is")
+print("not a certainty; it is a coin flip, and it scales linearly with how many")
+print("draws the project ends up taking.")
+print()
+print("Such a draw would move one placement by one nanosecond, far below the")
+print("microsecond spacing of messages, so it cannot change which message a")
+print("placement lands on. It WOULD change a checksum over the draws. That is")
+print("why the comparison that settles this is run on the benchmark host")
+print("against glibc on x86-64 rather than inferred here.")

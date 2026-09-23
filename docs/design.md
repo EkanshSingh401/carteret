@@ -1894,3 +1894,82 @@ of anything.
 **Evidence.** Both sessions, 93,525 placements each, 50 symbols each, 21
 shared, 10 placement sequences and a 10,000-replication symbol cluster
 bootstrap per session.
+
+---
+
+## 038 — Floating-point contraction off, and the libm comparison made rather than argued
+
+**Status:** in force.
+
+**Context.** Two hosts run this code: an arm64 Mac for correctness and an
+x86-64 Linux box for latency. Two things can make them disagree on arithmetic
+that the study depends on, and only one of them had been addressed.
+
+**Contraction.** A compiler may fuse `a*b+c` into a single fused
+multiply-add with one rounding instead of two. arm64 has an FMA and Clang will
+use it by default; baseline x86-64 does not, so the same source produces
+different numbers on the two hosts, silently. `-ffp-contract=off` is now set
+project-wide.
+
+**The math library.** `std::log1p` is not required to be correctly rounded,
+and `exponential_ns` is the one place the study touches it. Record 035a's
+sampler quantizes that draw to integer nanoseconds in the generating
+expression, which contains the dependency — but the size of that containment
+was stated wrongly.
+
+**The correction.** The original claim compared the 1 ns quantization step to
+one ulp of the product, a ratio of about thirty million, and concluded the
+margin was enormous. That is the wrong quantity. What decides whether a draw
+changes is how close its unquantized gap falls to an integer boundary, so the
+relevant number is the **closest approach across the draws actually taken**.
+
+`research/ulp_margin.py` measures it in 60-digit decimal, with `mt19937_64`
+reimplemented rather than linked so the probe does not depend on the build it
+checks, and validated against the four raw draws the golden test pins. Over
+the million draws the golden test checksums, the closest approach is
+**1.75e-6 ns against 1.31e-7 ns for one ulp there — a margin of 13.3x**, not
+thirty-million-fold.
+
+**And that margin is a property of the sample, not of the method.** The
+per-draw probability of landing within one ulp of a boundary is 2·ulp, so the
+expected number at risk grows **linearly** with the number of draws:
+
+| | Draws | Expected within one ulp of a boundary |
+|---|---:|---:|
+| Golden sweep | 1,000,000 | 0.11 |
+| Full Stage 7 run | 4,115,100 | 0.46 |
+| Planned study | 1,683,450 | 0.19 |
+| **Both together** | **5,798,550** | **0.64** |
+
+At 0.64 expected there is a **47% chance** at least one draw differs between
+two libms that disagree in the last bit. That is a coin flip, not a negligible
+risk, and observing a comfortable margin over one million draws says nothing
+about ten million.
+
+**Decision.** Such a draw would move one placement by one nanosecond, far
+below the microsecond spacing of messages, so it cannot change which message a
+placement lands on and cannot change a study result. It **would** change a
+checksum over the draws. So the comparison is made directly rather than
+reasoned about: `tools/draw_checksum` emits a checksum over the full
+5,798,550-draw sequence, and `bench/run_linux.sh` computes it on the benchmark
+host and compares against the value recorded from the development host.
+
+**A mismatch is a finding, not a prompt to regenerate goldens on either
+platform.** The runner says so and points at `--first` to name the differing
+draw.
+
+**Alternatives considered.**
+- *Drop `log1p` for an integer-only exponential.* Removes the dependency
+  entirely, and was rejected as disproportionate: the inverse-transform
+  exponential is standard and readable, and a hand-rolled fixed-point
+  substitute would trade a measured 47%-chance-of-one-nanosecond for a new
+  and unmeasured source of error.
+- *Set `-ffp-model=strict`.* Broader than needed and costs optimisation on
+  every path; contraction is the specific behaviour that differs here.
+- *Assume the two libms agree.* This is what the original claim amounted to.
+
+**Evidence.** Draw checksum over 5,798,550 draws, seed 20190130, mean 250 ms:
+**6095088912012545764**, identical under Apple Clang 21.0.0 and GCC 16.2.0 on
+arm64 with `-ffp-contract=off`. The 1,000,000-draw prefix reproduces the
+golden test's sweep value exactly. The x86-64 glibc comparison is pending the
+Stage 4 run and is the point of the mechanism.

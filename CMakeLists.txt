@@ -53,9 +53,19 @@ if(CARTERET_BENCH)
   FetchContent_MakeAvailable(hdr_histogram)
 endif()
 
+# Floating-point contraction is off everywhere. A compiler is permitted to
+# fuse a*b+c into a single fused multiply-add with one rounding instead of
+# two, and arm64 has an FMA it will use by default while baseline x86-64 does
+# not. The same source would then produce different numbers on the
+# development Mac and on the benchmark host -- silently, and in exactly the
+# arithmetic the sampler and the study depend on. See docs/design.md record
+# 038.
+add_library(carteret_fp INTERFACE)
+target_compile_options(carteret_fp INTERFACE -ffp-contract=off)
+
 add_library(carteret INTERFACE)
 target_include_directories(carteret INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(carteret INTERFACE carteret_warnings)
+target_link_libraries(carteret INTERFACE carteret_warnings carteret_fp)
 
 # Test-only helpers. Not part of the installed interface.
 add_library(carteret_testing INTERFACE)
@@ -69,6 +79,9 @@ add_executable(export_micro  src/export_micro.cpp)
 add_executable(queue_study   src/queue_study.cpp)
 add_executable(export_features src/export_features.cpp)
 add_executable(gen_synthetic  tools/gen_synthetic.cpp)
+# Checksums the exact draws the study consumes, so the benchmark host can make
+# the glibc/x86-64 comparison directly instead of it being inferred on arm64.
+add_executable(draw_checksum  tools/draw_checksum.cpp)
 target_link_libraries(census        PRIVATE carteret)
 target_link_libraries(replay       PRIVATE carteret)
 target_link_libraries(determinism  PRIVATE carteret)
@@ -76,6 +89,7 @@ target_link_libraries(export_micro PRIVATE carteret)
 target_link_libraries(queue_study  PRIVATE carteret)
 target_link_libraries(export_features PRIVATE carteret)
 target_link_libraries(gen_synthetic PRIVATE carteret)
+target_link_libraries(draw_checksum PRIVATE carteret)
 
 if(CARTERET_BENCH)
   add_executable(bench_book bench/bench_book.cpp bench/timer.cpp)

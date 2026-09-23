@@ -107,6 +107,39 @@ fi
 grep -E "file|bytes|sha256|messages|final message|complete session" "$OUT/session.txt"
 echo
 
+# --- 2b. the floating-point comparison that only this host can make ---------
+#
+# std::log1p is not required to be correctly rounded, and the development host
+# is arm64 with Apple's libm while this one is x86-64 with glibc. The golden
+# test pins draws on whichever platform runs it, which does not compare the
+# two. research/ulp_margin.py puts the expected number of at-risk draws across
+# Stage 7 and the planned study at 0.64 -- a coin flip, not a negligible
+# chance -- so the comparison is made here rather than reasoned about.
+#
+# A mismatch does NOT mean regenerate anything: it means a libm difference has
+# been found and has to be diagnosed, and --first names the draw that differs.
+EXPECTED_DRAW_CHECKSUM="${EXPECTED_DRAW_CHECKSUM:-6095088912012545764}"
+cmake --build "$ROOT/build/release" --target draw_checksum -j > /dev/null
+"$ROOT/build/release/draw_checksum" > "$OUT/draws.txt" 2>&1
+GOT_DRAW_CHECKSUM=$(awk '/^draw checksum/ {print $3}' "$OUT/draws.txt")
+cat "$OUT/draws.txt"
+if [ "$GOT_DRAW_CHECKSUM" = "$EXPECTED_DRAW_CHECKSUM" ]; then
+  DRAW_STATUS="agrees with the development host"
+  echo "draw checksum agrees with the development host"
+else
+  DRAW_STATUS="DIFFERS (expected ${EXPECTED_DRAW_CHECKSUM}, got ${GOT_DRAW_CHECKSUM})"
+  echo "*** DRAW CHECKSUM DIFFERS ***" >&2
+  echo "expected ${EXPECTED_DRAW_CHECKSUM} (development host, arm64 with Apple libm)" >&2
+  echo "got      ${GOT_DRAW_CHECKSUM} (this host)" >&2
+  echo "" >&2
+  echo "This is a finding about the two math libraries, not a reason to" >&2
+  echo "regenerate goldens on either platform. Diagnose it first:" >&2
+  echo "  build/release/draw_checksum --first 20" >&2
+  echo "  confirm -ffp-contract=off survived into the compile flags" >&2
+  echo "See docs/design.md record 038." >&2
+fi
+echo
+
 # Pinning is a hint on some systems and a guarantee on none, so the entry
 # records what was asked for rather than asserting it was honoured.
 PIN=""
@@ -162,6 +195,7 @@ fi
   echo "  proposed the change; if none was recorded, say so)*"
   echo "- Session: \`$(basename "$SESSION")\`"
   echo "- Runs: $RUNS, warmup $WARMUP messages, pinned with: \`$PIN\`"
+  echo "- Draw checksum: $DRAW_STATUS"
   if [ "$PUBLISHABLE" -eq 1 ]; then
     echo "- Machine check: **clean**. These numbers are publishable."
   else
