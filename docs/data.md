@@ -150,6 +150,44 @@ about the `I`, `J`, `K`, `Q`, `W`, `h` or `O` layouts, whose only coverage is
 the byte fixtures. BX runs no opening or closing cross, which accounts for `I`
 and `Q`.
 
+### 2019-12-30, the first NASDAQ session
+
+Fetched and verified on 2026-09-22 by every check in the section below.
+
+| | |
+|---|---|
+| Compressed | 3,524,013,057 bytes, matching the advertised length exactly |
+| Unpacked | 8,251,407,909 bytes |
+| Messages | 268,744,780 |
+| Book-affecting (`A F E C X D U`) | 263,241,937 (98.0%) |
+| Framing | length-prefixed; ends on System Event `'C'`, no zero-length prefix |
+| Trailing bytes | 0 |
+| Unknown type / length mismatch | 0 / 0 |
+| SHA-256 (unpacked) | `5d81c2e14a0f748b29c674b6a342796932702034b4dd341e39e9a9ec5bac610f` |
+| First / last timestamp | 03:04:32 / 20:05:00 |
+| Types present | `S R H Y L V K J A F E C X D U P Q I` (18 of 23) |
+| Types absent | `N W h O B` |
+
+**This session is what covers the message types BX could not.** BX runs no
+opening or closing cross, so `I` (NOII) and `Q` (Cross Trade) were exercised
+only by byte fixtures until now; here there are **4,024,315** `I` messages and
+**17,836** `Q`. `J` (LULD Auction Collar, 34) and `K` (IPO Quoting Period, 3)
+appear for the first time as well, and `V` (MWCB Decline Level) appears once,
+which is the message whose Price(8) field is item 8 in the README's wire
+notes.
+
+It also settles a question left open in `docs/design.md` record 034. `N`
+(RPII) is **10.0% of the BX session and entirely absent here**. The two venues
+disagree about that message type completely, which is why a claim about it
+made on one venue's data says nothing about the other.
+
+`W` (MWCB Breach), `h` (Operational Halt) and `O` (Retail Price Improvement
+Indicator) remain uncovered by any session, and `B` (Broken Trade) appears
+only on BX, three times.
+
+Three message types are therefore still known from byte fixtures alone, and
+this document does not claim otherwise.
+
 ## PSX
 
 Not used. Listed for completeness, since a PSX file sits in the same tree and
@@ -204,6 +242,15 @@ only meaningful once the previous one holds:
 | Session | SHA-256 (unpacked) | Verified |
 |---|---|---|
 | `20190130.BX_ITCH_50` | `d670c9dd0e2391a4007fa407668bfaaa9ded346f0804bb5d7b2a6c381bdcadd3` | 2026-09-22 |
+| `12302019.NASDAQ_ITCH50` | `5d81c2e14a0f748b29c674b6a342796932702034b4dd341e39e9a9ec5bac610f` | 2026-09-22 |
+
+The compressed files are recorded too, because the length and `gzip -t` checks
+are made against those bytes and the digest is what ties a later re-fetch to
+the same archive entry.
+
+| Compressed file | Advertised bytes | SHA-256 (.gz) |
+|---|---:|---|
+| `12302019.NASDAQ_ITCH50.gz` | 3,524,013,057 | `ef03df46a27e6bda4dead017f84c2e3979df7211f02c7868b51d53fceb99c689` |
 
 ## Checksums are listed but not served
 

@@ -139,13 +139,36 @@ int run(const Options& opt) {
                     no_crossing && st.end != ParseEnd::Truncated && st.trailing == 0 &&
                     fc.pool_exhausted == 0 && fc.index_failures == 0 && fc.symbol_overflow == 0;
     if (!no_crossing) {
+        const auto hms = [](std::uint64_t ns, char* buf, std::size_t n) {
+            const std::uint64_t s_ = ns / 1'000'000'000ULL;
+            std::snprintf(buf, n, "%02llu:%02llu:%02llu", (unsigned long long)(s_ / 3600),
+                          (unsigned long long)(s_ / 60 % 60), (unsigned long long)(s_ % 60));
+        };
+        char c0[16], c1[16], l0[16], l1[16];
+        hms(rc.crossed_first_ts, c0, sizeof c0);
+        hms(rc.crossed_last_ts, c1, sizeof c1);
+        hms(rc.locked_first_ts, l0, sizeof l0);
+        hms(rc.locked_last_ts, l1, sizeof l1);
         std::fprintf(stderr,
-                     "\nLOCKED OR CROSSED BOOK: %llu crossed, %llu locked observations.\n"
-                     "A single venue's own book cannot lock or cross itself, so this is a\n"
-                     "reconstruction error rather than a market condition. See\n"
-                     "docs/design.md record 027.\n",
-                     (unsigned long long)(rc.crossed_observations + fc.crossed_observations),
-                     (unsigned long long)(rc.locked_observations + fc.locked_observations));
+                     "\nLOCKED OR CROSSED BOOK: %llu crossed, %llu locked observations\n"
+                     "in the reference book, and the same in the fast book.\n"
+                     "See docs/design.md record 027.\n\n"
+                     "  crossed   %llu total, %llu of them in continuous trading\n"
+                     "            %s to %s, %llu distinct symbols, deepest %llu ticks\n"
+                     "  locked    %llu total, %llu of them in continuous trading\n"
+                     "            %s to %s, %llu distinct symbols\n\n"
+                     "Continuous trading is 09:30:00 to 16:00:00. A count that sits\n"
+                     "entirely outside it points at the auction book; a count inside it\n"
+                     "points at the reconstruction.\n",
+                     (unsigned long long)rc.crossed_observations,
+                     (unsigned long long)rc.locked_observations,
+                     (unsigned long long)rc.crossed_observations,
+                     (unsigned long long)rc.crossed_continuous, c0, c1,
+                     (unsigned long long)rc.crossed_symbols.size(),
+                     (unsigned long long)rc.crossed_worst_ticks,
+                     (unsigned long long)rc.locked_observations,
+                     (unsigned long long)rc.locked_continuous, l0, l1,
+                     (unsigned long long)rc.locked_symbols.size());
     }
     std::printf("%s\n", ok ? "RESULT: identical" : "RESULT: FAILED");
     return ok ? 0 : 1;

@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <list>
 #include <map>
+#include <set>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -90,6 +91,22 @@ struct RefCounters {
     std::uint64_t after_end_of_system_hours = 0;
     std::uint64_t book_messages = 0;
 
+    // WHERE the crossed and locked observations are, not only how many. A
+    // gate that fails with a count and no location cannot be acted on, and
+    // the first question about a crossed book is always whether it sits in
+    // continuous trading or around an auction. Kept on the reference book
+    // only: these are diagnostics for a failure, not conditions the two books
+    // are compared on.
+    std::uint64_t crossed_continuous = 0; // 09:30:00 <= ts < 16:00:00
+    std::uint64_t locked_continuous = 0;
+    std::uint64_t crossed_first_ts = 0;
+    std::uint64_t crossed_last_ts = 0;
+    std::uint64_t locked_first_ts = 0;
+    std::uint64_t locked_last_ts = 0;
+    std::uint64_t crossed_worst_ticks = 0; // deepest crossing seen, in Price(4) units
+    std::set<std::uint16_t> crossed_symbols;
+    std::set<std::uint16_t> locked_symbols;
+
     [[nodiscard]] std::uint64_t orphans() const noexcept {
         return orphan_execute + orphan_execute_price + orphan_cancel + orphan_delete +
                orphan_replace;
@@ -137,7 +154,7 @@ public:
     void on(OrderExecuted v) {
         tick();
         if (!execute(v.order_ref(), v.executed_shares())) ++counters_.orphan_execute;
-        check_bbo(v.locate());
+        check_bbo(v.locate(), v.ts());
     }
 
     // 'C' carries its own price. Printable 'N' keeps the execution off the
@@ -146,19 +163,19 @@ public:
     void on(OrderExecutedPrice v) {
         tick();
         if (!execute(v.order_ref(), v.executed_shares())) ++counters_.orphan_execute_price;
-        check_bbo(v.locate());
+        check_bbo(v.locate(), v.ts());
     }
 
     void on(OrderCancel v) {
         tick();
         if (!execute(v.order_ref(), v.cancelled_shares())) ++counters_.orphan_cancel;
-        check_bbo(v.locate());
+        check_bbo(v.locate(), v.ts());
     }
 
     void on(OrderDelete v) {
         tick();
         if (!remove(v.order_ref())) ++counters_.orphan_delete;
-        check_bbo(v.locate());
+        check_bbo(v.locate(), v.ts());
     }
 
     // 'U' carries no side, stock or attribution, so all three are retained from
@@ -176,7 +193,7 @@ public:
         remove(v.old_order_ref());
         add_retained(old.locate, v.new_order_ref(), old.side, v.price(), v.shares(), old.stock,
                      old.attribution, v.ts());
-        check_bbo(v.locate());
+        check_bbo(v.locate(), v.ts());
     }
 
     // No book effect (record 011). Observed only for the counters.
@@ -329,7 +346,7 @@ private:
         o.added_ts = ts;
         orders_.emplace(ref, o);
 
-        check_bbo(locate);
+        check_bbo(locate, ts);
     }
 
     // Deducts shares from a resting order. Returns false if the reference names
@@ -402,17 +419,33 @@ private:
         orders_.erase(it);
     }
 
-    // Crossed and locked books occur legitimately around halts and auctions.
-    // Counted per observation, never repaired (record 007).
-    void check_bbo(std::uint16_t locate) {
+    // Counted per observation, never repaired (record 007). A nonzero count
+    // fails the replay gate (record 027), so the location is recorded along
+    // with the count: continuous session, and the first and last instant.
+    static constexpr std::uint64_t kOpenNs = 34'200'000'000'000ULL;  // 09:30:00
+    static constexpr std::uint64_t kCloseNs = 57'600'000'000'000ULL; // 16:00:00
+
+    void check_bbo(std::uint16_t locate, std::uint64_t ts) {
         const auto it = symbols_.find(locate);
         if (it == symbols_.end()) return;
         const RefSymbol& s = it->second;
         if (!s.has_bid() || !s.has_ask()) return;
-        if (s.best_bid() > s.best_ask())
+        const bool continuous = ts >= kOpenNs && ts < kCloseNs;
+        if (s.best_bid() > s.best_ask()) {
             ++counters_.crossed_observations;
-        else if (s.best_bid() == s.best_ask())
+            if (continuous) ++counters_.crossed_continuous;
+            if (counters_.crossed_first_ts == 0) counters_.crossed_first_ts = ts;
+            counters_.crossed_last_ts = ts;
+            const std::uint64_t depth = s.best_bid() - s.best_ask();
+            if (depth > counters_.crossed_worst_ticks) counters_.crossed_worst_ticks = depth;
+            counters_.crossed_symbols.insert(locate);
+        } else if (s.best_bid() == s.best_ask()) {
             ++counters_.locked_observations;
+            if (continuous) ++counters_.locked_continuous;
+            if (counters_.locked_first_ts == 0) counters_.locked_first_ts = ts;
+            counters_.locked_last_ts = ts;
+            counters_.locked_symbols.insert(locate);
+        }
     }
 
     std::map<std::uint16_t, RefSymbol> symbols_;
