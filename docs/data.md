@@ -76,9 +76,10 @@ concern; for a slower signal it would not be acceptable. It is a limitation of
 this study, not a property of the method.
 
 The 2019-05-30 NASDAQ session is filed under the PSX directory; the matching
-`.md5sum` sits in the NASDAQ directory with no `.gz` beside it. The file is
-named `NASDAQ_ITCH50` and is treated as a NASDAQ session. Its checksum cannot
-be verified, for the reason in *Checksums are listed but not served* below.
+`.md5sum` sits in the NASDAQ directory with no `.gz` beside it. Its checksum
+cannot be verified, for the reason in *Checksums are listed but not served*
+below. **It is not treated as a NASDAQ session because of its name** — see
+*Venue is established from content* below, which is the check that decides.
 
 The `GIS/Nov 18, Dec 18, Jan 19/` sessions (2018-12-13, 2018-12-14,
 2018-12-31) are in the 2017-2020 window and are **unassigned**. They are held
@@ -260,6 +261,128 @@ the same archive entry.
 | Compressed file | Advertised bytes | SHA-256 (.gz) |
 |---|---:|---|
 | `12302019.NASDAQ_ITCH50.gz` | 3,524,013,057 | `ef03df46a27e6bda4dead017f84c2e3979df7211f02c7868b51d53fceb99c689` |
+
+## Fetching the remaining development sessions on a second machine
+
+Three sessions are fetched on the Linux box and transferred; three are fetched
+here. The split is recorded so the same file is not pulled twice, and so that
+a reader can tell which machine produced which digest.
+
+| Session | Machine | Directory |
+|---|---|---|
+| 2019-01-30, 2019-03-27, 2019-07-30 | development Mac | `Nasdaq ITCH/` |
+| 2019-05-30, 2019-08-30, 2019-10-18 | Linux box | `Nasdaq PSX ITCH/`, `Nasdaq ITCH/`, `Nasdaq ITCH/` |
+
+**Whole file, one connection per file.** Range requests are why two earlier
+downloads produced a file that looked finished and was not: this archive
+answers `HEAD` with `Range` as 416 while honouring `Range` on `GET`, and a
+retry that returned the whole body was appended to a partial one, giving
+4,038,899,612 bytes against an advertised 3,524,013,057. `--continue-at` is
+therefore not used anywhere, and neither is any parallel-chunk downloader.
+
+```sh
+# On the Linux box, from the repository root.
+BASE=https://emi.nasdaq.com/ITCH
+mkdir -p data
+
+fetch() {                       # fetch <directory> <file>
+  dir=$(printf '%s' "$1" | sed 's/ /%20/g'); file=$2
+  want=$(curl -sI --max-time 30 "$BASE/$dir/$file" | tr -d '\r' \
+         | awk 'tolower($1)=="content-length:" {print $2}' | tail -1)
+  echo "$file: advertised $want bytes"
+  curl --fail --location --max-time 14400 --speed-limit 1024 --speed-time 120 \
+       --retry 0 --output "data/.$file.partial" "$BASE/$dir/$file"
+  got=$(wc -c < "data/.$file.partial" | tr -d ' ')
+  [ "$got" = "$want" ] || { echo "SHORT: $got of $want; delete and retry" >&2; return 1; }
+  mv "data/.$file.partial" "data/$file"
+  sh tools/verify_archive.sh --no-published-digest "data/$file" "$want"
+  sha256sum "data/$file" | tee -a data/linux_digests.txt
+}
+
+fetch "Nasdaq PSX ITCH" 05302019.NASDAQ_ITCH50.gz     # note: NASDAQ file, PSX directory
+fetch "Nasdaq ITCH"     08302019.NASDAQ_ITCH50.gz
+fetch "Nasdaq ITCH"     S101819-v50.txt.gz
+
+# Unpack and record the unpacked digest too: the transfer check below is run
+# against whichever file is actually moved.
+for f in 05302019.NASDAQ_ITCH50 08302019.NASDAQ_ITCH50 S101819-v50.txt; do
+  gunzip -k "data/$f.gz"
+  sha256sum "data/$f" | tee -a data/linux_digests.txt
+done
+```
+
+`--retry 0` is deliberate: a retry inside `curl` is what produced the appended
+file. A failed transfer is restarted by hand, from zero, after deleting the
+partial.
+
+### On arrival, the transfer is checked before the file counts as local
+
+A file that crossed a network is not the file that was verified until its
+digest is recomputed on this side and matched **exactly**. Length is not
+enough — a truncation that lands on a whole number of blocks has the right
+length for a shorter file, and the gzip check passed on the *other* machine.
+
+```sh
+# On the Mac, for each transferred file.
+shasum -a 256 data/<file>              # must equal the value in linux_digests.txt
+sh tools/verify_archive.sh --no-published-digest data/<file>.gz <advertised bytes>
+./build/release/census --sha256 data/<file>
+./build/release/venue_profile data/<file>
+./build/release/replay data/<file>
+```
+
+**All five must pass before a session is treated as local and verified:** the
+digest matches the Linux-side value exactly, the archive checks pass, the
+census is clean and ends on System Event `'C'`, the venue profile returns
+**NASDAQ**, and the differential replay reports `RESULT: identical`. A
+mismatch in the first is a transfer failure and the file is re-sent, not
+re-verified.
+
+## Venue is established from content, not from where the file was filed
+
+The directory layout is not reliable. `05302019.NASDAQ_ITCH50.gz` sits in
+`Nasdaq PSX ITCH/` beside genuine `*.PSX_ITCH_50.gz` files, and
+`S101819-v50.txt.gz` follows neither naming convention. Venue decides the fee
+model, and therefore what may be pooled with what (`docs/design.md` record
+037), so a session's venue is established by `tools/venue_profile` from the
+bytes.
+
+**The discriminator is the auction.** NASDAQ runs an opening and a closing
+cross and disseminates Net Order Imbalance Indicators throughout the day;
+BX and PSX run neither. That is a difference of kind rather than of degree,
+which is what makes it a verdict instead of evidence.
+
+| Session | Messages | NOII `I` | Cross `O` | Cross `C` | Paired shares | Verdict |
+|---|---:|---:|---:|---:|---:|---|
+| `12302019.NASDAQ_ITCH50` | 268,744,780 | 4,024,315 | 8,906 | 8,906 | 29,877,544,680 | **NASDAQ** |
+| `20190530.PSX_ITCH_50` | 42,541,827 | 0 | 0 | 0 | 0 | not NASDAQ |
+| `20190130.BX_ITCH_50` | 82,841,542 | 0 | 0 | 0 | 0 | not NASDAQ |
+
+The two reference venues return **exactly zero** on all three auction
+measures, and the NASDAQ reference returns one opening and one closing cross
+for **every one of its 8,906 listed symbols**. Nothing sits between the two
+outcomes, so a session that is ambiguous on this test is a session worth
+stopping over; `venue_profile` exits nonzero and says so.
+
+A first, weaker signal agrees. The same-date PSX file `20190530.PSX_ITCH_50.gz`
+is **0.54 GB** while `05302019.NASDAQ_ITCH50.gz` is **3.95 GB**, which is the
+range the other NASDAQ development sessions occupy (3.5–5.6 GB) and far above
+the PSX range. Size is suggestive and is not the test.
+
+**Verdicts for the development set** are recorded here as each session lands.
+A session that does not return **NASDAQ** is removed from the development set
+on provenance grounds and the registration's session list is amended before
+any gated computation.
+
+| Session | Filed under | Verdict | Profiled |
+|---|---|---|---|
+| 2019-12-30 `12302019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | **NASDAQ** | 2026-09-23 |
+| 2019-01-30 `01302019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | *pending download* | — |
+| 2019-03-27 `03272019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | *pending download* | — |
+| 2019-05-30 `05302019.NASDAQ_ITCH50` | **`Nasdaq PSX ITCH/`** | *pending download* | — |
+| 2019-07-30 `07302019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | *pending download* | — |
+| 2019-08-30 `08302019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | *pending download* | — |
+| 2019-10-18 `S101819-v50.txt` | `Nasdaq ITCH/` | *pending download* | — |
 
 ## Checksums are listed but not served
 
