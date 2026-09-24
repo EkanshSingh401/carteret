@@ -104,6 +104,14 @@ jobs:
       # re-run. It needs no market data: the generated file is committed.
       - name: check the registration quotes the computed values
         run: python3 tools/check_numbers.py
+      # A "(to be filled)" left in the registration means a constant the study
+      # depends on was never registered. That happened once and was caught only
+      # by reading the held-out harness before running it; this makes the next
+      # one impossible to miss. Every placeholder must be listed in the
+      # allowlist in docs/heldout-harness-amendment.md with the component it
+      # demotes, and a stale allowlist entry fails too.
+      - name: check every registration placeholder is allowlisted
+        run: python3 tools/check_placeholders.py
 
 # CI covers correctness only. A shared runner has no core isolation, no
 # frequency control and unknown co-tenants, so it cannot produce an

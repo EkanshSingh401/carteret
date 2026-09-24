@@ -96,6 +96,9 @@ target_link_libraries(gen_synthetic PRIVATE carteret)
 target_link_libraries(draw_checksum PRIVATE carteret)
 target_link_libraries(venue_profile PRIVATE carteret)
 
+add_executable(strategy_pnl src/strategy_pnl.cpp)
+target_link_libraries(strategy_pnl PRIVATE carteret carteret_fp)
+
 if(CARTERET_BENCH)
   add_executable(bench_book bench/bench_book.cpp bench/timer.cpp)
   target_link_libraries(bench_book PRIVATE carteret hdr_histogram_static)

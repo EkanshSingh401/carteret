@@ -1,0 +1,117 @@
+==========================================================================
+REGISTERED ANALYSIS -- DEVELOPMENT
+==========================================================================
+sessions 1   windows 407,728   symbols 50
+  dev_12302019.NASDAQ_ITCH50
+
+registered constants, read not estimated:
+  block length L for the primary                177.58
+  block lengths for the secondaries             ofi 299.58, trade_sign 1612.0, value 3.6
+  accuracy bar for C                            0.5516
+  R2 bar for B                                  0.0261
+  m over all windows                            0.9686
+  value requirement                             0.10 half-spreads/window
+  Holm family                                   5
+  rule 4 in the primary specification           OFF
+  base add / take / top add ($/share)           0.0015 / 0.003 / 0.00305
+
+--------------------------------------------------------------------------
+PRIMARY -- candidate C, queue imbalance, directional
+--------------------------------------------------------------------------
+  windows with a move   239,162
+  directional accuracy  0.62402
+  plan (b) SE at L=177.58  0.001649
+  95% interval          [0.62079, 0.62725]
+  registered bar        0.5516
+  null                  0.5
+  VERDICT               SIGNAL HOLDS
+
+  With two held-out sessions, a confirmatory verdict applies to those sessions and is not generalised beyond them.
+
+  sensitivity, symbol-clustered SE 0.016595 over 50 symbols,
+    95% interval [0.59150, 0.65655]
+    Anti-conservative under common market moves. Decides nothing;
+    if it disagrees with the block bootstrap the verdict follows
+    the block bootstrap and the disagreement is reported.
+
+--------------------------------------------------------------------------
+SECONDARIES -- Holm-Bonferroni, family of 5
+--------------------------------------------------------------------------
+  test               estimate        SE              95% interval         p    Holm p  sig
+  ofi                 0.55210  0.001799        [0.54858, 0.55563]9.797e-1853.919e-184  yes
+  trade_sign          0.29010  0.004674        [0.28094, 0.29927]         1         1  no
+  direct_value        0.30584  0.002182        [0.30156, 0.31011]         0         0  yes
+
+  direct-value secondary: mean signed mid move in the predicted
+  direction, half-spreads, over ALL windows; a zero feature
+  contributes zero and stays in the denominator (18,307 of
+  407,728 windows). Tested against 0.10, one-sided.
+  requirement 0.10   estimate 0.30584   CLEARS on the interval
+
+  Family size is five and does not shrink because A and B became
+  exploratory; section 3 records why. Two of the five members are
+  reported above, the primary is reported separately, and micro-
+  price deviation is dropped as sign-identical to queue imbalance.
+
+--------------------------------------------------------------------------
+EXPLORATORY -- candidates A and B, considered and NOT selected
+--------------------------------------------------------------------------
+  A  OFI directional   0.55210  [0.54858, 0.55563]  bar 0.5516
+  B  OFI out-of-sample R2  0.00498  [0.00404, 0.00591]  bar 0.0261
+
+  EXPLORATORY ONLY. Outside every confirmatory claim and outside
+  the Holm family. A number here that clears a bar is still
+  exploratory and is never reported as a tested hypothesis.
+
+--------------------------------------------------------------------------
+STRATEGY -- maker, base tier, with the top-tier sensitivity
+--------------------------------------------------------------------------
+  EXPLORATORY. docs/preregistration.md section 8 never filled the
+  signal threshold or the minimum-fills rule, so this component
+  was never fully registered and CANNOT be confirmatory.
+  Declared parameters: signal threshold 0 (the primary's own sign
+  rule, the only value requiring no choice); no minimum-fills
+  rule, fill counts reported instead.
+
+  EXPLORATORY  strategy P&L -- NOT a registered result
+  EXPLORATORY  session            data/12302019.NASDAQ_ITCH50
+  EXPLORATORY  rule 4             OFF (primary arm)
+  EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+  EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+  EXPLORATORY  quotes placed      389466
+  EXPLORATORY  fills              26524
+  EXPLORATORY  fill rate          0.0681
+  EXPLORATORY  gross per fill     -0.408481 half-spreads
+  EXPLORATORY  gross per fill     -0.00765024 $/share
+  EXPLORATORY  add rebate base    0.00150000 $/share
+  EXPLORATORY  add rebate top     0.00305000 $/share
+  EXPLORATORY  NET per fill base  -0.00615024 $/share
+  EXPLORATORY  NET per fill top   -0.00460024 $/share  (sensitivity)
+  EXPLORATORY  mean spread        0.041960 $/share
+  EXPLORATORY  exit is a modelled liquidation at the mid, so this
+  EXPLORATORY  overstates realisable P&L by the exit's half spread.
+
+  EXPLORATORY  strategy P&L -- NOT a registered result
+  EXPLORATORY  session            data/12302019.NASDAQ_ITCH50
+  EXPLORATORY  rule 4             ON (sensitivity)
+  EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+  EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+  EXPLORATORY  quotes placed      389466
+  EXPLORATORY  fills              28633
+  EXPLORATORY  fill rate          0.0735
+  EXPLORATORY  gross per fill     -0.355434 half-spreads
+  EXPLORATORY  gross per fill     -0.00660689 $/share
+  EXPLORATORY  add rebate base    0.00150000 $/share
+  EXPLORATORY  add rebate top     0.00305000 $/share
+  EXPLORATORY  NET per fill base  -0.00510689 $/share
+  EXPLORATORY  NET per fill top   -0.00355689 $/share  (sensitivity)
+  EXPLORATORY  mean spread        0.040467 $/share
+  EXPLORATORY  exit is a modelled liquidation at the mid, so this
+  EXPLORATORY  overstates realisable P&L by the exit's half spread.
+
+  The section 9 minimum-fills criterion applies to the STRATEGY
+  component alone. It does not gate the confirmatory results
+  above, which depend on no unfilled constant.
+
+==========================================================================
+wrote /private/tmp/claude-501/-Users-ekanshsingh-Cartet-carteret/cfdd5c99-6c58-44aa-b159-c63d39c99027/scratchpad/reh2

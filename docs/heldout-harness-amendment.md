@@ -140,3 +140,105 @@ if they were held out. Output in `docs/generated/heldout_rehearsal.txt`.
 The rehearsal is a test of the harness. It is **not** a result: it reports
 development numbers, which were already visible, and it is labelled
 `DEVELOPMENT` in its own output.
+
+---
+
+# Second amendment, 2026-09-24: the strategy is exploratory
+
+The registration is **still not edited**. Its digest is unchanged at
+`28f10db45fff7316df6acca3c2871a9805511c893e1f8d36c4ac28e7f265708a`. The two
+placeholders stay where they are, and this section says what they cost.
+
+## The two placeholders, and why they cannot be filled now
+
+`docs/preregistration.md` section 8 ends:
+
+> Signal threshold *(to be filled)*. Minimum fills per session *(to be filled)*.
+
+Filling either now would set a registered parameter **after both held-out
+sessions are on disk**. The registration's entire claim is that its
+parameters were fixed before the data was reachable; a constant supplied at
+this point has no such claim, whatever value is chosen and however reasonable
+it looks. Editing the file would also change its digest and break the lock —
+which is the lock working, not a defect in it.
+
+So they are not filled. The component that depends on them is demoted
+instead.
+
+<!-- placeholder-allowlist -->
+
+| Placeholder | Component it demotes |
+|---|---|
+| `Signal threshold *(to be filled)*` | Strategy P&L — exploratory only |
+| `Minimum fills per session *(to be filled)*` | Section 9 minimum-fills criterion — not evaluated; fill counts reported instead |
+| `Thresholds marked *(to be filled)* are set` | Nothing — prose describing the convention in section 8's preamble, not an unfilled constant |
+
+<!-- /placeholder-allowlist -->
+
+`tools/check_placeholders.py` enforces this table in CI: a placeholder in the
+registration that is not listed here fails the build, and a listed entry that
+matches no placeholder fails too, so the allowlist cannot outlive what it
+excuses.
+
+## Confirmatory scope
+
+These run under the registration **as written**. Each is listed with every
+registered constant it reads, and **none of them reads an unfilled one**.
+
+| Output | Registered constants it reads | Source |
+|---|---|---|
+| Primary C, directional accuracy, verdict vs bar | `threshold_C` 0.5516; `selected_block_length` 177.58; null 0.5 | generated file; §2, §8 |
+| Primary 95% interval, plan (b) | `selected_block_length` 177.58 | generated file; §4 step 2b |
+| Symbol-clustered sensitivity (decides nothing) | none beyond the data | §8 |
+| Holm–Bonferroni over the family | family size 5 | §3 |
+| Secondary `ofi` | `block_A` 299.58; null 0.5 | generated file |
+| Secondary `trade_sign` | `block_trade_sign` 1612.00; null 0.5 | generated file |
+| Direct-value secondary | requirement 0.10; `block_direct_value` 3.60 | §3; generated file |
+| A and B, exploratory labels | `block_A`, `block_B`, `threshold_A`, `threshold_B` | generated file |
+| Two-session scope sentence | none | §4, §8 |
+
+**The section 9 minimum-fills criterion applies to the strategy component
+alone.** It is one of several study-failure criteria; the others — digests at
+download, integrity, a clean census, `RESULT: identical` — are all satisfied
+and are recorded above. Nothing in the confirmatory scope depends on a
+simulated fill, so an unevaluable minimum-fills rule does not gate the
+confirmatory results. It gates only the P&L, which is already exploratory for
+the same reason.
+
+## Exploratory parameters, declared before any held-out feature was computed
+
+| Parameter | Declared value | Why this and not another |
+|---|---|---|
+| Signal threshold | **0** | Section 6 posts "when the signal's magnitude exceeds a threshold". At zero the rule degenerates to the primary's own sign rule — quote on the side the signal favours, whenever it has a side. It is the **only value that requires no choice**: every positive value is a number someone picks, and picking one here would be doing with the strategy exactly what the registration forbids doing with the hypothesis. |
+| Minimum fills per session | **no rule** | The criterion cannot be evaluated without *N*. Rather than invent a bar, the harness reports **fill counts per session** so a reader can apply whatever bar they think right. |
+
+Everything else in section 6 is registered and is implemented as registered:
+one round lot at the inside on the signal's side; fills from the queue
+simulator under record 020 with **exact** market-by-order queue position;
+rule 4 **off** in the primary arm and **on** as a labelled sensitivity;
+inventory limit of one lot per symbol; cancellation when the window ends;
+exit at the end of the following window at the mid; base and top tier from
+section 7.
+
+`src/strategy_pnl.cpp` drives `include/carteret/queue_sim.hpp` rather than
+reimplementing the fill rules, because the registration says fills come from
+that simulator and a second copy of the queue logic would not be it. The
+simulator gained three additive entry points — directed placement, per-symbol
+cancellation and a fill callback — plus a flag that disables timer placement.
+**The existing behaviour is provably unchanged**: `queue_study` over
+`20190130.BX_ITCH_50` produces byte-identical output before and after the
+change, and `test_queue_sim` passes.
+
+## Labelling
+
+Every line the strategy prints begins with `EXPLORATORY`, in the C++ tool and
+in the Python harness that calls it. A confirmatory run prints **no** strategy
+output at all: the P&L requires `--strategy`, and `--strategy` without
+`--exploratory` exits **3** naming the missing constants.
+
+## No held-out feature or label has been computed
+
+The manifest committed with this amendment reports both held-out sessions
+present, as authorised, and **no feature file derived from either**. The
+rehearsal below used development sessions only, and the strategy was rehearsed
+on a development session.

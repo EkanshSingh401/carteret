@@ -173,9 +173,15 @@ def main() -> int:
     ap.add_argument("--label", required=True, choices=["heldout", "development"])
     ap.add_argument("--bootstrap", type=int, default=10000)
     ap.add_argument("--seed", type=int, default=gated.SEED)
-    ap.add_argument("--skip-strategy", action="store_true",
-                    help="rehearsal only: skip the P&L, which needs section 8's "
-                         "unfilled constants")
+    ap.add_argument("--strategy", action="store_true",
+                    help="request the strategy P&L; refused unless --exploratory")
+    ap.add_argument("--exploratory", action="store_true",
+                    help="run the strategy under the DECLARED parameters of "
+                         "docs/heldout-harness-amendment.md section 2. Its output "
+                         "is exploratory and every line of it says so.")
+    ap.add_argument("--strategy-sessions", nargs="*", default=[], type=pathlib.Path,
+                    help="raw session files for the strategy; features are not "
+                         "enough, fills need the book")
     args = ap.parse_args()
 
     if args.primary != "C":
@@ -343,10 +349,42 @@ def main() -> int:
     print("-" * 74)
     print("STRATEGY -- maker, base tier, with the top-tier sensitivity")
     print("-" * 74)
-    if args.skip_strategy:
-        print("  SKIPPED by --skip-strategy (rehearsal).")
-    else:
+    if not args.strategy:
+        print("  Not requested, and nothing about it is reported here. The")
+        print("  confirmatory outputs above read no strategy constant and are")
+        print("  complete without one. Requesting it takes --strategy, and")
+        print("  --exploratory to accept the declared parameters it needs.")
+    elif not args.exploratory:
+        # Requested, but without accepting that it cannot be confirmatory.
         registered_signal_threshold()   # raises Missing; never returns
+    else:
+        if not args.strategy_sessions:
+            print("--strategy --exploratory needs --strategy-sessions",
+                  file=sys.stderr)
+            return 2
+        import subprocess
+        print("  EXPLORATORY. docs/preregistration.md section 8 never filled the")
+        print("  signal threshold or the minimum-fills rule, so this component")
+        print("  was never fully registered and CANNOT be confirmatory.")
+        print("  Declared parameters: signal threshold 0 (the primary's own sign")
+        print("  rule, the only value requiring no choice); no minimum-fills")
+        print("  rule, fill counts reported instead.")
+        print()
+        for sess in args.strategy_sessions:
+            for rule4 in (False, True):
+                cmd = ["./build/release/strategy_pnl", "--symbols", "50",
+                       str(sess)] + (["--rule4"] if rule4 else [])
+                r = subprocess.run(cmd, capture_output=True, text=True)
+                if r.returncode != 0:
+                    print(f"strategy_pnl failed on {sess}: {r.stderr[:400]}",
+                          file=sys.stderr)
+                    return 4
+                for line in r.stdout.splitlines():
+                    print(f"  {line}")
+                print()
+        print("  The section 9 minimum-fills criterion applies to the STRATEGY")
+        print("  component alone. It does not gate the confirmatory results")
+        print("  above, which depend on no unfilled constant.")
     print()
     print("=" * 74)
     print(f"wrote {args.out}")

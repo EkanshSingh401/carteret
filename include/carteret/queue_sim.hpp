@@ -67,6 +67,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <random>
 #include <unordered_map>
 #include <unordered_set>
@@ -128,6 +129,12 @@ struct QueueSimConfig {
     std::uint64_t start_ns = 34'200'000'000'000ULL; // 09:30:00
     std::uint64_t end_ns = 57'600'000'000'000ULL;   // 16:00:00
     std::size_t max_concurrent = 4096;
+    // Zero disables timer-driven placement entirely, leaving the simulator to
+    // be driven from outside by place_at(). The pre-registered maker strategy
+    // places on its own schedule -- one quote per window, on the side the
+    // signal favours -- and must not also receive the study's random stream.
+    // Any nonzero value keeps the Stage 7 behaviour exactly as it was.
+    bool timer_placement = true;
 };
 
 // Queue depth at entry, in shares ahead. Results are broken out by this
@@ -374,6 +381,36 @@ public:
     void on(CrossTrade v) { tick(v.ts()); }
     void on(BrokenTrade v) { tick(v.ts()); }
 
+    // --- driven from outside ------------------------------------------------
+    //
+    // The Stage 7 study places on a timer. The pre-registered maker strategy
+    // does not: it quotes once per window, on the side the signal favours, and
+    // cancels when the window ends. These three entry points let it drive the
+    // simulator without reimplementing the fill rules, which is the point --
+    // the registration says fills come from THIS simulator under record 020,
+    // and a second copy of the queue logic would not be that.
+
+    // Places one round lot at the inside of `locate`, on `side`, at `ts`.
+    void place_directed(std::uint16_t locate, unsigned char side, std::uint64_t ts) {
+        place_at(locate, side, ts);
+    }
+
+    // Cancels every live synthetic order in one symbol. Section 6 cancels an
+    // unfilled quote when its window ends, and a window is a count of book
+    // updates rather than a duration, so it cannot be expressed as max_life_ns.
+    void cancel_symbol(std::uint16_t locate, std::uint64_t ts) {
+        for (std::size_t i : by_locate_[locate]) {
+            if (i < live_.size() && live_[i].any_live) expire(live_[i], ts);
+        }
+        compact();
+    }
+
+    [[nodiscard]] const ReferenceBook& book() const noexcept { return book_; }
+
+    // Called on every fill, for every model. The strategy uses the exact model
+    // and ignores the rest; leaving it unset costs nothing.
+    std::function<void(const SyntheticOrder&, QueueModel, std::uint64_t, FillReason)> on_fill;
+
     // --- results -----------------------------------------------------------
 
     [[nodiscard]] const std::array<ModelResults, kModelCount>& results() const noexcept {
@@ -572,6 +609,7 @@ private:
         ++res_[mi].filled_by_ahead[ahead_grid(o.depth_at_entry)];
         ++res_[mi].by_symbol_ahead[o.locate].filled[ahead_grid(o.depth_at_entry)];
         ++res_[mi].reasons[static_cast<std::size_t>(why)];
+        if (on_fill) on_fill(o, m, ts, why);
         const std::uint64_t ttf = ts - o.entered_ts;
         res_[mi].sum_time_to_fill_ns += ttf;
         ++res_[mi].time_to_fill[fill_time_bucket(ttf)];
@@ -639,6 +677,7 @@ private:
         // mean interarrival of a quarter second, the two differ negligibly;
         // across a quiet gap they can differ more, and the count of placements
         // that had to catch up is reported rather than hidden.
+        if (!cfg_.timer_placement) return;
         int catching_up = 0;
         while (next_placement_ < cfg_.end_ns && ts >= next_placement_) {
             if (++catching_up > 64) {
@@ -667,6 +706,16 @@ private:
             return;
         }
         const std::uint16_t locate = two_sided_[rng_.pick(two_sided_.size())];
+        const unsigned char side =
+            cfg_.force_side ? cfg_.force_side : (rng_.coin() ? kBuy : kSell);
+        place_at(locate, side, ts);
+    }
+
+    // The body of a placement, with the symbol and side already decided. The
+    // random path above draws them and calls this; a strategy calls it
+    // directly. Splitting it changes nothing about what a placement does --
+    // the draws happen in the same order, so the Stage 7 stream is untouched.
+    void place_at(std::uint16_t locate, unsigned char side, std::uint64_t ts) {
         const RefSymbol* sym = book_.symbol(locate);
         if (!sym || !sym->has_bid() || !sym->has_ask()) {
             ++skipped_;
@@ -675,7 +724,7 @@ private:
 
         SyntheticOrder o;
         o.locate = locate;
-        o.side = cfg_.force_side ? cfg_.force_side : (rng_.coin() ? kBuy : kSell);
+        o.side = side;
         o.price = (o.side == kBuy) ? sym->best_bid() : sym->best_ask();
         o.size = cfg_.order_size;
         o.entered_ts = ts;

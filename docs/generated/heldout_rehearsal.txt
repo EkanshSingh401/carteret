@@ -72,7 +72,10 @@ EXPLORATORY -- candidates A and B, considered and NOT selected
 --------------------------------------------------------------------------
 STRATEGY -- maker, base tier, with the top-tier sensitivity
 --------------------------------------------------------------------------
-  SKIPPED by --skip-strategy (rehearsal).
+  Not requested, and nothing about it is reported here. The
+  confirmatory outputs above read no strategy constant and are
+  complete without one. Requesting it takes --strategy, and
+  --exploratory to accept the declared parameters it needs.
 
 ==========================================================================
-wrote /private/tmp/claude-501/-Users-ekanshsingh-Cartet-carteret/cfdd5c99-6c58-44aa-b159-c63d39c99027/scratchpad/rehearsal
+wrote /private/tmp/claude-501/-Users-ekanshsingh-Cartet-carteret/cfdd5c99-6c58-44aa-b159-c63d39c99027/scratchpad/reh2
