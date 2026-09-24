@@ -696,11 +696,16 @@ The directory is wrong; the bytes are not.
 
 ### One opening cross short: 8,789 against 8,790
 
-The 2019-12-30 session returns 8,906 opening and 8,906 closing crosses, one of
-each for every listed symbol. The 2019-05-30 session does not: **8,789
-opening against 8,790 closing**. An asymmetry of exactly one is the kind of
-number that is either a parsing defect or a fact about the session, so it was
-run down rather than noted.
+The 2019-12-30 session returns 8,906 opening and 8,906 closing crosses. Its
+8,906 `R` Stock Directory messages name **8,906 distinct symbols, with no
+symbol re-broadcast**, so for that session the message count and the symbol
+count coincide and one cross of each kind per listed symbol is exactly what
+happened. That equality was checked rather than assumed, because on the next
+session it does not hold.
+
+The 2019-05-30 session is not symmetric: **8,789 opening against 8,790
+closing**. An asymmetry of exactly one is either a parsing defect or a fact
+about the session, so it was run down rather than noted.
 
 **The directory count is not what it first appears.** The census reports 8,795
 `R` Stock Directory messages, but those name only **8,790 distinct symbols**.

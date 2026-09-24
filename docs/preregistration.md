@@ -376,9 +376,17 @@ Procedure, run by `research/power.py` on development sessions:
    ties to the simpler feature; and if that ratio exceeds one, the study is
    declared exploratory before any held-out access.
 
-The block length used in step 2 is whatever the ±0.05-for-30-lags rule
-returns on the development sessions, rounded up to the next whole minute. It
-is recorded in the table below as a measured quantity, not chosen.
+The block length used in step 2 is whatever **Politis–White automatic
+selection** returns on the development sessions, per section 4 step 2: the
+stationary figure, computed per session on the per-window summand in event
+order, with the maximum taken across sessions. There is no rounding to a time
+unit, because there is no time binning. It is recorded in the table below as a
+measured quantity, not chosen.
+
+*(This paragraph named the ±0.05-for-30-lags rule until 2026-09-24. That rule
+was retired by the amendment in section 4 and the sentence was left behind;
+correcting it changes no procedure, because section 4 is what the code
+implements. The retired rule's evidence is kept below on purpose.)*
 
 #### Amendment: the autocorrelation-band rule was withdrawn and replaced
 
@@ -647,7 +655,7 @@ analysis and takes no part in the selection.
 | Development estimate of the chosen metric | *(to be filled)* |
 | Session-clustered SE, development set (7 sessions) | *(to be filled)* |
 | Session block-bootstrap SE, development set | *(to be filled)* |
-| Block length *L* returned by the ±0.05-for-30-lags rule | *(to be filled)* |
+| Block length *L* by Politis–White selection (stationary, max across sessions) | *(to be filled)* |
 | Blocks per session at that length, and across the held-out set | *(to be filled)* |
 | Intraday block-bootstrap SE, block length *L* | *(to be filled)* |
 | Symbol-clustered SE | *(to be filled)* |
