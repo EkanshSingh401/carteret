@@ -254,6 +254,11 @@ only meaningful once the previous one holds:
 | `20190130.BX_ITCH_50` | `d670c9dd0e2391a4007fa407668bfaaa9ded346f0804bb5d7b2a6c381bdcadd3` | 2026-09-22 |
 | `12302019.NASDAQ_ITCH50` | `5d81c2e14a0f748b29c674b6a342796932702034b4dd341e39e9a9ec5bac610f` | 2026-09-22 |
 | `01302019.NASDAQ_ITCH50` | `1d0972ffc25b35902ccc3f9069aae517da56903d5795f872902b8697315f30c3` | 2026-09-23 |
+| `05302019.NASDAQ_ITCH50` | `7fa6d9e74975946727460e7971f735cbf039fb4b7ddca5cb1dc7461347d03508` | 2026-09-23 |
+| `03272019.NASDAQ_ITCH50` | `08339b7ebb453975d4785338472021c1fe2d55a8672659b0301f9e2a0b2b7ec9` | 2026-09-23 |
+| `07302019.NASDAQ_ITCH50` | `9f8634a048b8195ccdcbe618e5833a759e35e04486d74e36b79176d35172654a` | 2026-09-23 |
+| `08302019.NASDAQ_ITCH50` | `7c1a7843874882807df840008bca2a45b51a09192562ebf1429c4cdd8a88a7a2` | 2026-09-23 |
+| `S101819-v50.txt` | `fa98fcfc3f7375fc2466d9c567e780f3ebc53e831b9f2e2e200cd8574b63a3aa` | 2026-09-24 |
 
 The compressed files are recorded too, because the length and `gzip -t` checks
 are made against those bytes and the digest is what ties a later re-fetch to
@@ -263,7 +268,91 @@ the same archive entry.
 |---|---:|---|
 | `12302019.NASDAQ_ITCH50.gz` | 3,524,013,057 | `ef03df46a27e6bda4dead017f84c2e3979df7211f02c7868b51d53fceb99c689` |
 | `01302019.NASDAQ_ITCH50.gz` | 4,764,426,091 | `8c97b5b13bc451c012c2466fb7e258da134dab29aa47b67fe7b0088c78e870be` |
+| `05302019.NASDAQ_ITCH50.gz` | 4,246,501,580 | `3f4778eabbc5f8afb113cc178787b156987561fff7590d09388cb44c6564ea1b` |
+| `03272019.NASDAQ_ITCH50.gz` | 5,510,131,732 | `7997025b9e09dd6c2ecb0bfa48a856197e6e800711ab67367ee0f2ab724b9ba8` |
+| `07302019.NASDAQ_ITCH50.gz` | 3,662,140,094 | `c65784c48c28735901ae442dc00e215834218a359bc12a139ab4eec209bc2d4a` |
+| `08302019.NASDAQ_ITCH50.gz` | 4,075,649,457 | `2f6639a37487f377851883ed54171f5565f164556c1855a28abc8475ce408b47` |
+| `S101819-v50.txt.gz` | 3,951,201,663 | `390acb4df5a01d3d8e6c34557858604ac7c655c8edc0a9e312da3c032c5d8da4` |
 | `20190530.PSX_ITCH_50.gz` | 576,045,196 | `d605d18c4268f4a7c632b4bb9f5340c18f9f395eb75b2fbdb442e1181840cf57` |
+
+## Four message counts, none of which agree, all of which are right
+
+A verified session produces four numbers that all read as "how many
+messages". They differ because they answer different questions, and the
+differences are large enough that quoting the wrong one misstates coverage.
+For 2019-05-30:
+
+```
+census   messages          327,006,172   every framed message in the file
+census   book-affecting    321,814,145   types that add, modify or remove a resting order
+replay   messages compared 323,088,337   types the differential dispatches
+replay   book messages     323,070,704   dispatched types that reach a book
+```
+
+**`messages`** is every framed message, whatever its type. It is the only one
+of the four that depends on nothing but the file.
+
+**`messages compared`** is the one the differential reports, and it is the
+count that matters for the claim *no divergence over N messages*. ITCH 5.0
+defines 23 message types. `Differential` declares an `on()` overload for 14 of
+them and none for the other 9; the parser's compile-time dispatch drops a type
+with no handler without counting it. The nine dropped types, with their
+2019-05-30 counts:
+
+| Type | Name | Count |
+|---|---|---:|
+| `I` | Net Order Imbalance Indicator | 3,704,017 |
+| `L` | Market Participant Position | 204,901 |
+| `Y` | Reg SHO Short Sale Price Test | 8,897 |
+| `J` | LULD Auction Collar | 18 |
+| `V` | MWCB Decline Level | 1 |
+| `K` | IPO Quoting Period | 1 |
+| `W` | MWCB Status | 0 |
+| `N` | Retail Price Improvement Indicator | 0 |
+| `O` | Direct Listing Capital Raise | 0 |
+| | **excluded** | **3,917,835** |
+
+327,006,172 − 3,917,835 = 323,088,337, exactly. Not one of the nine changes a
+book, and not one carries the trading state the crossed-book gate reads, so
+none of them can produce a divergence for the comparison to find. They are
+excluded because there is nothing to compare, not because they are skipped.
+
+**`book messages`** drops the four dispatched types that carry state but never
+touch a book: `S` (6), `R` (8,795), `H` (8,832) and `h` (0) — 17,633 in total,
+and 323,088,337 − 17,633 = 323,070,704. These go to the reference book alone.
+`H` is the one that earns its place: it is what lets the gate separate a
+crossed book the venue permitted, because it was not matching that symbol,
+from one this reconstruction invented (`docs/design.md` record 036).
+
+**`book-affecting`** is the census's own and narrowest definition,
+`touches_book()` in `include/carteret/spec.hpp`, which is `A F E C X D U` and
+nothing else. Against `book messages` it further excludes `P` (1,238,971) and
+`Q` (17,588): a trade of a non-displayable order and a cross trade remove no
+resting order. The differential dispatches both regardless, because a handler
+that is never exercised is a handler that is never tested.
+
+### The same definition applied to every verified session
+
+`compared` below is the figure the differential printed, not one derived from
+per-type counts.
+
+| Session | Parsed | Excluded | Compared | Share |
+|---|---:|---:|---:|---:|
+| 2019-01-30 `01302019.NASDAQ_ITCH50` | 368,366,634 | 3,887,164 | **364,479,470** | 98.94% |
+| 2019-03-27 `03272019.NASDAQ_ITCH50` | 422,264,305 | 3,876,678 | **418,387,627** | 99.08% |
+| 2019-05-30 `05302019.NASDAQ_ITCH50` | 327,006,172 | 3,917,835 | **323,088,337** | 98.80% |
+| 2019-07-30 `07302019.NASDAQ_ITCH50` | 282,229,684 | 3,943,461 | **278,286,223** | 98.60% |
+| 2019-08-30 `08302019.NASDAQ_ITCH50` | 310,317,357 | 3,943,840 | **306,373,517** | 98.73% |
+| 2019-10-18 `S101819-v50.txt` | 302,347,067 | 3,965,296 | **298,381,771** | 98.69% |
+| 2019-12-30 `12302019.NASDAQ_ITCH50` | 268,744,780 | 4,248,527 | **264,496,253** | 98.42% |
+| **seven development sessions** | **2,281,275,999** | **27,782,801** | **2,253,493,198** | **98.78%** |
+| 2019-01-30 `20190130.BX_ITCH_50` | 82,841,542 | 8,315,955 | **74,525,587** | 89.96% |
+
+The BX session is the outlier, and for one reason: it carries **8,301,264**
+`N` Retail Price Improvement Indicator messages, a type NASDAQ does not use at
+all in these sessions. RPII is an indication, not an order, so it is dropped —
+which is why BX compares 90.0% of its messages where the NASDAQ sessions
+compare 98.4–98.9%.
 
 ## Whole-file transfer does not work for the larger sessions
 
@@ -422,11 +511,11 @@ served.
 |---|---|---|
 | `20190130.BX_ITCH_50.gz` | whole file | completed |
 | `12302019.NASDAQ_ITCH50.gz` | whole file, after two corrupted attempts | completed; see *three attempts to get it right* |
-| `20190530.PSX_ITCH_50.gz` | whole file (0.54 GB) | completed |
+| `20190530.PSX_ITCH_50.gz` | whole file (0.58 GB) | completed |
 | `01302019.NASDAQ_ITCH50.gz` | **chunked**, after 4 whole-file failures | completed and verified |
-| `05302019.NASDAQ_ITCH50.gz` | **chunked** | in progress |
-| `03272019.NASDAQ_ITCH50.gz` | **chunked**, after 4 whole-file failures | pending |
-| `07302019`, `08302019`, `S101819-v50.txt` | **chunked** | pending |
+| `05302019.NASDAQ_ITCH50.gz` | **chunked**, across two sittings | completed and verified |
+| `03272019.NASDAQ_ITCH50.gz` | **chunked**, after 4 whole-file failures | completed and verified |
+| `07302019`, `08302019`, `S101819-v50.txt` | **chunked** | completed and verified |
 
 All remaining sessions are fetched on this machine. They are not moved to the
 benchmark host: it is very likely behind the same public address and so the
@@ -550,20 +639,116 @@ which is what makes it a verdict instead of evidence.
 
 | Session | Messages | NOII `I` | Cross `O` | Cross `C` | Paired shares | Verdict |
 |---|---:|---:|---:|---:|---:|---|
+| `01302019.NASDAQ_ITCH50` | 368,366,634 | 3,684,511 | 8,713 | 8,713 | 30,179,105,705 | **NASDAQ** |
+| `03272019.NASDAQ_ITCH50` | 422,264,305 | 3,674,503 | 8,712 | 8,712 | 32,036,227,972 | **NASDAQ** |
+| `05302019.NASDAQ_ITCH50` | 327,006,172 | 3,704,017 | 8,789 | 8,790 | 21,878,727,781 | **NASDAQ** |
+| `07302019.NASDAQ_ITCH50` | 282,229,684 | 3,723,793 | 8,849 | 8,849 | 28,070,734,483 | **NASDAQ** |
+| `08302019.NASDAQ_ITCH50` | 310,317,357 | 3,722,220 | 8,841 | 8,841 | 39,616,835,249 | **NASDAQ** |
+| `S101819-v50.txt` | 302,347,067 | 3,741,431 | 8,886 | 8,886 | 39,968,551,463 | **NASDAQ** |
 | `12302019.NASDAQ_ITCH50` | 268,744,780 | 4,024,315 | 8,906 | 8,906 | 29,877,544,680 | **NASDAQ** |
 | `20190530.PSX_ITCH_50` | 42,541,827 | 0 | 0 | 0 | 0 | not NASDAQ |
 | `20190130.BX_ITCH_50` | 82,841,542 | 0 | 0 | 0 | 0 | not NASDAQ |
 
+All seven development sessions return **NASDAQ**. `S101819-v50.txt` is worth
+naming separately: it follows neither the archive's naming convention nor its
+own directory's, and its venue was in genuine doubt until it was profiled.
+
+**That same file name broke the last arrival check, and the failure was worth
+having.** `replay` infers the market code — `Q` NASDAQ, `B` BX, `X` PSX — from
+the file name so that `h` Operational Halt messages can be matched to the
+right market, and it **refuses to guess** when the name matches nothing,
+exiting 2 (`market_for()` in `src/replay.cpp`). `S101819-v50.txt` matches
+nothing, so check 5 failed on a session whose bytes were perfectly good.
+
+The refusal is correct and stays. Two things around it were not:
+
+- `tools/verify_session.sh` did not pass a market, although check 4 had
+  *already established the venue from content* one step earlier. It now passes
+  `--market Q`, which uses that verdict rather than re-deriving it from the
+  name that could not be trusted in the first place. A session that is not
+  NASDAQ has already exited at check 4.
+- The failure path grepped the output for `RESULT` and `unexplained`, which
+  match nothing when `replay` refuses *before* replaying. The real message was
+  discarded and the operator saw a bare `FAILED check 5`. It now prints the
+  last 20 lines of the captured output.
+
+A check that fails without saying why is close to useless, and this one failed
+for a reason that had nothing to do with what it was testing.
+
 The two reference venues return **exactly zero** on all three auction
-measures, and the NASDAQ reference returns one opening and one closing cross
-for **every one of its 8,906 listed symbols**. Nothing sits between the two
-outcomes, so a session that is ambiguous on this test is a session worth
-stopping over; `venue_profile` exits nonzero and says so.
+measures, against millions of NOII messages and thousands of crosses on both
+NASDAQ sessions. Nothing sits between the two outcomes, so a session that is
+ambiguous on this test is a session worth stopping over; `venue_profile` exits
+nonzero and says so.
 
 A first, weaker signal agrees. The same-date PSX file `20190530.PSX_ITCH_50.gz`
-is **0.54 GB** while `05302019.NASDAQ_ITCH50.gz` is **3.95 GB**, which is the
+is **0.58 GB** while `05302019.NASDAQ_ITCH50.gz` is **4.25 GB**, which is the
 range the other NASDAQ development sessions occupy (3.5–5.6 GB) and far above
 the PSX range. Size is suggestive and is not the test.
+
+### The 2019-05-30 file is NASDAQ despite the directory it was filed under
+
+`05302019.NASDAQ_ITCH50.gz` sits in `Nasdaq PSX ITCH/`. Its content says
+otherwise, and not marginally: 3,704,017 NOII messages and 17,588 cross
+trades, where the same-date genuine PSX file has none of either. The verdict
+is **NASDAQ**, so the registered session list needs no provenance amendment.
+The directory is wrong; the bytes are not.
+
+### One opening cross short: 8,789 against 8,790
+
+The 2019-12-30 session returns 8,906 opening and 8,906 closing crosses, one of
+each for every listed symbol. The 2019-05-30 session does not: **8,789
+opening against 8,790 closing**. An asymmetry of exactly one is the kind of
+number that is either a parsing defect or a fact about the session, so it was
+run down rather than noted.
+
+**The directory count is not what it first appears.** The census reports 8,795
+`R` Stock Directory messages, but those name only **8,790 distinct symbols**.
+Three symbols are re-broadcast during the session — `PAACU` three times,
+`TSCBP` three times, `TVPT` twice — which accounts for the five extra
+messages. The denominator for "one cross per symbol" is therefore 8,790, not
+8,795, and against that denominator the **closing crosses are complete**: all
+8,790 symbols have one.
+
+**The opening side is short by exactly one symbol, `TVPT`.** Every other
+listed symbol has an opening cross. What the feed shows for it:
+
+```
+10:40:57.378073852  StockDirectory
+10:40:57.378272520  StockTradingAction  state='T'
+10:42:31.133489293  StockDirectory      (second entry)
+16:00:00.193231138  CrossTrade          type='C'  shares=0
+```
+
+Its directory entry arrives at **10:40:57**, more than an hour after the
+opening cross has run. A symbol that is not in the feed at the open cannot
+have an opening cross, and it duly has none; it is admitted to trading two
+tenths of a millisecond later, and it takes part in the closing cross, at zero
+shares. The asymmetry is an intraday addition, not a missing message.
+
+**The obvious explanations are not the explanation, and were checked.**
+
+- *An IPO or halt cross.* The session carries **nine** `H` cross trades,
+  belonging to two symbols, `ELTK` and `PAACU` — and `PAACU` is the session's
+  single `K` IPO Quoting Period symbol. Both of them have an opening cross
+  *and* a closing cross, so neither contributes to the shortfall.
+- *Listing venue.* `TVPT` has market category `N`, NYSE-listed. So do 3,119
+  other symbols in this session, and every one of them has an opening cross.
+
+**The cross count reconciles exactly.** The nine `H` crosses are what closes
+the gap between the census `Q` total and the two auction counts:
+
+```
+'O' opening   8,789
+'C' closing   8,790
+'H' halt/IPO      9
+              ------
+              17,588   = census 'Q'
+```
+
+`tools/venue_profile` reports only `O` and `C`, because those are what decide
+the venue. The `H` count is not a venue signal — BX and PSX would show none of
+any type — so it is recorded here rather than added to the verdict.
 
 **Verdicts for the development set** are recorded here as each session lands.
 A session that does not return **NASDAQ** is removed from the development set
@@ -574,11 +759,11 @@ any gated computation.
 |---|---|---|---|
 | 2019-12-30 `12302019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | **NASDAQ** | 2026-09-23 |
 | 2019-01-30 `01302019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | **NASDAQ** | 2026-09-23 |
-| 2019-03-27 `03272019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | *pending download* | — |
-| 2019-05-30 `05302019.NASDAQ_ITCH50` | **`Nasdaq PSX ITCH/`** | *pending download* | — |
-| 2019-07-30 `07302019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | *pending download* | — |
-| 2019-08-30 `08302019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | *pending download* | — |
-| 2019-10-18 `S101819-v50.txt` | `Nasdaq ITCH/` | *pending download* | — |
+| 2019-03-27 `03272019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | **NASDAQ** | 2026-09-23 |
+| 2019-05-30 `05302019.NASDAQ_ITCH50` | **`Nasdaq PSX ITCH/`** | **NASDAQ** | 2026-09-23 |
+| 2019-07-30 `07302019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | **NASDAQ** | 2026-09-23 |
+| 2019-08-30 `08302019.NASDAQ_ITCH50` | `Nasdaq ITCH/` | **NASDAQ** | 2026-09-23 |
+| 2019-10-18 `S101819-v50.txt` | `Nasdaq ITCH/` | **NASDAQ** | 2026-09-24 |
 
 ## Checksums are listed but not served
 
