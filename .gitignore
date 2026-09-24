@@ -12,3 +12,8 @@ build-*/
 results/
 .cache/
 compile_commands.json
+
+# Python bytecode. Committed by accident; it is a build artifact of the
+# research scripts and says nothing a reader needs.
+__pycache__/
+*.pyc
