@@ -61,8 +61,18 @@ if [ "$VERDICT" != "NASDAQ" ]; then
 fi
 
 echo "[5/5] differential replay"
-./build/release/replay "$SESSION" > "data/.${NAME}.replay" 2>&1 || {
-  grep -E "RESULT|unexplained|LOCKED" "data/.${NAME}.replay" >&2
+# The market code is taken from check 4's verdict, not from the file name.
+# replay infers it from the name and REFUSES when the name is unrecognised --
+# `S101819-v50.txt` follows neither convention and so exits 2 before replaying
+# anything. Check 4 has already established the venue from content by this
+# point, and NASDAQ's market code is 'Q', so passing it is using the verdict
+# rather than guessing. A session that reaches here and is not NASDAQ has
+# already exited above.
+./build/release/replay --market Q "$SESSION" > "data/.${NAME}.replay" 2>&1 || {
+  # Show what actually happened. An earlier version grepped for RESULT and
+  # unexplained, which match nothing when replay refuses before it starts, so
+  # a refusal was reported as a bare "FAILED check 5" with no cause.
+  tail -20 "data/.${NAME}.replay" >&2
   echo "FAILED check 5: differential replay" >&2
   exit 5
 }

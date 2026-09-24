@@ -76,7 +76,7 @@ done
 echo
 if [ -n "$failed" ]; then
   echo "SESSIONS STILL OUTSTANDING:$failed"
-  echo "Re-run to resume; nothing is restarted from zero."
+  echo "Re-run to continue; nothing is restarted from zero."
   exit 1
 fi
 echo "ALL REQUESTED SESSIONS FETCHED AND VERIFIED  $(date '+%Y-%m-%d %H:%M:%S')"
