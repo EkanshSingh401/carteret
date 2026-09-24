@@ -25,4 +25,21 @@
 # something anyone can do. run_heldout.sh recomputes it and refuses on a
 # mismatch.
 #
-# UNSET. The held-out sessions in docs/data.md have not been downloaded.
+# SET 2026-09-24. The held-out sessions in docs/data.md have NOT been
+# downloaded; docs/manifests/ records the contents of data/ with digests at
+# this commit and says so.
+
+commit    29228cc4a3b493cf05ecaf66e14186541f9a402d
+ci_run    36054432265
+sha256    28f10db45fff7316df6acca3c2871a9805511c893e1f8d36c4ac28e7f265708a
+
+# The commit registers candidate C as the primary hypothesis. The CI run is
+# the one that went green on it -- all nine jobs, including the check that
+# every number quoted in the registration matches what research/gated.py
+# produced. The digest is of docs/preregistration.md AS OF that commit, and
+# recomputing it is something anyone can do:
+#
+#   git show 29228cc:docs/preregistration.md | shasum -a 256
+#
+# research/run_heldout.sh recomputes it and refuses on a mismatch, so an edit
+# to the registration after this point cannot pass unnoticed.
