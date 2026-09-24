@@ -651,10 +651,52 @@ measured, not chosen.
 > **Accuracy bar (A, C):**  p\* = ½ + 0.05 / m
 > **R² bar (B):**  R²\* = sin²( π · (0.05 / m) )
 
-*m* is the **window-weighted** mean of |Δ| in half-spreads over every window
-with a nonzero move, pooled across **all seven development sessions** — not
-the mean of per-session means, which would weight a quiet session equally with
-a busy one.
+*m* is the **window-weighted** mean of |Δ| in half-spreads over **every
+window, including those in which the mid did not move**, pooled across all
+seven development sessions — not the mean of per-session means, which would
+weight a quiet session equally with a busy one.
+
+#### Correction: *m* averages over all windows, not only those that moved
+
+**Made 2026-09-24, with the development estimates in view, and in the stricter
+direction.** This section originally defined *m* over windows with a nonzero
+move — the same conditioning the accuracy metric uses. That was wrong, and it
+made the bar too easy.
+
+**The two populations are not the same, and must not be.**
+
+| Quantity | Population | Why |
+|---|---|---|
+| accuracy *p* | windows with a **nonzero move** | a zero move has no sign to predict, so such windows carry no directional information |
+| scale *m* | **all** windows, zero moves included | the requirement is 0.10 half-spreads **per window**, and a window in which the mid did not move is still a window the strategy sat through |
+
+Over all windows, with the independence assumption already stated,
+
+> E[Δ · sign(signal)] = P(move) · (2p − 1) · E[|Δ| ‖ move] = (2p − 1) · *m*<sub>all</sub>
+
+so *p*\* = ½ + 0.05 / *m*<sub>all</sub>, with *p* still the **conditional**
+accuracy. Defining *m* over moved windows only sets the bar as though every
+window moved, and understates what the signal must achieve by exactly the
+fraction of windows that move.
+
+That fraction is **0.6116** <!--gen:frac_moved--> here, so the error was
+large: *m* falls from 1.5835 <!--gen:m_moved--> to **0.9686**
+<!--gen:m_all-->, and the bars rise.
+
+| Bar | One session, moved only | Seven sessions, moved only | **Seven sessions, all windows** |
+|---|---:|---:|---:|
+| Accuracy `½ + 0.05/m` | 53.22% | 53.16% <!--gen:accuracy_bar_moved--> | **55.16%** <!--gen:accuracy_bar--> |
+| R² `sin²(π·0.05/m)` | 0.0102 | 0.0098 <!--gen:r2_bar_moved--> | **0.0261** <!--gen:r2_bar--> |
+
+**This is a correction derived from the registered requirement, not a change
+to it.** The requirement — 0.10 half-spreads per window — is the same sentence
+it always was; what changed is that the conversion now uses the population the
+phrase "per window" names. It is recorded here rather than quietly applied
+because it was made **after** the development estimates were visible, which is
+the circumstance under which a threshold change is least trustworthy. Two
+things make it checkable: the direction is **stricter**, against the author's
+interest in clearing the bar, and the arithmetic follows from a requirement
+fixed before any estimate existed.
 
 At the gated step *m* is computed **before the MDE table**, and the
 one-session value (1.5543) and the seven-session value are reported **side by
@@ -734,19 +776,87 @@ rule therefore matters and is already fixed: ties go to the simpler feature,
 which is C** — queue imbalance is a state variable read at one instant, while
 order flow imbalance is a flow accumulated over a window.
 
+#### Leakage audit
+
+A development directional accuracy of 0.62409 <!--gen:dev_estimate_C--> is high
+enough to be worth disbelieving before it is believed. Three checks, run by
+`research/leakage.py` on development sessions only; output in
+`docs/generated/leakage_audit.txt`.
+
+**The effect is documented, so a large estimate is expected.** Gould and
+Bonart, *Queue Imbalance as a One-Tick-Ahead Price Predictor in a Limit Order
+Book*, Market Microstructure and Liquidity **2**(1), 2016, establish that queue
+imbalance at the inside predicts the direction of the next mid-price move on
+LOB data. This study's candidate C is a version of that effect at a 50-update
+horizon. Finding it is not evidence of a defect, and not a novel result; the
+contribution here is the cost-inclusive held-out test, not the existence of the
+signal. That is a reason to check the construction anyway — a leak and a real
+effect both produce a large number — not a reason to skip the checks.
+
+**1. Ordering.** The exporter writes, per emitted row, the index of the last
+message the feature could have seen and the first message of the interval the
+label measures. Over **70,000** sampled rows, 10,000 per session:
+**zero violations**. The audit reads the exporter's own stream, so it tests the
+code that made the features rather than a description of it. Adding the stream
+left the feature files byte-identical — the re-exported digest matches the one
+in `docs/manifests/gated-2026-09-24.txt`.
+
+**2. One-message lag.** Features recomputed from the book one message earlier,
+with the label and its baseline untouched.
+
+| Feature | Registered | Lagged one message | Change | Excess over ½ kept |
+|---|---:|---:|---:|---:|
+| `queue_imbalance` (C) | 0.62409 | 0.60902 | −0.01507 | 87.9% |
+| `ofi` (A) | 0.56219 | 0.56478 | +0.00259 | 104.2% |
+
+Neither collapses. C decays gently, which is what a real effect does at a
+one-message perturbation; A is unchanged within noise, as expected for a
+feature aggregated over fifty updates rather than read at an instant.
+
+**3. Label permutation within session.** Labels shuffled inside each session,
+which destroys the pairing and preserves every marginal.
+
+| Feature | Observed | Permuted | Null under random pairing | P(feature = 0) | Gap |
+|---|---:|---:|---:|---:|---:|
+| `queue_imbalance` (C) | 0.62409 | 0.47290 | 0.47282 | 0.05436 | +0.00008 |
+| `ofi` (A) | 0.56219 | 0.49147 | 0.49164 | 0.01674 | −0.00016 |
+
+**The null of this test is not 0.5, and saying so matters.** Under random
+pairing the expected accuracy is *P(f>0)P(l>0) + P(f<0)P(l<0)*. Labels are
+near balanced (0.49936 / 0.50064), so the deviation comes entirely from the
+feature: **`sign(0)` is never equal to the sign of a nonzero label, so a
+window whose feature is exactly zero is scored as a miss.** The permuted
+values match that null to within 0.0002 for both features, which is the pass.
+
+**This exposes a defect in the metric, recorded and not repaired.** Queue
+imbalance is exactly zero whenever the two inside queues are equal, which
+happens in **5.4%** of moved windows. Those windows are counted as wrong
+answers rather than excluded, although the registered hypothesis says the
+feature "predicts the sign" and a zero feature predicts no sign — the same
+argument by which zero-**label** windows are already excluded. The treatment
+is asymmetric. The effect is to bias C's accuracy **downward**: it is measured
+against a ceiling of 0.94564, not 1.
+
+It is left alone for the same reason the selection rule is: the computation
+has run, and tightening a metric in the direction that raises the selected
+candidate's estimate, after seeing that estimate, is not a correction a reader
+should have to trust. It is flagged here for the review.
+
 #### The MDE table
 
 | Candidate | Economic threshold | MDE, plan (b) — **primary** | Ratio | MDE, plan (c) — sensitivity |
 |---|---:|---|---|---|
-| A — OFI, directional | 53.16% | 0.003602 | 0.0068 | 0.035184 |
-| B — OFI, out-of-sample R² | 0.0098 | 0.001099 | 0.1120 | 0.004447 |
-| C — queue imbalance, directional | 53.16% | **0.003115** | **0.0059** | 0.048986 |
+| A — OFI, directional | 0.5516 <!--gen:threshold_A--> | 0.003602 <!--gen:mde_b_A--> | 0.0065 <!--gen:ratio_A--> | 0.035184 <!--gen:mde_c_A--> |
+| B — OFI, out-of-sample R² | 0.0261 <!--gen:threshold_B--> | 0.001099 <!--gen:mde_b_B--> | 0.0421 <!--gen:ratio_B--> | 0.004447 <!--gen:mde_c_B--> |
+| C — queue imbalance, directional | 0.5516 <!--gen:threshold_C--> | 0.003115 <!--gen:mde_b_C--> | 0.0056 <!--gen:ratio_C--> | 0.048986 <!--gen:mde_c_C--> |
 
-Computed 2026-09-24 by `research/gated.py` over the seven development
-sessions, 2,203,916 windows with a nonzero move, 96 symbols. Thresholds are
-the seven-session values: *m* = 1.5835 rather than the provisional 1.5543, so
-the accuracy bar moved from 53.22% to **53.16%** and the R² bar from 0.0102 to
-**0.0098**. *m* was computed before this table, as section 4 requires.
+Computed 2026-09-24 by `research/gated.py` over 7 <!--gen:sessions--> development
+sessions: 3,603,271 <!--gen:windows--> windows, 2,203,916 <!--gen:windows_moved-->
+with a nonzero move, 96 <!--gen:symbols--> symbols. *m* was computed before this
+table, as section 4 requires, and the thresholds are those of the correction
+above. Every figure quoted here is written by `research/gated.py` to
+`docs/generated/gated_values.tsv`; `tools/check_numbers.py` fails in CI if this
+document and that file disagree.
 
 The **Ratio** column is the selection rule, and the smallest value in it
 selects the hypothesis. Plan (c)'s column is reported for the sensitivity
@@ -767,16 +877,24 @@ null**, the effect that actually has to be detected. Both are reported:
 
 | Candidate | Registered ratio, MDE / threshold | Consistent ratio, MDE / (threshold − null) |
 |---|---:|---:|
-| A — OFI, directional | 0.0068 | 0.1141 |
-| B — OFI, out-of-sample R² | 0.1120 | 0.1120 |
-| C — queue imbalance, directional | **0.0059** | **0.0986** |
+| A — OFI, directional | 0.0065 <!--gen:ratio_A--> | 0.0698 <!--gen:ratio_units_A--> |
+| B — OFI, out-of-sample R² | 0.0421 <!--gen:ratio_B--> | **0.0421** <!--gen:ratio_units_B--> |
+| C — queue imbalance, directional | **0.0056** <!--gen:ratio_C--> | 0.0603 <!--gen:ratio_units_C--> |
 
-**Both select candidate C, so nothing about this study's conduct turns on
-it.** What the defect does change is the apparent standing of B: under the
-registered rule B looks roughly seventeen times worse than A, and under the
-consistent one they are all but tied, with B marginally ahead. Had the two
-leading candidates been A and B, the rule as written would have chosen on a
-units artifact.
+**They no longer agree.** Before *m* was corrected, both forms selected C and
+the defect was harmless. With the corrected *m* the R² bar rises by a factor
+of 2.7 while the accuracy bar rises by 2 percentage points, and under correct
+units **candidate B now has the smallest ratio**. The registered rule selects
+C; the scale-consistent rule would select B.
+
+This is recorded as prominently as it can be, because it is the single most
+consequential thing the review has to weigh. The registered rule is **not**
+amended: the computation has run, so changing the selection rule now would be
+choosing a hypothesis with its inputs in view, which is the failure this whole
+document exists to prevent. C is what the registered rule returns and C is
+what stands — but a reader is entitled to know that the rule that returned it
+compares a difference against a level, and that a rule without that defect
+returns something else.
 
 The registered rule is what selected, because it is what was registered. It is
 **not** amended here: the computation has now been run, so an amendment to the
@@ -786,12 +904,16 @@ review, and for any study that reuses this design.
 
 | | Value |
 |---|---|
-| Development estimate of the chosen metric (C, directional accuracy) | **0.62409** |
-| Block length *L* by Politis–White selection (stationary, max across sessions) | **177.58 windows** (candidate C) |
-| Blocks across the projected held-out set | **2,661.6** (guard requires ≥ 20) |
-| Intraday block-bootstrap SE, block length *L*, development | **0.000515** |
-| Symbol-clustered SE, development (plan (c), 96 symbol clusters) | **0.012619** |
-| MDE at the projected held-out size, plan (b) | **0.003115** |
+| Development estimate of the chosen metric (C, directional accuracy) | 0.62409 <!--gen:dev_estimate_C--> |
+| Block length *L*, Politis–White stationary, max across sessions | 177.58 <!--gen:selected_block_length--> windows |
+| Blocks across the projected held-out set | 2661.6 <!--gen:effective_blocks--> (guard requires ≥ 20) |
+| Intraday block-bootstrap SE, block length *L*, development | 0.000515 <!--gen:se_dev_b_C--> |
+| Symbol-clustered SE, development (plan (c), 96 symbol clusters) | 0.012619 |
+| MDE at the projected held-out size, plan (b) | 0.003115 <!--gen:mde_b_C--> |
+| Projected held-out windows, primary (per-session minimum × 2) | 472,652 <!--gen:heldout_windows_primary--> |
+| Projected held-out windows, sensitivity (mean × 2) | 629,690 <!--gen:heldout_windows_sensitivity--> |
+| Guard | passes <!--gen:guard--> |
+| Tie-break needed | no <!--gen:tie_break_needed--> |
 | Selected hypothesis | **C — queue imbalance, directional** |
 | Smallest economically meaningful effect after costs | 0.10 half-spreads per window = $0.0005/share |
 
@@ -800,6 +922,28 @@ threshold, the study as designed cannot answer its own question**, and the
 pre-committed response is option (d): report the point estimate and call the
 study exploratory. That is a decision rule, not a judgement to be made when
 the number appears.
+
+**The fallback inherits the selection rule's units defect, and as written it
+cannot fire for A or C.** It compares the MDE — a detectable **difference**
+from the null — against the threshold as a **level**. For the directional
+candidates that level is about 0.55, so the rule asks whether the study can
+resolve an effect of more than half the metric's range. No plausible MDE
+exceeds that, so for A and C the registered fallback is not a test that could
+have failed. For B the null is zero, so its threshold is already a difference
+and its fallback is meaningful.
+
+Both forms, for the selected candidate:
+
+| Form | Comparison | Ratio | Fires? |
+|---|---|---:|---|
+| As registered | MDE 0.003115 against threshold 0.5516 | 0.0056 <!--gen:ratio_C--> | not triggered <!--gen:fallback_registered--> |
+| Correct units | MDE 0.003115 against required effect 0.051623 | 0.0603 <!--gen:fallback_ratio_correct_units--> | not triggered <!--gen:fallback_correct_units--> |
+
+**Both agree here**: the study is well inside its power requirement either
+way, by a factor of about seventeen under the stricter reading. The defect is
+recorded because a rule that cannot fail is not a safeguard, and a later
+reader should not mistake "the fallback did not trigger" for evidence that it
+could have.
 
 Doing none of this and running anyway, then reporting whichever interval
 happens to exclude the null, is not an option: it would produce a number with

@@ -55,6 +55,8 @@ struct Window {
     double total_exec = 0.0;
     std::uint64_t start_ts = 0;
     bool halted = false;
+    double last_e = 0.0;     // final update's OFI term
+    double last_depth = 0.0; // final update's depth term
 };
 
 // A closed window's features, held until the next window closes so the label
@@ -66,6 +68,7 @@ struct Pending {
     double mid = 0.0, spread = 0.0;
     std::uint64_t end_ts = 0;
     std::uint32_t updates = 0;
+    std::uint64_t close_msg = 0; // message index at which this window closed
 };
 
 struct SymbolState {
@@ -79,17 +82,29 @@ struct SymbolState {
 class FeatureExporter {
 public:
     FeatureExporter(const std::vector<std::uint16_t>& universe, std::uint32_t window,
-                    std::FILE* out)
-        : window_(window), out_(out) {
+                    std::FILE* out, std::FILE* audit = nullptr, bool lag1 = false)
+        : audit_(audit), lag1_(lag1), window_(window), out_(out) {
+        // The audit stream records, per emitted row, the message index of the
+        // LAST message the feature could have seen and the FIRST message of
+        // the interval the label measures. docs/preregistration.md section 1
+        // rests on the first being strictly less than the second, and an
+        // assertion beats a description. Writing it costs nothing when the
+        // stream is absent, and the default output is unchanged either way.
+        if (audit_)
+            std::fprintf(audit_, "symbol,feat_last_msg,label_first_msg,label_last_msg\n");
         selected_.insert(universe.begin(), universe.end());
         std::fprintf(out_, "symbol,window_end_ts,updates,ofi,queue_imbalance,"
                            "micro_dev_ticks,trade_sign,mid,spread_ticks,label_ticks,"
                            "label_halfspreads\n");
     }
 
-    void on(SystemEvent v) { book_.on(v); }
+    void on(SystemEvent v) {
+        ++msgs_;
+        book_.on(v);
+    }
 
     void on(StockDirectory v) {
+        ++msgs_;
         book_.on(v);
         state_[v.locate()].name = std::string(v.stock());
     }
@@ -98,28 +113,34 @@ public:
     // across it, and the resumption prints a large mid change that is not a
     // prediction target.
     void on(StockTradingAction v) {
+        ++msgs_;
         SymbolState& s = state_[v.locate()];
         s.halted = (v.trading_state() == 'H');
         s.win.halted = true;
     }
 
     void on(AddOrder v) {
+        ++msgs_;
         book_.on(v);
         touch(v.locate(), v.ts(), 0.0, 0.0);
     }
     void on(AddOrderMpid v) {
+        ++msgs_;
         book_.on(v);
         touch(v.locate(), v.ts(), 0.0, 0.0);
     }
     void on(OrderCancel v) {
+        ++msgs_;
         book_.on(v);
         touch(v.locate(), v.ts(), 0.0, 0.0);
     }
     void on(OrderDelete v) {
+        ++msgs_;
         book_.on(v);
         touch(v.locate(), v.ts(), 0.0, 0.0);
     }
     void on(OrderReplace v) {
+        ++msgs_;
         book_.on(v);
         touch(v.locate(), v.ts(), 0.0, 0.0);
     }
@@ -128,14 +149,27 @@ public:
     // execution against a resting bid is a sell, against a resting ask a buy.
     // It has to be read before the book applies the message, because the order
     // may not survive it.
-    void on(OrderExecuted v) { executed(v.locate(), v.order_ref(), v.executed_shares(), v); }
+    void on(OrderExecuted v) {
+        ++msgs_;
+        executed(v.locate(), v.order_ref(), v.executed_shares(), v);
+    }
     void on(OrderExecutedPrice v) {
+        ++msgs_;
         executed(v.locate(), v.order_ref(), v.executed_shares(), v);
     }
 
-    void on(Trade v) { touch(v.locate(), v.ts(), 0.0, 0.0); }
-    void on(CrossTrade v) { touch(v.locate(), v.ts(), 0.0, 0.0); }
-    void on(BrokenTrade v) { touch(v.locate(), v.ts(), 0.0, 0.0); }
+    void on(Trade v) {
+        ++msgs_;
+        touch(v.locate(), v.ts(), 0.0, 0.0);
+    }
+    void on(CrossTrade v) {
+        ++msgs_;
+        touch(v.locate(), v.ts(), 0.0, 0.0);
+    }
+    void on(BrokenTrade v) {
+        ++msgs_;
+        touch(v.locate(), v.ts(), 0.0, 0.0);
+    }
 
     [[nodiscard]] std::uint64_t rows() const noexcept { return rows_; }
     [[nodiscard]] std::uint64_t dropped_halt() const noexcept { return dropped_halt_; }
@@ -189,16 +223,20 @@ private:
         if (now.ask >= before.ask) e += static_cast<double>(before.ask_qty);
 
         s.win.ofi += e;
-        s.win.depth_sum +=
+        s.win.last_e = e;
+        const double dterm =
             (static_cast<double>(now.bid_qty) + static_cast<double>(now.ask_qty)) / 2.0;
+        s.win.depth_sum += dterm;
+        s.win.last_depth = dterm;
         if (s.win.updates == 0) s.win.start_ts = ts;
         ++s.win.updates;
         if (s.halted) s.win.halted = true;
 
-        if (s.win.updates >= window_) close_window(s, now, ts);
+        if (s.win.updates >= window_) close_window(s, now, before, ts);
     }
 
-    void close_window(SymbolState& s, const Inside& now, std::uint64_t ts) {
+    void close_window(SymbolState& s, const Inside& now, const Inside& before,
+                      std::uint64_t ts) {
         const double mid = (static_cast<double>(now.bid) + static_cast<double>(now.ask)) / 2.0;
         const double spread = static_cast<double>(now.ask) - static_cast<double>(now.bid);
         const double qsum = static_cast<double>(now.bid_qty + now.ask_qty);
@@ -214,6 +252,12 @@ private:
                              s.pending.micro_dev, s.pending.trade_sign, s.pending.mid / 10000.0,
                              s.pending.spread / 100.0, label / 100.0,
                              label / (s.pending.spread / 2.0));
+                if (audit_) {
+                    std::fprintf(audit_, "%s,%llu,%llu,%llu\n", s.name.c_str(),
+                                 (unsigned long long)s.pending.close_msg,
+                                 (unsigned long long)(s.pending.close_msg + 1),
+                                 (unsigned long long)msgs_);
+                }
                 ++rows_;
             } else if (!in_bounds) {
                 ++dropped_bounds_;
@@ -224,12 +268,21 @@ private:
 
         Pending p;
         p.have = usable;
-        const double mean_depth =
-            s.win.updates ? s.win.depth_sum / static_cast<double>(s.win.updates) : 0.0;
-        p.ofi = mean_depth > 0 ? s.win.ofi / mean_depth : 0.0;
+        // --lag1 recomputes the FEATURES from the book one message earlier,
+        // leaving the label and its baseline mid exactly as they were. A
+        // genuine predictive effect decays gently under this; an effect that
+        // collapses was reading the move it claims to predict.
+        const std::uint32_t nupd =
+            lag1_ ? (s.win.updates ? s.win.updates - 1 : 0) : s.win.updates;
+        const double ofi_sum = lag1_ ? s.win.ofi - s.win.last_e : s.win.ofi;
+        const double depth_sum = lag1_ ? s.win.depth_sum - s.win.last_depth : s.win.depth_sum;
+        const double mean_depth = nupd ? depth_sum / static_cast<double>(nupd) : 0.0;
+        p.ofi = mean_depth > 0 ? ofi_sum / mean_depth : 0.0;
+        const Inside& fs = lag1_ ? before : now;
+        const double fqsum = static_cast<double>(fs.bid_qty + fs.ask_qty);
         p.queue_imbalance =
-            qsum > 0
-                ? (static_cast<double>(now.bid_qty) - static_cast<double>(now.ask_qty)) / qsum
+            (fs.valid && fqsum > 0)
+                ? (static_cast<double>(fs.bid_qty) - static_cast<double>(fs.ask_qty)) / fqsum
                 : 0.0;
         // Micro-price deviation is emitted in TICKS, deliberately, not
         // normalised by the half spread. Normalising it makes it algebraically
@@ -252,11 +305,15 @@ private:
         p.spread = spread;
         p.end_ts = ts;
         p.updates = s.win.updates;
+        p.close_msg = msgs_;
         s.pending = p;
         s.win = Window{};
     }
 
     ReferenceBook book_;
+    std::FILE* audit_ = nullptr;
+    bool lag1_ = false;
+    std::uint64_t msgs_ = 0;
     std::unordered_map<std::uint16_t, SymbolState> state_;
     std::unordered_set<std::uint16_t> selected_;
     std::uint32_t window_;
@@ -287,6 +344,8 @@ struct Census {
 int main(int argc, char** argv) {
     std::string path;
     std::string out_path = "results/features.csv";
+    std::string audit_path;
+    bool lag1 = false;
     std::uint32_t window = 50;
     std::size_t n_symbols = 50;
 
@@ -298,7 +357,11 @@ int main(int argc, char** argv) {
             }
             return argv[++i];
         };
-        if (std::strcmp(argv[i], "--window") == 0)
+        if (std::strcmp(argv[i], "--lag1") == 0)
+            lag1 = true;
+        else if (std::strcmp(argv[i], "--audit") == 0)
+            audit_path = next("--audit");
+        else if (std::strcmp(argv[i], "--window") == 0)
             window = static_cast<std::uint32_t>(std::strtoul(next("--window"), nullptr, 10));
         else if (std::strcmp(argv[i], "--symbols") == 0)
             n_symbols = std::strtoull(next("--symbols"), nullptr, 10);
@@ -338,7 +401,15 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    FeatureExporter ex(universe, window, out);
+    std::FILE* audit = nullptr;
+    if (!audit_path.empty()) {
+        audit = std::fopen(audit_path.c_str(), "w");
+        if (!audit) {
+            std::fprintf(stderr, "cannot write %s\n", audit_path.c_str());
+            return 1;
+        }
+    }
+    FeatureExporter ex(universe, window, out, audit, lag1);
     {
         Parser<FeatureExporter> parser(ex);
         parser.run(mf.bytes());
@@ -351,6 +422,10 @@ int main(int argc, char** argv) {
     std::printf("rows             %llu\n", (unsigned long long)ex.rows());
     std::printf("dropped, halt    %llu\n", (unsigned long long)ex.dropped_halt());
     std::printf("dropped, bounds  %llu\n", (unsigned long long)ex.dropped_bounds());
+    if (audit) {
+        std::fclose(audit);
+        std::printf("wrote %s\n", audit_path.c_str());
+    }
     std::printf("wrote %s\n", out_path.c_str());
     return 0;
 }

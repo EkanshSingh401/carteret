@@ -1,0 +1,38 @@
+==========================================================================
+LEAKAGE AUDIT -- development sessions only
+==========================================================================
+
+1. ORDERING: feature's last message strictly before the label's first
+--------------------------------------------------------------------------
+  audit_01302019.NASDAQ_ITCH50     sampled  10,000  of   574,268   violations 0
+  audit_03272019.NASDAQ_ITCH50     sampled  10,000  of   764,626   violations 0
+  audit_05302019.NASDAQ_ITCH50     sampled  10,000  of   530,582   violations 0
+  audit_07302019.NASDAQ_ITCH50     sampled  10,000  of   395,568   violations 0
+  audit_08302019.NASDAQ_ITCH50     sampled  10,000  of   496,658   violations 0
+  audit_12302019.NASDAQ_ITCH50     sampled  10,000  of   407,728   violations 0
+  audit_S101819-v50.txt            sampled  10,000  of   433,841   violations 0
+  TOTAL sampled 70,000   VIOLATIONS 0   PASS
+
+2. ONE-MESSAGE LAG: features from the book one message earlier
+--------------------------------------------------------------------------
+  feature               registered   lag 1 msg    change  excess kept
+  queue_imbalance          0.62409     0.60902  -0.01507       87.9%   (C)
+  ofi                      0.56219     0.56478   0.00259      104.2%   (A)
+  A collapse toward 0.5 would indicate the feature was reading the
+  move it claims to predict. Gentle decay is what a real effect does.
+
+3. LABEL PERMUTATION within session: accuracy must be about 0.5
+--------------------------------------------------------------------------
+  feature             observed  permuted      null   P(f=0)      gap
+  queue_imbalance      0.62409   0.47290   0.47282  0.05436  0.00008   (C)
+  ofi                  0.56219   0.49147   0.49164  0.01674 -0.00016   (A)
+  labels are near balanced: P(+) 0.49936, P(-) 0.50064
+  The permutation preserves every marginal and destroys only the
+  pairing. The test is whether 'permuted' matches 'null', not 0.5.
+
+  NOTE, and it is a defect in the metric rather than a leak: a
+  feature of exactly zero is counted as a wrong answer. Tied queues
+  are common, so this biases queue imbalance DOWNWARD -- its
+  accuracy is measured against a ceiling of 1 - P(f=0), not 1.
+
+Reference: Gould & Bonart, Market Microstructure and Liquidity 2(1), 2016.

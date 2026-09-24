@@ -13,21 +13,30 @@ sessions 7   windows 3,603,271   windows with a move 2,203,916   symbols 96
 ------------------------------------------------------------------------------
 1. THE SCALE m, AND THE THRESHOLDS  (computed before the MDE table)
 ------------------------------------------------------------------------------
-  dev_01302019.NASDAQ_ITCH50   windows   362,192   m 1.5637
-  dev_03272019.NASDAQ_ITCH50   windows   485,595   m 1.5776
-  dev_05302019.NASDAQ_ITCH50   windows   324,428   m 1.5510
-  dev_07302019.NASDAQ_ITCH50   windows   236,326   m 1.6184
-  dev_08302019.NASDAQ_ITCH50   windows   288,544   m 1.6573
-  dev_12302019.NASDAQ_ITCH50   windows   239,162   m 1.5543
-  dev_S101819-v50.txt          windows   267,669   m 1.5762
+  population of p : windows with a nonzero move
+  population of m : ALL windows, zero moves included
 
-  m, one session (12302019, provisional)   1.5543
-  m, seven sessions, window-weighted       1.5835   <- registered
-  m, unweighted mean of per-session means  1.5855   (not used)
+  session                        windows     moved   m|moved     m|all
+  dev_01302019.NASDAQ_ITCH50     574,268   362,192    1.5637    0.9863
+  dev_03272019.NASDAQ_ITCH50     764,626   485,595    1.5776    1.0019
+  dev_05302019.NASDAQ_ITCH50     530,582   324,428    1.5510    0.9484
+  dev_07302019.NASDAQ_ITCH50     395,568   236,326    1.6184    0.9669
+  dev_08302019.NASDAQ_ITCH50     496,658   288,544    1.6573    0.9629
+  dev_12302019.NASDAQ_ITCH50     407,728   239,162    1.5543    0.9117
+  dev_S101819-v50.txt            433,841   267,669    1.5762    0.9725
 
-                                       one session  seven sessions
-  accuracy bar  p* = 1/2 + 0.05/m         53.22%          53.16%
-  R2 bar  R2* = sin^2(pi*0.05/m)          0.0102          0.0098
+  windows 3,603,271   with a move 2,203,916   fraction moved 0.6116
+  m over moved windows only (superseded)   1.5835
+  m, one session, moved only (provisional) 1.5543
+  m over ALL windows                       0.9686   <- registered
+
+                                   1 session    7, moved      7, ALL
+  accuracy bar p* = 1/2+0.05/m       53.22%      53.16%      55.16%  <- registered
+  R2 bar R2* = sin^2(pi*0.05/m)      0.0102      0.0098      0.0261  <- registered
+
+  The correction is in the STRICTER direction: the bar rises,
+  because a window that did not move still counts against the
+  0.10-half-spreads-per-window requirement.
 
 ------------------------------------------------------------------------------
 2. POLITIS-WHITE BLOCK LENGTH  (stationary; max across sessions)
@@ -70,13 +79,13 @@ sessions 7   windows 3,603,271   windows with a move 2,203,916   symbols 96
   projected held-out windows, sensitivity (mean x 2) 629,690
 
   candidate                            dev est  threshold  SE dev (b)    MDE (b)    ratio    MDE (c)
-  A - OFI, directional                 0.56219     0.5316    0.000595   0.003602    0.007   0.035184
-  B - OFI, out-of-sample R2            0.00551     0.0098    0.000182   0.001099    0.112   0.004447
-  C - queue imbalance, directional     0.62409     0.5316    0.000515   0.003115    0.006   0.048986
+  A - OFI, directional                 0.56219     0.5516    0.000595   0.003602    0.007   0.035184
+  B - OFI, out-of-sample R2            0.00551     0.0261    0.000182   0.001099    0.042   0.004447
+  C - queue imbalance, directional     0.62409     0.5516    0.000515   0.003115    0.006   0.048986
 
   sensitivity, held-out windows projected from the development MEAN:
     A - OFI, directional              MDE (b)   0.003121   ratio    0.006
-    B - OFI, out-of-sample R2         MDE (b)   0.000952   ratio    0.097
+    B - OFI, out-of-sample R2         MDE (b)   0.000952   ratio    0.037
     C - queue imbalance, directional  MDE (b)   0.002699   ratio    0.005
 
   symbol clusters in development: 96
@@ -87,16 +96,16 @@ sessions 7   windows 3,603,271   windows with a move 2,203,916   symbols 96
 4. SELECTION  (smallest MDE-to-threshold ratio under plan (b))
 ------------------------------------------------------------------------------
   no tie; the tie-break was NOT needed
-    A - OFI, directional               ratio 0.0068
-    B - OFI, out-of-sample R2          ratio 0.1120
-    C - queue imbalance, directional   ratio 0.0059  <== SELECTED
+    A - OFI, directional               ratio 0.0065
+    B - OFI, out-of-sample R2          ratio 0.0421
+    C - queue imbalance, directional   ratio 0.0056  <== SELECTED
 
   diagnostic, not the registered rule: MDE / (threshold - null),
   which is the effect size that actually has to be resolved.
-    A - OFI, directional               MDE 0.003602 / 0.031575 = 0.1141
-    B - OFI, out-of-sample R2          MDE 0.001099 / 0.009808 = 0.1120
-    C - queue imbalance, directional   MDE 0.003115 / 0.031575 = 0.0986  <== would select
-  agrees with the registered rule: yes
+    A - OFI, directional               MDE 0.003602 / 0.051623 = 0.0698
+    B - OFI, out-of-sample R2          MDE 0.001099 / 0.026072 = 0.0421  <== would select
+    C - queue imbalance, directional   MDE 0.003115 / 0.051623 = 0.0603
+  agrees with the registered rule: NO
 
 ------------------------------------------------------------------------------
 5. MINIMUM-BLOCKS GUARD AND PRE-COMMITTED FALLBACK
@@ -107,9 +116,16 @@ sessions 7   windows 3,603,271   windows with a move 2,203,916   symbols 96
   guard                            PASSES
 
   selected MDE under plan (b)      0.003115
-  its economic threshold           0.531575
-  ratio                            0.0059
+  its economic threshold           0.551623
+  ratio                            0.0056
   fallback (ratio > 1)             not triggered
+
+  the fallback shares the selection rule's units defect:
+    as registered   MDE 0.003115 vs threshold 0.551623 -> 0.0056
+    correct units   MDE 0.003115 vs required effect 0.051623 -> 0.0603
+    fallback under correct units     not triggered
+    As implemented the registered form cannot trigger for A or C,
+    because an MDE of that size cannot exceed a level near 0.5.
 
   RESULT: confirmatory as designed; the held-out run may proceed once
   the registration is locked. Sequence: section 10.
@@ -120,3 +136,4 @@ pre-committed sensitivity, block length 0.5x / 1x / 2x:
    2.0x     355.16 windows   effective blocks    1330.8
 
 tie-break needed: no
+wrote docs/generated/gated_values.tsv

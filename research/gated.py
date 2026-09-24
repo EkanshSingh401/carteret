@@ -213,29 +213,67 @@ def main() -> int:
     print("-" * 78)
     print("1. THE SCALE m, AND THE THRESHOLDS  (computed before the MDE table)")
     print("-" * 78)
+    # WHICH WINDOWS EACH QUANTITY AVERAGES OVER. These are different
+    # populations, and conflating them was an error in the registration.
+    #
+    #   the accuracy metric p   windows with a NONZERO move only. A zero move
+    #                           has no sign to predict, so such windows carry
+    #                           no directional information and are excluded.
+    #   the scale m             ALL windows, zeros included, because the
+    #                           economic requirement is 0.10 half-spreads PER
+    #                           WINDOW and a window in which the mid does not
+    #                           move is still a window the strategy sat through.
+    #
+    # The two combine correctly: over all windows,
+    #
+    #   E[dm . sign(signal)] = P(move) . (2p - 1) . E[|dm| | move]
+    #                        = (2p - 1) . m_all
+    #
+    # so setting that to 0.10 gives p* = 1/2 + 0.05/m_all with p still the
+    # CONDITIONAL accuracy. Using m over moved windows only, as the first
+    # version did, sets the bar as though every window moved, and understates
+    # what the signal must achieve by the factor P(move).
+    n_all = len(df)
+    n_moved = len(d)
+    frac_moved = n_moved / n_all
     per_session_m = []
     for s in sessions:
+        sub_all = df[df["session"] == s]
         sub = d[d["session"] == s]
-        per_session_m.append((s, len(sub), float(np.abs(sub["label_halfspreads"]).mean())))
-    absdelta = np.abs(d["label_halfspreads"].to_numpy(dtype=float))
-    m_pooled = float(absdelta.mean())          # window-weighted by construction
-    m_meanofmeans = float(np.mean([t[2] for t in per_session_m]))
+        per_session_m.append((s, len(sub_all), len(sub),
+                              float(np.abs(sub["label_halfspreads"]).mean()),
+                              float(np.abs(sub_all["label_halfspreads"]).mean())))
+    m_moved = float(np.abs(d["label_halfspreads"].to_numpy(dtype=float)).mean())
+    m_all = float(np.abs(df["label_halfspreads"].to_numpy(dtype=float)).mean())
 
-    for s, n, mv in per_session_m:
-        print(f"  {s:<28} windows {n:>9,}   m {mv:.4f}")
+    print("  population of p : windows with a nonzero move")
+    print("  population of m : ALL windows, zero moves included")
     print()
-    print(f"  m, one session (12302019, provisional)   {ONE_SESSION_M:.4f}")
-    print(f"  m, seven sessions, window-weighted       {m_pooled:.4f}   <- registered")
-    print(f"  m, unweighted mean of per-session means  {m_meanofmeans:.4f}   (not used)")
+    print(f"  {'session':<28}{'windows':>10}{'moved':>10}{'m|moved':>10}{'m|all':>10}")
+    for s, na, nm, mv, ma in per_session_m:
+        print(f"  {s:<28}{na:>10,}{nm:>10,}{mv:>10.4f}{ma:>10.4f}")
+    print()
+    print(f"  windows {n_all:,}   with a move {n_moved:,}   fraction moved {frac_moved:.4f}")
+    print(f"  m over moved windows only (superseded)   {m_moved:.4f}")
+    print(f"  m, one session, moved only (provisional) {ONE_SESSION_M:.4f}")
+    print(f"  m over ALL windows                       {m_all:.4f}   <- registered")
 
-    p_star = 0.5 + 0.05 / m_pooled
-    r2_star = float(np.sin(np.pi * (0.05 / m_pooled)) ** 2)
+    p_star = 0.5 + 0.05 / m_all
+    r2_star = float(np.sin(np.pi * (0.05 / m_all)) ** 2)
+    p_star_moved = 0.5 + 0.05 / m_moved
+    r2_star_moved = float(np.sin(np.pi * (0.05 / m_moved)) ** 2)
     p_star_1 = 0.5 + 0.05 / ONE_SESSION_M
     r2_star_1 = float(np.sin(np.pi * (0.05 / ONE_SESSION_M)) ** 2)
     print()
-    print(f"  {'':34}{'one session':>14}{'seven sessions':>16}")
-    print(f"  accuracy bar  p* = 1/2 + 0.05/m {p_star_1*100:>13.2f}%{p_star*100:>15.2f}%")
-    print(f"  R2 bar  R2* = sin^2(pi*0.05/m)  {r2_star_1:>14.4f}{r2_star:>16.4f}")
+    print(f"  {'':30}{'1 session':>12}{'7, moved':>12}{'7, ALL':>12}")
+    print(f"  accuracy bar p* = 1/2+0.05/m {p_star_1*100:>11.2f}%{p_star_moved*100:>11.2f}%"
+          f"{p_star*100:>11.2f}%  <- registered")
+    print(f"  R2 bar R2* = sin^2(pi*0.05/m){r2_star_1:>12.4f}{r2_star_moved:>12.4f}"
+          f"{r2_star:>12.4f}  <- registered")
+    print()
+    print("  The correction is in the STRICTER direction: the bar rises,")
+    print("  because a window that did not move still counts against the")
+    print("  0.10-half-spreads-per-window requirement.")
     thresholds = {
         "A - OFI, directional": p_star,
         "B - OFI, out-of-sample R2": r2_star,
@@ -418,6 +456,27 @@ def main() -> int:
     fallback = chosen[4] > 1.0
     print(f"  fallback (ratio > 1)             {'TRIGGERED' if fallback else 'not triggered'}")
     print()
+    # The fallback inherits the selection rule's units defect. It compares an
+    # MDE -- a detectable DIFFERENCE from the null -- against the threshold as
+    # a LEVEL. For A and C the level is about 0.5, so the comparison asks
+    # whether the study can resolve an effect of half the metric's range, and
+    # it could not trigger for those candidates whatever the data said. Under
+    # correct units the comparison is against the effect that has to be
+    # detected: the threshold's excess over its own null.
+    null_sel = NULLS[chosen[0]]
+    excess_sel = chosen[1] - null_sel
+    ratio_units = chosen[3] / excess_sel if excess_sel else float("nan")
+    fallback_units = ratio_units > 1.0
+    print("  the fallback shares the selection rule's units defect:")
+    print(f"    as registered   MDE {chosen[3]:.6f} vs threshold {chosen[1]:.6f} "
+          f"-> {chosen[4]:.4f}")
+    print(f"    correct units   MDE {chosen[3]:.6f} vs required effect "
+          f"{excess_sel:.6f} -> {ratio_units:.4f}")
+    print(f"    fallback under correct units     "
+          f"{'TRIGGERED' if fallback_units else 'not triggered'}")
+    print("    As implemented the registered form cannot trigger for A or C,")
+    print("    because an MDE of that size cannot exceed a level near 0.5.")
+    print()
     if fallback or not guard_ok:
         print("  RESULT: the study is declared EXPLORATORY before any held-out access.")
     else:
@@ -430,6 +489,59 @@ def main() -> int:
               f"{heldout_windows / (L * mult):>9.1f}")
     print()
     print(f"tie-break needed: {'yes' if tie_used else 'no'}")
+
+    # ---- generated values, for the CI check -------------------------------
+    #
+    # Every figure the registration quotes is written here, formatted exactly
+    # as the registration must quote it. tools/check_numbers.py fails if the
+    # document and this file disagree, so a number cannot be edited into the
+    # registration by hand and cannot drift when the computation is re-run.
+    gen = pathlib.Path("docs/generated/gated_values.tsv")
+    gen.parent.mkdir(parents=True, exist_ok=True)
+    vals: dict[str, str] = {
+        "sessions": f"{len(sessions)}",
+        "windows": f"{n_all:,}",
+        "windows_moved": f"{n_moved:,}",
+        "frac_moved": f"{frac_moved:.4f}",
+        "symbols": f"{df['symbol'].nunique()}",
+        "m_all": f"{m_all:.4f}",
+        "m_moved": f"{m_moved:.4f}",
+        "m_one_session": f"{ONE_SESSION_M:.4f}",
+        "accuracy_bar": f"{p_star * 100:.2f}%",
+        "accuracy_bar_moved": f"{p_star_moved * 100:.2f}%",
+        "r2_bar": f"{r2_star:.4f}",
+        "r2_bar_moved": f"{r2_star_moved:.4f}",
+        "heldout_windows_primary": f"{heldout_windows:,}",
+        "heldout_windows_sensitivity": f"{heldout_windows_sens:,}",
+        "heldout_windows_min_per_session": f"{min_per_session:,}",
+        "selected": chosen[0],
+        "selected_block_length": f"{L:.2f}",
+        "effective_blocks": f"{eff:.1f}",
+        "tie_break_needed": "yes" if tie_used else "no",
+        "guard": "passes" if guard_ok else "fails",
+        "fallback_registered": "triggered" if fallback else "not triggered",
+        "fallback_correct_units": "triggered" if fallback_units else "not triggered",
+        "fallback_ratio_correct_units": f"{ratio_units:.4f}",
+    }
+    for r in rows:
+        tag = r[0].split(" ")[0]
+        vals[f"block_{tag}"] = f"{blocks[r[0]]:.2f}"
+        vals[f"dev_estimate_{tag}"] = f"{r[8]:.5f}"
+        vals[f"threshold_{tag}"] = f"{r[1]:.4f}"
+        vals[f"se_dev_b_{tag}"] = f"{r[2]:.6f}"
+        vals[f"mde_b_{tag}"] = f"{r[3]:.6f}"
+        vals[f"ratio_{tag}"] = f"{r[4]:.4f}"
+        vals[f"mde_c_{tag}"] = f"{r[6]:.6f}"
+        vals[f"mde_b_sens_{tag}"] = f"{r[9]:.6f}"
+        excess = r[1] - NULLS[r[0]]
+        vals[f"ratio_units_{tag}"] = f"{r[3] / excess:.4f}" if excess else "nan"
+    with gen.open("w") as fh:
+        fh.write("# Generated by research/gated.py. Do not edit.\n")
+        fh.write("# docs/preregistration.md quotes these; tools/check_numbers.py\n")
+        fh.write("# fails if the document and this file disagree.\n")
+        for k in sorted(vals):
+            fh.write(f"{k}\t{vals[k]}\n")
+    print(f"wrote {gen}")
     return 0
 
 

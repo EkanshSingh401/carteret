@@ -92,6 +92,19 @@ jobs:
           find include src tests tools bench -type f \( -name '*.hpp' -o -name '*.cpp' \) \
             | xargs --no-run-if-empty clang-format --dry-run --Werror
 
+  registration-numbers:
+    name: registration numbers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Every figure docs/preregistration.md quotes is tagged with the key of
+      # the value research/gated.py produced. This fails if the document and
+      # the generated file disagree, so a number cannot be edited into the
+      # registration by hand and cannot go stale when the computation is
+      # re-run. It needs no market data: the generated file is committed.
+      - name: check the registration quotes the computed values
+        run: python3 tools/check_numbers.py
+
 # CI covers correctness only. A shared runner has no core isolation, no
 # frequency control and unknown co-tenants, so it cannot produce an
 # interpretable timing. Benchmarks are a manual run on a named host, recorded
