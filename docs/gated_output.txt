@@ -1,0 +1,122 @@
+==============================================================================
+GATED COMPUTATION -- development sessions only
+==============================================================================
+sessions 7   windows 3,603,271   windows with a move 2,203,916   symbols 96
+  dev_01302019.NASDAQ_ITCH50   windows   574,268  moved   362,192
+  dev_03272019.NASDAQ_ITCH50   windows   764,626  moved   485,595
+  dev_05302019.NASDAQ_ITCH50   windows   530,582  moved   324,428
+  dev_07302019.NASDAQ_ITCH50   windows   395,568  moved   236,326
+  dev_08302019.NASDAQ_ITCH50   windows   496,658  moved   288,544
+  dev_12302019.NASDAQ_ITCH50   windows   407,728  moved   239,162
+  dev_S101819-v50.txt          windows   433,841  moved   267,669
+
+------------------------------------------------------------------------------
+1. THE SCALE m, AND THE THRESHOLDS  (computed before the MDE table)
+------------------------------------------------------------------------------
+  dev_01302019.NASDAQ_ITCH50   windows   362,192   m 1.5637
+  dev_03272019.NASDAQ_ITCH50   windows   485,595   m 1.5776
+  dev_05302019.NASDAQ_ITCH50   windows   324,428   m 1.5510
+  dev_07302019.NASDAQ_ITCH50   windows   236,326   m 1.6184
+  dev_08302019.NASDAQ_ITCH50   windows   288,544   m 1.6573
+  dev_12302019.NASDAQ_ITCH50   windows   239,162   m 1.5543
+  dev_S101819-v50.txt          windows   267,669   m 1.5762
+
+  m, one session (12302019, provisional)   1.5543
+  m, seven sessions, window-weighted       1.5835   <- registered
+  m, unweighted mean of per-session means  1.5855   (not used)
+
+                                       one session  seven sessions
+  accuracy bar  p* = 1/2 + 0.05/m         53.22%          53.16%
+  R2 bar  R2* = sin^2(pi*0.05/m)          0.0102          0.0098
+
+------------------------------------------------------------------------------
+2. POLITIS-WHITE BLOCK LENGTH  (stationary; max across sessions)
+------------------------------------------------------------------------------
+  candidate                         session                            n  stationary
+  A - OFI, directional              dev_01302019.NASDAQ_ITCH50   362,192      242.45
+  A - OFI, directional              dev_03272019.NASDAQ_ITCH50   485,595      299.58
+  A - OFI, directional              dev_05302019.NASDAQ_ITCH50   324,428      287.00
+  A - OFI, directional              dev_07302019.NASDAQ_ITCH50   236,326      232.89
+  A - OFI, directional              dev_08302019.NASDAQ_ITCH50   288,544      216.48
+  A - OFI, directional              dev_12302019.NASDAQ_ITCH50   239,162      246.26
+  A - OFI, directional              dev_S101819-v50.txt          267,669      184.54
+  A - OFI, directional              MAX TAKEN                                 299.58
+
+  B - OFI, out-of-sample R2         dev_01302019.NASDAQ_ITCH50   362,192      239.70
+  B - OFI, out-of-sample R2         dev_03272019.NASDAQ_ITCH50   485,595      221.34
+  B - OFI, out-of-sample R2         dev_05302019.NASDAQ_ITCH50   324,428      317.30
+  B - OFI, out-of-sample R2         dev_07302019.NASDAQ_ITCH50   236,326      195.42
+  B - OFI, out-of-sample R2         dev_08302019.NASDAQ_ITCH50   288,544      220.11
+  B - OFI, out-of-sample R2         dev_12302019.NASDAQ_ITCH50   239,162      205.57
+  B - OFI, out-of-sample R2         dev_S101819-v50.txt          267,669      128.32
+  B - OFI, out-of-sample R2         MAX TAKEN                                 317.30
+
+  C - queue imbalance, directional  dev_01302019.NASDAQ_ITCH50   362,192       83.64
+  C - queue imbalance, directional  dev_03272019.NASDAQ_ITCH50   485,595       44.78
+  C - queue imbalance, directional  dev_05302019.NASDAQ_ITCH50   324,428       26.03
+  C - queue imbalance, directional  dev_07302019.NASDAQ_ITCH50   236,326      177.58
+  C - queue imbalance, directional  dev_08302019.NASDAQ_ITCH50   288,544       18.94
+  C - queue imbalance, directional  dev_12302019.NASDAQ_ITCH50   239,162       34.38
+  C - queue imbalance, directional  dev_S101819-v50.txt          267,669       11.71
+  C - queue imbalance, directional  MAX TAKEN                                 177.58
+
+------------------------------------------------------------------------------
+3. MDE AT THE PLANNED HELD-OUT SIZE   alpha 0.05, power 0.80, two-sided
+------------------------------------------------------------------------------
+  planned held-out size: 2 sessions x 50 symbols
+  development windows with a move 2,203,916
+  per-session minimum 236,326   mean 314,845
+  projected held-out windows, PRIMARY (min x 2)     472,652   <- decides the fallback
+  projected held-out windows, sensitivity (mean x 2) 629,690
+
+  candidate                            dev est  threshold  SE dev (b)    MDE (b)    ratio    MDE (c)
+  A - OFI, directional                 0.56219     0.5316    0.000595   0.003602    0.007   0.035184
+  B - OFI, out-of-sample R2            0.00551     0.0098    0.000182   0.001099    0.112   0.004447
+  C - queue imbalance, directional     0.62409     0.5316    0.000515   0.003115    0.006   0.048986
+
+  sensitivity, held-out windows projected from the development MEAN:
+    A - OFI, directional              MDE (b)   0.003121   ratio    0.006
+    B - OFI, out-of-sample R2         MDE (b)   0.000952   ratio    0.097
+    C - queue imbalance, directional  MDE (b)   0.002699   ratio    0.005
+
+  symbol clusters in development: 96
+  plan (c) is a sensitivity analysis and takes no part in selection.
+  It is anti-conservative under common market moves.
+
+------------------------------------------------------------------------------
+4. SELECTION  (smallest MDE-to-threshold ratio under plan (b))
+------------------------------------------------------------------------------
+  no tie; the tie-break was NOT needed
+    A - OFI, directional               ratio 0.0068
+    B - OFI, out-of-sample R2          ratio 0.1120
+    C - queue imbalance, directional   ratio 0.0059  <== SELECTED
+
+  diagnostic, not the registered rule: MDE / (threshold - null),
+  which is the effect size that actually has to be resolved.
+    A - OFI, directional               MDE 0.003602 / 0.031575 = 0.1141
+    B - OFI, out-of-sample R2          MDE 0.001099 / 0.009808 = 0.1120
+    C - queue imbalance, directional   MDE 0.003115 / 0.031575 = 0.0986  <== would select
+  agrees with the registered rule: yes
+
+------------------------------------------------------------------------------
+5. MINIMUM-BLOCKS GUARD AND PRE-COMMITTED FALLBACK
+------------------------------------------------------------------------------
+  selected block length            177.58 windows
+  projected held-out windows       472,652
+  effective blocks                 2661.6   (>= 20 required)
+  guard                            PASSES
+
+  selected MDE under plan (b)      0.003115
+  its economic threshold           0.531575
+  ratio                            0.0059
+  fallback (ratio > 1)             not triggered
+
+  RESULT: confirmatory as designed; the held-out run may proceed once
+  the registration is locked. Sequence: section 10.
+
+pre-committed sensitivity, block length 0.5x / 1x / 2x:
+   0.5x      88.79 windows   effective blocks    5323.3
+   1.0x     177.58 windows   effective blocks    2661.6
+   2.0x     355.16 windows   effective blocks    1330.8
+
+tie-break needed: no

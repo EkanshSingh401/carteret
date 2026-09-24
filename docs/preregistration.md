@@ -6,12 +6,17 @@ claim, and `git log` verifies it. `research/run_heldout.sh` refuses to run
 until `research/heldout.lock` names a commit that is an ancestor of `HEAD` and
 this file is byte-identical to its content at that commit.
 
-> **Status: draft, unregistered.** Section 2 offers three candidate primary
-> hypotheses and section 4 carries no minimum detectable effect yet. The
-> author selects one hypothesis, deletes the other two, completes section 4
-> from development sessions only, commits this file, and writes that commit's
-> hash into `research/heldout.lock` in a separate commit. Until then the
-> held-out sessions must not be downloaded.
+> **Status: draft, unregistered — awaiting review.** The gated computation has
+> run (2026-09-24, `research/gated.py`, development sessions only) and section
+> 4 now carries *m*, the block lengths, the MDE table and the hypothesis the
+> selection rule returns: **candidate C**. Section 2 still offers all three
+> candidates, because deleting two is the author's act, not the rule's.
+>
+> What remains before this document is registered: the author reviews the
+> computation, deletes the two candidates the rule did not select, and commits.
+> That commit is step 1 of section 10. Until `research/heldout.lock` names it
+> and CI has gone green on it, **the held-out sessions must not be
+> downloaded**, and none has been.
 
 ---
 
@@ -733,24 +738,61 @@ order flow imbalance is a flow accumulated over a window.
 
 | Candidate | Economic threshold | MDE, plan (b) — **primary** | Ratio | MDE, plan (c) — sensitivity |
 |---|---:|---|---|---|
-| A — OFI, directional | 53.22% | *(to be filled)* | *(to be filled)* | *(to be filled)* |
-| B — OFI, out-of-sample R² | 0.0102 | *(to be filled)* | *(to be filled)* | *(to be filled)* |
-| C — queue imbalance, directional | 53.22% | *(to be filled)* | *(to be filled)* | *(to be filled)* |
+| A — OFI, directional | 53.16% | 0.003602 | 0.0068 | 0.035184 |
+| B — OFI, out-of-sample R² | 0.0098 | 0.001099 | 0.1120 | 0.004447 |
+| C — queue imbalance, directional | 53.16% | **0.003115** | **0.0059** | 0.048986 |
+
+Computed 2026-09-24 by `research/gated.py` over the seven development
+sessions, 2,203,916 windows with a nonzero move, 96 symbols. Thresholds are
+the seven-session values: *m* = 1.5835 rather than the provisional 1.5543, so
+the accuracy bar moved from 53.22% to **53.16%** and the R² bar from 0.0102 to
+**0.0098**. *m* was computed before this table, as section 4 requires.
 
 The **Ratio** column is the selection rule, and the smallest value in it
 selects the hypothesis. Plan (c)'s column is reported for the sensitivity
 analysis and takes no part in the selection.
 
+**The registered ratio is not scale-consistent, and this is recorded rather
+than quietly repaired.** The MDE is a detectable **difference** from the null.
+The denominator is the threshold, which for A and C is a **level** (0.5316)
+and for B is already a difference, because that metric's null is zero. A and C
+are therefore divided by about 0.53 and B by about 0.0098, which flatters the
+directional candidates by a factor of roughly seventeen for a reason that has
+nothing to do with what they can resolve. It is the same class of error as the
+candidate-B summand above: two quantities compared without checking they are
+in the same units.
+
+The scale-consistent denominator is the threshold's **excess over its own
+null**, the effect that actually has to be detected. Both are reported:
+
+| Candidate | Registered ratio, MDE / threshold | Consistent ratio, MDE / (threshold − null) |
+|---|---:|---:|
+| A — OFI, directional | 0.0068 | 0.1141 |
+| B — OFI, out-of-sample R² | 0.1120 | 0.1120 |
+| C — queue imbalance, directional | **0.0059** | **0.0986** |
+
+**Both select candidate C, so nothing about this study's conduct turns on
+it.** What the defect does change is the apparent standing of B: under the
+registered rule B looks roughly seventeen times worse than A, and under the
+consistent one they are all but tied, with B marginally ahead. Had the two
+leading candidates been A and B, the rule as written would have chosen on a
+units artifact.
+
+The registered rule is what selected, because it is what was registered. It is
+**not** amended here: the computation has now been run, so an amendment to the
+selection rule at this point would be a rule changed with its inputs in view,
+which is the thing this document exists to prevent. It is recorded for the
+review, and for any study that reuses this design.
+
 | | Value |
 |---|---|
-| Development estimate of the chosen metric | *(to be filled)* |
-| Session-clustered SE, development set (7 sessions) | *(to be filled)* |
-| Session block-bootstrap SE, development set | *(to be filled)* |
-| Block length *L* by Politis–White selection (stationary, max across sessions) | *(to be filled)* |
-| Blocks per session at that length, and across the held-out set | *(to be filled)* |
-| Intraday block-bootstrap SE, block length *L* | *(to be filled)* |
-| Symbol-clustered SE | *(to be filled)* |
-| Fraction of metric variance common to the session | *(to be filled)* |
+| Development estimate of the chosen metric (C, directional accuracy) | **0.62409** |
+| Block length *L* by Politis–White selection (stationary, max across sessions) | **177.58 windows** (candidate C) |
+| Blocks across the projected held-out set | **2,661.6** (guard requires ≥ 20) |
+| Intraday block-bootstrap SE, block length *L*, development | **0.000515** |
+| Symbol-clustered SE, development (plan (c), 96 symbol clusters) | **0.012619** |
+| MDE at the projected held-out size, plan (b) | **0.003115** |
+| Selected hypothesis | **C — queue imbalance, directional** |
 | Smallest economically meaningful effect after costs | 0.10 half-spreads per window = $0.0005/share |
 
 **If the selected hypothesis's MDE under plan (b) exceeds its economic

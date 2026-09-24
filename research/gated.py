@@ -47,6 +47,14 @@ CANDIDATES = {
 BLOCK_SERIES = {"hit": "hit", "r2": "d"}
 SIMPLER = "C - queue imbalance, directional"   # the registered tie-break
 
+# Null value of each metric. Needed only for the diagnostic below, not for the
+# registered rule.
+NULLS = {
+    "A - OFI, directional": 0.5,
+    "B - OFI, out-of-sample R2": 0.0,
+    "C - queue imbalance, directional": 0.5,
+}
+
 
 def refuse_heldout(paths: list[pathlib.Path]) -> None:
     for p in paths:
@@ -363,6 +371,33 @@ def main() -> int:
     for r in rows:
         mark = "  <== SELECTED" if r[0] == chosen[0] else ""
         print(f"    {r[0]:<34} ratio {r[4]:.4f}{mark}")
+
+    # ---- diagnostic: the registered ratio is not scale-consistent ----------
+    #
+    # The registered rule divides the MDE by the ABSOLUTE threshold. The MDE is
+    # a detectable DIFFERENCE from the null; the threshold for a directional
+    # metric is a LEVEL (0.5316), while for R2 it is already a difference,
+    # because that metric's null is zero. So A and C are divided by ~0.53 and B
+    # by ~0.0098, which flatters the directional candidates by a factor of
+    # about seventeen for no reason connected to what they can resolve.
+    #
+    # The scale-consistent denominator is the threshold's EXCESS OVER ITS OWN
+    # NULL -- the size of the effect that has to be detected. This is reported
+    # as a diagnostic and CHANGES NOTHING: the registered rule is what selects,
+    # until it is amended in the usual way.
+    print()
+    print("  diagnostic, not the registered rule: MDE / (threshold - null),")
+    print("  which is the effect size that actually has to be resolved.")
+    diag = []
+    for r in rows:
+        excess = r[1] - NULLS[r[0]]
+        diag.append((r[0], r[3], excess, r[3] / excess if excess else float("nan")))
+    best_d = min(t[3] for t in diag)
+    for name, mde, excess, ratio in diag:
+        mark = "  <== would select" if np.isclose(ratio, best_d) else ""
+        print(f"    {name:<34} MDE {mde:.6f} / {excess:.6f} = {ratio:.4f}{mark}")
+    agree = np.isclose(min(t[3] for t in diag), next(t[3] for t in diag if t[0] == chosen[0]))
+    print(f"  agrees with the registered rule: {'yes' if agree else 'NO'}")
 
     # ---- 5. guard and fallback ---------------------------------------------
     print()
