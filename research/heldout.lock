@@ -25,21 +25,46 @@
 # something anyone can do. run_heldout.sh recomputes it and refuses on a
 # mismatch.
 #
-# SET 2026-09-24. The held-out sessions in docs/data.md have NOT been
-# downloaded; docs/manifests/ records the contents of data/ with digests at
-# this commit and says so.
+# SET 2026-09-24, revised the same day after the held-out harness amendment.
+# The held-out sessions ARE on disk, fetched and verified under explicit
+# authorisation after the first lock. No feature or label has been computed
+# from either; docs/manifests/ records the contents of data/ and results/ with
+# digests at every step.
 
 commit    29228cc4a3b493cf05ecaf66e14186541f9a402d
-ci_run    36054432265
+ci_run    36070000920
 sha256    28f10db45fff7316df6acca3c2871a9805511c893e1f8d36c4ac28e7f265708a
+frozen    1acf2085c4807337bd5421ab7ad6522c2d9cc4b4
 
-# The commit registers candidate C as the primary hypothesis. The CI run is
-# the one that went green on it -- all nine jobs, including the check that
-# every number quoted in the registration matches what research/gated.py
-# produced. The digest is of docs/preregistration.md AS OF that commit, and
-# recomputing it is something anyone can do:
+# commit  the registration, unchanged. Candidate C is the primary.
+# sha256  of docs/preregistration.md AT that commit, and UNCHANGED since:
+#         the harness amendment deliberately edited no part of it, because
+#         its digest is what makes the registration checkable.
 #
-#   git show 29228cc:docs/preregistration.md | shasum -a 256
+#           git show 29228cc:docs/preregistration.md | shasum -a 256
 #
-# research/run_heldout.sh recomputes it and refuses on a mismatch, so an edit
-# to the registration after this point cannot pass unnoticed.
+# frozen  the frozen-code base. The first lock used the registration commit
+#         for this, but the held-out harness did not implement the registered
+#         rules and had to be amended; docs/heldout-harness-amendment.md says
+#         what was wrong and what replaced it. Analysis and tooling are frozen
+#         as of 1acf208, not 29228cc, and the check is
+#
+#           git diff 1acf208 HEAD -- research/ src/ include/ tools/
+#
+# ci_run  the run that went green on the amendment, all nine jobs, including
+#         the check that every number quoted in the registration matches what
+#         research/gated.py produced.
+#
+# research/run_heldout.sh recomputes the digest and refuses on a mismatch.
+#
+# THE RUN IS BLOCKED, and not by anything in this lock. Section 8 of the
+# registration ends "Signal threshold *(to be filled)*. Minimum fills per
+# session *(to be filled)*." Both are registered constants that were never
+# filled. Without the first there is no maker strategy and no P&L; without the
+# second, section 9's minimum-fills criterion cannot be evaluated.
+# research/heldout_study.py exits 3 and names them rather than choosing.
+#
+# Filling them edits docs/preregistration.md, which changes the digest above
+# and invalidates this lock. That is not a flaw in the lock; it is the lock
+# working. A new registration commit and a new lock are required, and there is
+# no way to supply a missing registered constant without them.
