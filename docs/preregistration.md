@@ -472,9 +472,26 @@ result overstates the uncertainty of R², and the overstatement is severe.
 stated plainly.** The correction shrinks B's MDE and therefore its
 MDE-to-threshold ratio, which is the selection statistic. An amendment that
 improves the standing of one candidate is exactly the kind that invites
-suspicion about its timing, so: it was committed **before any development-set
-feature file existed**, and the history shows the commit preceding the first
-run of `research/gated.py` on development data.
+suspicion about its timing, so the timing is stated precisely, including the
+part of it that cannot be checked.
+
+**What is checkable, and what is not.** The amendment was committed as
+`4d01003`. At that moment `results/` contained only the BX smoke-test file and
+no development feature file had been written. **That state is not recoverable
+from git.** `results/` and `data/` are gitignored — correctly, because market
+data is not redistributable — and git records nothing whatever about an
+untracked path. The commit message of `4d01003` says "the check is in the
+history"; **that sentence is wrong**, and this paragraph is the correction.
+History is not rewritten to fix it (`docs/history.md`), so the incorrect
+sentence stands in the log with the correction recorded here.
+
+What a reader can check: the commit's author date, its position in the
+history relative to the commit that carries the gated computation's outputs,
+and — from `tools/manifest.sh` onward — a committed manifest of `data/` and
+`results/` at each of the points section 10 names. What a reader cannot check
+is the state of an untracked directory at a commit that predates the manifest.
+That is a real gap, it is the reason the manifest exists, and asserting it
+away would be worse than recording it.
 
 **The number that prompted it came from a smoke test, and was not a result.**
 A ratio of **1992** for candidate B was produced by a mechanical run of
@@ -980,10 +997,11 @@ before the next begins.
 
 | # | Step | Artifact a reader can check |
 |---|---|---|
-| 1 | **Registration commit.** This document, complete: hypothesis, features, strategy, costs, decision rules, MDE table, selected hypothesis, block length. | commit hash and author date |
+| 0 | **Gated computation commit.** The outputs of `research/gated.py`, together with a `tools/manifest.sh` manifest of `data/` and `results/` listing the inputs it read. | the manifest file, and the digests in it |
+| 1 | **Registration commit.** This document, complete: hypothesis, features, strategy, costs, decision rules, MDE table, selected hypothesis, block length. **Carries a manifest showing no held-out session is present.** | commit hash and author date; the manifest's held-out line |
 | 2 | **Push.** | GitHub's own receipt of the push, which the author cannot backdate |
 | 3 | **CI green.** All jobs, both compilers, both platforms. | workflow run id, conclusion and time |
-| 4 | **`heldout.lock` commit.** Records the registration commit hash, the CI run id that went green, and the SHA-256 of this document at that commit. | commit hash, and a digest that changes if the registration is edited afterwards |
+| 4 | **`heldout.lock` commit.** Records the registration commit hash, the CI run id that went green, and the SHA-256 of this document at that commit. **Carries a manifest showing no held-out session is present.** | commit hash; a digest that changes if the registration is edited afterwards; the manifest's held-out line |
 | 5 | **Push.** | second push receipt |
 | 6 | **Only then, download the held-out sessions.** | `docs/data.md` download timestamps and digests, all later than step 5 |
 
@@ -1006,6 +1024,17 @@ before it runs anything and refuses if either fails.
 its size, its per-type census or its first message. The sessions are not
 downloaded at all until step 6, which is the only version of this rule that
 does not depend on the author's restraint.
+
+**Why the manifests are part of the sequence.** `data/` and `results/` are
+gitignored, so the repository records nothing about what was on disk at any
+commit. Without a manifest, "no held-out session had been downloaded" and "no
+development feature file existed yet" are claims about the author that a
+reader has to accept. `tools/manifest.sh` writes the path, byte count and
+SHA-256 of every file under both directories to a tracked file, which carries
+no market data and so may be committed. A manifest cannot prove a file was
+never downloaded and deleted — nothing in a repository can — but it fixes the
+positive claim at each of the points above, and it makes the negative claim
+checkable at every point where a manifest exists rather than at none.
 
 ---
 
