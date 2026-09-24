@@ -6,6 +6,8 @@ accuracy_bar_moved	53.16%
 block_A	299.58
 block_B	317.30
 block_C	177.58
+block_direct_value	3.60
+block_trade_sign	1612.00
 dev_estimate_A	0.56219
 dev_estimate_B	0.00551
 dev_estimate_C	0.62409

@@ -1,0 +1,78 @@
+==========================================================================
+REGISTERED ANALYSIS -- DEVELOPMENT
+==========================================================================
+sessions 7   windows 3,603,271   symbols 96
+  dev_01302019.NASDAQ_ITCH50
+  dev_03272019.NASDAQ_ITCH50
+  dev_05302019.NASDAQ_ITCH50
+  dev_07302019.NASDAQ_ITCH50
+  dev_08302019.NASDAQ_ITCH50
+  dev_12302019.NASDAQ_ITCH50
+  dev_S101819-v50.txt
+
+registered constants, read not estimated:
+  block length L for the primary                177.58
+  block lengths for the secondaries             ofi 299.58, trade_sign 1612.0, value 3.6
+  accuracy bar for C                            0.5516
+  R2 bar for B                                  0.0261
+  m over all windows                            0.9686
+  value requirement                             0.10 half-spreads/window
+  Holm family                                   5
+  rule 4 in the primary specification           OFF
+  base add / take / top add ($/share)           0.0015 / 0.003 / 0.00305
+
+--------------------------------------------------------------------------
+PRIMARY -- candidate C, queue imbalance, directional
+--------------------------------------------------------------------------
+  windows with a move   2,203,916
+  directional accuracy  0.62409
+  plan (b) SE at L=177.58  0.000515
+  95% interval          [0.62308, 0.62510]
+  registered bar        0.5516
+  null                  0.5
+  VERDICT               SIGNAL HOLDS
+
+  With two held-out sessions, a confirmatory verdict applies to those sessions and is not generalised beyond them.
+
+  sensitivity, symbol-clustered SE 0.012619 over 96 symbols,
+    95% interval [0.59936, 0.64882]
+    Anti-conservative under common market moves. Decides nothing;
+    if it disagrees with the block bootstrap the verdict follows
+    the block bootstrap and the disagreement is reported.
+
+--------------------------------------------------------------------------
+SECONDARIES -- Holm-Bonferroni, family of 5
+--------------------------------------------------------------------------
+  test               estimate        SE              95% interval         p    Holm p  sig
+  ofi                 0.56219  0.000600        [0.56101, 0.56337]         0         0  yes
+  trade_sign          0.31333  0.001452        [0.31048, 0.31617]         1         1  no
+  direct_value        0.32542  0.000774        [0.32390, 0.32694]         0         0  yes
+
+  direct-value secondary: mean signed mid move in the predicted
+  direction, half-spreads, over ALL windows; a zero feature
+  contributes zero and stays in the denominator (161,623 of
+  3,603,271 windows). Tested against 0.10, one-sided.
+  requirement 0.10   estimate 0.32542   CLEARS on the interval
+
+  Family size is five and does not shrink because A and B became
+  exploratory; section 3 records why. Two of the five members are
+  reported above, the primary is reported separately, and micro-
+  price deviation is dropped as sign-identical to queue imbalance.
+
+--------------------------------------------------------------------------
+EXPLORATORY -- candidates A and B, considered and NOT selected
+--------------------------------------------------------------------------
+  A  OFI directional   0.56219  [0.56101, 0.56337]  bar 0.5516
+  B  OFI out-of-sample R2  0.00551  [0.00515, 0.00586]  bar 0.0261
+
+  EXPLORATORY ONLY. Outside every confirmatory claim and outside
+  the Holm family. A number here that clears a bar is still
+  exploratory and is never reported as a tested hypothesis.
+
+--------------------------------------------------------------------------
+STRATEGY -- maker, base tier, with the top-tier sensitivity
+--------------------------------------------------------------------------
+  SKIPPED by --skip-strategy (rehearsal).
+
+==========================================================================
+wrote /private/tmp/claude-501/-Users-ekanshsingh-Cartet-carteret/cfdd5c99-6c58-44aa-b159-c63d39c99027/scratchpad/rehearsal

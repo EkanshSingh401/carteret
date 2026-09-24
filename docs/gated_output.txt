@@ -69,6 +69,9 @@ sessions 7   windows 3,603,271   windows with a move 2,203,916   symbols 96
   C - queue imbalance, directional  dev_S101819-v50.txt          267,669       11.71
   C - queue imbalance, directional  MAX TAKEN                                 177.58
 
+  trade_sign                        MAX TAKEN (secondary)                    1612.00
+  direct_value                      MAX TAKEN (secondary)                       3.60
+
 ------------------------------------------------------------------------------
 3. MDE AT THE PLANNED HELD-OUT SIZE   alpha 0.05, power 0.80, two-sided
 ------------------------------------------------------------------------------

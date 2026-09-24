@@ -286,6 +286,14 @@ def main() -> int:
     print("2. POLITIS-WHITE BLOCK LENGTH  (stationary; max across sessions)")
     print("-" * 78)
     blocks = {}
+    # The secondary series need a block length by the same rule. Section 4
+    # fixes the PROCEDURE -- Politis-White on the per-window summand, per
+    # session, maximum taken -- and the first run simply did not apply it to
+    # the secondaries. Applying it here is following the registered rule, not
+    # choosing a value, and it is done on DEVELOPMENT data as the rule
+    # requires.
+    extra = {"trade_sign": ("trade_sign", "hit"),
+             "direct_value": ("queue_imbalance", "value")}
     print(f"  {'candidate':<34}{'session':<26}{'n':>10}{'stationary':>12}")
     for cand, (feat, kind) in CANDIDATES.items():
         per = []
@@ -299,6 +307,22 @@ def main() -> int:
         blocks[cand] = max(per)
         print(f"  {cand:<34}{'MAX TAKEN':<26}{'':>10}{blocks[cand]:>12.2f}")
         print()
+
+    for name, (feat, kind) in extra.items():
+        per = []
+        for sname in sessions:
+            sub = (df if kind == "value" else d)
+            sub = sub[sub["session"] == sname]
+            if kind == "value":
+                x = (sub["label_halfspreads"].to_numpy(dtype=float)
+                     * np.sign(sub[feat].to_numpy(dtype=float)))
+            else:
+                x = summand(sub, feat, kind)[BLOCK_SERIES[kind]]
+            opt = optimal_block_length(x)
+            per.append(float(np.asarray(opt["stationary"])[0]))
+        blocks[name] = max(per)
+        print(f"  {name:<34}{'MAX TAKEN (secondary)':<26}{'':>10}{blocks[name]:>12.2f}")
+    print()
 
     # ---- 3. MDEs ------------------------------------------------------------
     print("-" * 78)
@@ -523,6 +547,8 @@ def main() -> int:
         "fallback_correct_units": "triggered" if fallback_units else "not triggered",
         "fallback_ratio_correct_units": f"{ratio_units:.4f}",
     }
+    for name in extra:
+        vals[f"block_{name}"] = f"{blocks[name]:.2f}"
     for r in rows:
         tag = r[0].split(" ")[0]
         vals[f"block_{tag}"] = f"{blocks[r[0]]:.2f}"
