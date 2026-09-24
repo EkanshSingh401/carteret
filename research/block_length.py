@@ -45,12 +45,16 @@ def summand(df: pd.DataFrame, metric: str) -> np.ndarray:
         feat = d["queue_imbalance"]
         return (np.sign(feat) == np.sign(d["label_ticks"])).astype(float).to_numpy()
     if metric == "sqerr":
-        # Univariate OLS of the label on the feature, in-session; the summand
-        # of an out-of-sample R2 is the squared error per window.
+        # Univariate OLS of the label on the feature, in-session. The summand
+        # is the squared-error REDUCTION against the baseline forecast, not
+        # the squared error: R2 is a ratio, and the series the bootstrap
+        # resamples is the numerator's summand. See the candidate-B amendment
+        # in docs/preregistration.md section 4 (2026-09-24).
         x = d["ofi"].to_numpy()
         y = d["label_halfspreads"].to_numpy()
         beta = float(np.dot(x, y) / np.dot(x, x)) if np.dot(x, x) else 0.0
-        return (y - beta * x) ** 2
+        baseline = float(y.mean())
+        return (y - baseline) ** 2 - (y - beta * x) ** 2
     raise SystemExit(f"unknown metric {metric}")
 
 

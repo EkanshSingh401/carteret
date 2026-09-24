@@ -39,9 +39,12 @@ ONE_SESSION_M = 1.5543  # the provisional value, 12302019 only
 # Candidate -> (feature column, summand kind). Section 3.
 CANDIDATES = {
     "A - OFI, directional": ("ofi", "hit"),
-    "B - OFI, out-of-sample R2": ("ofi", "sqerr"),
+    "B - OFI, out-of-sample R2": ("ofi", "r2"),
     "C - queue imbalance, directional": ("queue_imbalance", "hit"),
 }
+# The series Politis-White is run on, per candidate: the hit indicator for the
+# directional metrics, and the squared-error REDUCTION d for B.
+BLOCK_SERIES = {"hit": "hit", "r2": "d"}
 SIMPLER = "C - queue imbalance, directional"   # the registered tie-break
 
 
@@ -67,20 +70,44 @@ def moved(df: pd.DataFrame) -> pd.DataFrame:
     return df[df["label_ticks"] != 0].sort_values(["session", "window_end_ts"])
 
 
-def summand(d: pd.DataFrame, feature: str, kind: str) -> np.ndarray:
+def summand(d: pd.DataFrame, feature: str, kind: str) -> dict[str, np.ndarray]:
+    """The per-window summand(s) of a candidate's metric, in event order.
+
+    For the directional candidates this is the hit indicator and the metric is
+    its mean.
+
+    For candidate B the metric is a RATIO, and the amendment of 2026-09-24
+    fixes what is resampled. The registration's original summand -- the
+    per-window squared error -- is the summand of the MSE, not of an R2, and
+    dividing SE(MSE) by a fixed S overstates the uncertainty of R2: under a
+    weak signal MSE and S are close and move together, so the ratio is far
+    better determined than its numerator. What is returned instead is
+
+        b = (y - baseline)^2        the baseline forecast's squared error
+        e = (y - beta x)^2          the fitted model's squared error
+        d = b - e                   the per-window squared-error REDUCTION
+
+    with R2 = mean(d) / mean(b). The baseline forecast is the training-sample
+    mean of y: the registration said "out-of-sample R2" without naming a
+    baseline, so it is pinned here.
+    """
     if kind == "hit":
-        return (np.sign(d[feature]) == np.sign(d["label_ticks"])).to_numpy(dtype=float)
-    if kind == "sqerr":
+        return {"hit": (np.sign(d[feature]) == np.sign(d["label_ticks"])).to_numpy(dtype=float)}
+    if kind == "r2":
         x = d[feature].to_numpy(dtype=float)
         y = d["label_halfspreads"].to_numpy(dtype=float)
         xx = float(np.dot(x, x))
         beta = float(np.dot(x, y) / xx) if xx else 0.0
-        return (y - beta * x) ** 2
+        baseline = float(y.mean())
+        b = (y - baseline) ** 2
+        e = (y - beta * x) ** 2
+        return {"d": b - e, "b": b}
     raise SystemExit(f"unknown summand {kind}")
 
 
-def stationary_bootstrap_se(values: np.ndarray, sessions: np.ndarray, block: float,
-                            replications: int = REPLICATIONS, seed: int = SEED) -> float:
+def stationary_bootstrap_se(cols: dict[str, np.ndarray], sessions: np.ndarray, block: float,
+                            combine, replications: int = REPLICATIONS,
+                            seed: int = SEED) -> float:
     """SE of the pooled mean under the stationary bootstrap, resampling WITHIN
     sessions only (section 4, step 2b): a block never crosses a session
     boundary, because an overnight gap is not a dependence structure to splice
@@ -95,25 +122,29 @@ def stationary_bootstrap_se(values: np.ndarray, sessions: np.ndarray, block: flo
     rng = np.random.default_rng(seed)
     order = np.unique(sessions)
     p = 1.0 / max(block, 1.0)
-    total = len(values)
+    names = list(cols)
+    total = len(next(iter(cols.values())))
 
     per_session = []
     for s in order:
-        x = values[sessions == s].astype(float)
-        n = len(x)
+        sel = sessions == s
+        n = int(sel.sum())
         if n == 0:
             continue
-        ext = np.concatenate([x, x])            # circular wrap
-        pre = np.concatenate([[0.0], np.cumsum(ext)])
-        per_session.append((n, pre))
+        pres = {}
+        for k in names:
+            x = cols[k][sel].astype(float)
+            ext = np.concatenate([x, x])        # circular wrap
+            pres[k] = np.concatenate([[0.0], np.cumsum(ext)])
+        per_session.append((n, pres))
 
     draws = np.empty(replications, dtype=float)
     for r in range(replications):
-        acc = 0.0
-        for n, pre in per_session:
+        acc = {k: 0.0 for k in names}
+        for n, pres in per_session:
             # Enough geometric blocks to cover n with room to spare.
-            k = max(int(n / max(block, 1.0)) * 2 + 8, 8)
-            lens = rng.geometric(p, size=k)
+            k_draw = max(int(n / max(block, 1.0)) * 2 + 8, 8)
+            lens = rng.geometric(p, size=k_draw)
             cum = np.cumsum(lens)
             take = int(np.searchsorted(cum, n) + 1)
             lens = lens[:take].copy()
@@ -123,16 +154,23 @@ def stationary_bootstrap_se(values: np.ndarray, sessions: np.ndarray, block: flo
             lens = lens[lens > 0]
             starts = rng.integers(0, n, size=len(lens))
             ends = starts + lens
-            acc += float(np.sum(pre[ends] - pre[starts]))
-        draws[r] = acc / total
+            for key in names:
+                pre = pres[key]
+                acc[key] += float(np.sum(pre[ends] - pre[starts]))
+        draws[r] = combine(acc, total)
     return float(draws.std(ddof=1))
 
 
-def clustered_se(values: np.ndarray, clusters: np.ndarray) -> tuple[float, int]:
-    """One-way cluster-robust SE of a mean. Plan (c), symbol clustering."""
-    n = len(values)
-    xbar = float(values.mean())
-    per = pd.DataFrame({"d": values - xbar, "g": clusters}).groupby(
+def clustered_se_influence(infl: np.ndarray, clusters: np.ndarray) -> tuple[float, int]:
+    """One-way cluster-robust SE from a statistic's influence function.
+
+    For a mean the influence function is x - xbar and this is the ordinary
+    cluster-robust SE of a mean. For a ratio of means it is the standard
+    linearisation, which lets both candidates use one estimator instead of a
+    separate variance derivation each. Plan (c), symbol clustering.
+    """
+    n = len(infl)
+    per = pd.DataFrame({"d": infl, "g": clusters}).groupby(
         "g", sort=False)["d"].sum().to_numpy()
     g = len(per)
     if g < 2:
@@ -207,7 +245,7 @@ def main() -> int:
         per = []
         for s in sessions:
             sub = d[d["session"] == s]
-            x = summand(sub, feat, kind)
+            x = summand(sub, feat, kind)[BLOCK_SERIES[kind]]
             opt = optimal_block_length(x)
             st = float(np.asarray(opt["stationary"])[0])
             per.append(st)
@@ -220,52 +258,86 @@ def main() -> int:
     print("-" * 78)
     print("3. MDE AT THE PLANNED HELD-OUT SIZE   alpha 0.05, power 0.80, two-sided")
     print("-" * 78)
-    windows_per_session = len(d) / len(sessions)
-    heldout_windows = int(round(windows_per_session * args.heldout_sessions))
+    # Held-out window projection. The PRIMARY projection uses the development
+    # MINIMUM windows-per-session, not the mean: a smaller held-out sample
+    # gives a larger MDE, and the fallback exists to catch the case where the
+    # study cannot resolve an effect worth having. Projecting with the mean
+    # would understate the MDE whenever a held-out session is quieter than
+    # average, which is exactly the case the guard is for. The mean-based
+    # projection is reported beside it as a sensitivity and decides nothing.
+    per_sess_moved = [int((df[df["session"] == s]["label_ticks"] != 0).sum())
+                      for s in sessions]
+    min_per_session = min(per_sess_moved)
+    mean_per_session = float(np.mean(per_sess_moved))
+    heldout_windows = int(round(min_per_session * args.heldout_sessions))
+    heldout_windows_sens = int(round(mean_per_session * args.heldout_sessions))
     print(f"  planned held-out size: {args.heldout_sessions} sessions x "
           f"{args.heldout_symbols} symbols")
-    print(f"  development windows with a move {len(d):,}; mean per session "
-          f"{windows_per_session:,.0f}")
-    print(f"  projected held-out windows with a move  {heldout_windows:,}")
-    print()
-
-    # Candidate B's summand is the per-window SQUARED ERROR, whose mean is the
-    # mean squared error -- not R2. The metric, and therefore the threshold, is
-    # R2 = 1 - MSE/S with S the variance of the label. A standard error on the
-    # MSE scale is converted by dividing by S: an increment of dR2 in R2 is an
-    # increment of dR2 * S in MSE. Comparing an MSE-scale MDE against an R2
-    # threshold would be a units error, and a large one.
-    label_var = float(np.var(d["label_halfspreads"].to_numpy(dtype=float)))
-    print(f"  label variance S (half-spreads^2), for the B conversion  {label_var:.6f}")
+    print(f"  development windows with a move {len(d):,}")
+    print(f"  per-session minimum {min_per_session:,}   mean {mean_per_session:,.0f}")
+    print(f"  projected held-out windows, PRIMARY (min x {args.heldout_sessions})     "
+          f"{heldout_windows:,}   <- decides the fallback")
+    print(f"  projected held-out windows, sensitivity (mean x {args.heldout_sessions}) "
+          f"{heldout_windows_sens:,}")
     print()
 
     rows = []
+    sess = d["session"].to_numpy()
+    sym = d["symbol"].astype(str).to_numpy()
     for cand, (feat, kind) in CANDIDATES.items():
-        x = summand(d, feat, kind)
-        sess = d["session"].to_numpy()
+        cols = summand(d, feat, kind)
         L = blocks[cand]
-        scale = label_var if kind == "sqerr" else 1.0
-        se_dev_b = stationary_bootstrap_se(x, sess, L, replications=args.replications) / scale
+        n = len(next(iter(cols.values())))
+
+        if kind == "hit":
+            # Statistic is a mean; bootstrap it directly.
+            combine = lambda acc, tot: acc["hit"] / tot
+            point = float(cols["hit"].mean())
+            infl = cols["hit"] - point           # influence function of a mean
+        else:
+            # R2 is a RATIO of two means. It is bootstrapped as a ratio --
+            # recomputed from both resampled sums on every replication -- so
+            # the dependence between numerator and denominator is carried
+            # rather than assumed away by holding the denominator fixed.
+            combine = lambda acc, tot: acc["d"] / acc["b"] if acc["b"] else float("nan")
+            mean_b = float(cols["b"].mean())
+            point = float(cols["d"].mean()) / mean_b
+            # Influence function of a ratio of means, for the clustered SE.
+            infl = (cols["d"] - point * cols["b"]) / mean_b
+
+        se_dev_b = stationary_bootstrap_se(cols, sess, L, combine,
+                                           replications=args.replications)
         # Plan (b) scales by the square root of the ratio of EFFECTIVE BLOCKS.
         # L cancels, so this is the row-count ratio; it is written out because
         # the block is the independent unit, not the row.
-        se_held_b = se_dev_b * np.sqrt((len(x) / L) / (heldout_windows / L))
+        se_held_b = se_dev_b * np.sqrt((n / L) / (heldout_windows / L))
         mde_b = (Z_ALPHA + Z_POWER) * se_held_b
+        se_held_b_s = se_dev_b * np.sqrt(n / heldout_windows_sens)
+        mde_b_sens = (Z_ALPHA + Z_POWER) * se_held_b_s
 
-        sym = d["symbol"].astype(str).to_numpy()
-        se_dev_c, n_sym = clustered_se(x, sym)
-        se_dev_c = se_dev_c / scale
+        # Plan (c): cluster the influence function on symbol. For a mean this
+        # is the ordinary cluster-robust SE; for the ratio it is the same
+        # estimator applied to the linearisation, which is what makes the two
+        # candidates comparable.
+        se_dev_c, n_sym = clustered_se_influence(infl, sym)
         se_held_c = se_dev_c * np.sqrt(n_sym / args.heldout_symbols)
         mde_c = (Z_ALPHA + Z_POWER) * se_held_c
 
         thr = thresholds[cand]
-        rows.append((cand, thr, se_dev_b, mde_b, mde_b / thr, se_dev_c, mde_c, n_sym))
+        rows.append((cand, thr, se_dev_b, mde_b, mde_b / thr, se_dev_c, mde_c,
+                     n_sym, point, mde_b_sens, mde_b_sens / thr))
 
-    print(f"  {'candidate':<34}{'threshold':>11}{'SE dev (b)':>12}{'MDE (b)':>11}"
-          f"{'ratio':>9}{'MDE (c)':>11}")
-    for cand, thr, se_b, mde_b, ratio, se_c, mde_c, n_sym in rows:
-        print(f"  {cand:<34}{thr:>11.4f}{se_b:>12.6f}{mde_b:>11.6f}"
-              f"{ratio:>9.3f}{mde_c:>11.6f}")
+    print(f"  {'candidate':<34}{'dev est':>10}{'threshold':>11}{'SE dev (b)':>12}"
+          f"{'MDE (b)':>11}{'ratio':>9}{'MDE (c)':>11}")
+    for (cand, thr, se_b, mde_b, ratio, se_c, mde_c, n_sym, point,
+         mde_bs, ratio_s) in rows:
+        print(f"  {cand:<34}{point:>10.5f}{thr:>11.4f}{se_b:>12.6f}"
+              f"{mde_b:>11.6f}{ratio:>9.3f}{mde_c:>11.6f}")
+    print()
+    print("  sensitivity, held-out windows projected from the development MEAN:")
+    for (cand, thr, se_b, mde_b, ratio, se_c, mde_c, n_sym, point,
+         mde_bs, ratio_s) in rows:
+        print(f"    {cand:<34}MDE (b) {mde_bs:>10.6f}   ratio {ratio_s:>8.3f}")
     print()
     print(f"  symbol clusters in development: {rows[0][7]}")
     print("  plan (c) is a sensitivity analysis and takes no part in selection.")
@@ -288,9 +360,9 @@ def main() -> int:
         chosen = tied[0]
         print("  no tie; the tie-break was NOT needed")
         tie_used = False
-    for cand, thr, se_b, mde_b, ratio, se_c, mde_c, n_sym in rows:
-        mark = "  <== SELECTED" if cand == chosen[0] else ""
-        print(f"    {cand:<34} ratio {ratio:.4f}{mark}")
+    for r in rows:
+        mark = "  <== SELECTED" if r[0] == chosen[0] else ""
+        print(f"    {r[0]:<34} ratio {r[4]:.4f}{mark}")
 
     # ---- 5. guard and fallback ---------------------------------------------
     print()

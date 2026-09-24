@@ -284,8 +284,9 @@ and the evidence for it are recorded below.
 
 - **The series.** The **per-window summand of the primary metric**, in event
   order: the hit indicator *1{sign(feature) = sign(label)}* for candidates A
-  and C, and the per-window squared-error term for candidate B. **No time
-  binning.** The quantity resampled is the quantity whose dependence the block
+  and C, and for candidate B the per-window **squared-error reduction**
+  *d = (y − baseline)² − (y − ŷ)²*, per the amendment below — **not** the
+  squared-error term this section named until 2026-09-24. **No time binning.** The quantity resampled is the quantity whose dependence the block
   length must span, and binning was the free parameter that broke the previous
   rule.
 - **The estimate used** is the selector's **stationary** figure, because the
@@ -427,6 +428,79 @@ had not been computed when this amendment was committed** — the selector had
 been run only on synthetic AR(1) data to confirm the call signature. The
 sequence is visible in the history: this amendment, then a push, then CI, then
 the computation.
+
+#### Amendment: candidate B's summand was wrong for an R² metric
+
+**Committed 2026-09-24, before any development-set output existed.** The error
+was in **this document's specification**, not in the code that implemented it:
+the code did what section 4 said, and what section 4 said was wrong.
+
+**What was registered.** Section 4 named the per-window summand for candidate
+B as *the per-window squared-error term*. That is the summand of the **mean
+squared error**. Candidate B's metric is not MSE, it is **R²**, and R² is a
+**ratio**: *R² = 1 − MSE/S*, with *S* the baseline forecast's mean squared
+error.
+
+**Why that is an error and not a presentational choice.** Recovering an R²
+standard error from an MSE standard error means dividing by *S* and treating
+*S* as a known constant. It is not one — it is estimated from the same
+windows. Under a weak signal, which is the regime this study is in, *MSE* and
+*S* are close in value and **strongly positively correlated across resamples**:
+a resample with unusually large moves inflates both together, leaving the
+ratio almost unmoved. Holding the denominator fixed discards that cancellation
+and charges the ratio with the full sampling variability of its numerator. The
+result overstates the uncertainty of R², and the overstatement is severe.
+
+**What is registered now.**
+
+- The per-window summand for B is the **squared-error reduction** against B's
+  baseline forecast: *d = (y − baseline)² − (y − ŷ)²*, with **R² =
+  mean(d) / mean(b)** where *b = (y − baseline)²*.
+- **The baseline forecast is the training-sample mean of y.** The registration
+  said "out-of-sample R²" without naming a baseline; it is pinned here, since
+  an R² is meaningless until its baseline is stated.
+- **Politis–White block length for B is computed on *d***, the series the
+  bootstrap now resamples.
+- **Under plan (b), R² is bootstrapped as a ratio statistic** — recomputed
+  from both resampled sums on every replication — so the numerator–denominator
+  dependence is carried rather than assumed away.
+- Under plan (c), the cluster-robust standard error is taken on the ratio's
+  **influence function**, *(d − R²·b)/mean(b)*, which is the same estimator
+  the directional candidates use, applied to the linearisation.
+
+**This makes candidate B more likely to be selected, not less, and that is
+stated plainly.** The correction shrinks B's MDE and therefore its
+MDE-to-threshold ratio, which is the selection statistic. An amendment that
+improves the standing of one candidate is exactly the kind that invites
+suspicion about its timing, so: it was committed **before any development-set
+feature file existed**, and the history shows the commit preceding the first
+run of `research/gated.py` on development data.
+
+**The number that prompted it came from a smoke test, and was not a result.**
+A ratio of **1992** for candidate B was produced by a mechanical run of
+`research/gated.py` against `results/features/bx_2019-01-30.csv` — **BX, a
+different venue, taker-maker, and not a development session**. It was run to
+check that the script executed end to end, and its only role was to make the
+units error visible: a ratio three orders of magnitude from the others is not
+a finding about a signal, it is a sign that two quantities are not in the same
+units. No development session had been exported at that point.
+
+#### Amendment: the held-out window projection is the development minimum
+
+**Committed 2026-09-24, with the above.** The MDE scales to the held-out size,
+and the registration pinned the held-out *universe* — two sessions, fifty
+symbols — without pinning the **window count** that the scaling needs.
+
+- **Primary: the development per-session minimum × 2.** A smaller held-out
+  sample produces a larger MDE, and the fallback exists to catch the case
+  where the study cannot resolve an effect worth having. Projecting from the
+  mean would understate the MDE whenever a held-out session is quieter than
+  the development average — which is the case the guard is for. The
+  conservative direction is the one that risks declaring the study exploratory
+  when it need not be, not the one that risks a confirmatory claim the sample
+  cannot support.
+- **Sensitivity: the development mean × 2**, reported beside it.
+- **The fallback decision uses the primary.**
 
 **The evidence.** The rule fixes the tolerance (±0.05), the run length (30 consecutive lags) and
 the rounding. It does not fix **the time bin the metric is aggregated into
