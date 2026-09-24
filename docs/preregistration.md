@@ -6,17 +6,23 @@ claim, and `git log` verifies it. `research/run_heldout.sh` refuses to run
 until `research/heldout.lock` names a commit that is an ancestor of `HEAD` and
 this file is byte-identical to its content at that commit.
 
-> **Status: draft, unregistered — awaiting review.** The gated computation has
-> run (2026-09-24, `research/gated.py`, development sessions only) and section
-> 4 now carries *m*, the block lengths, the MDE table and the hypothesis the
-> selection rule returns: **candidate C**. Section 2 still offers all three
-> candidates, because deleting two is the author's act, not the rule's.
+> **Status: REGISTERED.** The primary hypothesis is **candidate C**, selected
+> by the rule in section 4 on development sessions only. The gated computation
+> (2026-09-24, `research/gated.py`) is complete: *m*, the block lengths, the
+> MDE table, the selection, the minimum-blocks guard and the fallback all carry
+> measured values, and every figure quoted here is checked against the
+> computation's own output by `tools/check_numbers.py` in CI.
 >
-> What remains before this document is registered: the author reviews the
-> computation, deletes the two candidates the rule did not select, and commits.
-> That commit is step 1 of section 10. Until `research/heldout.lock` names it
-> and CI has gone green on it, **the held-out sessions must not be
-> downloaded**, and none has been.
+> Candidates A and B are retained, marked **considered, not selected**. On
+> held-out data they are exploratory only — outside every confirmatory claim
+> and outside the Holm–Bonferroni family.
+>
+> **No held-out session has been downloaded.** The manifests in
+> `docs/manifests/` record the contents of `data/` and `results/` with digests
+> at each step, and say so rather than asserting it. `research/heldout.lock`
+> names this commit, the CI run that went green on it, and this file's SHA-256
+> at that commit; `research/run_heldout.sh` refuses to run if any of the three
+> stops matching.
 
 ---
 
@@ -39,27 +45,38 @@ whether what remains survives transaction costs.
 
 ## 2. Primary hypothesis — exactly one
 
-One feature, one horizon, one direction, one metric. The author selects one of
-the following and deletes the rest before the registration commit.
+One feature, one horizon, one direction, one metric.
 
-**Candidate A — order flow imbalance, directional.**
+> **REGISTERED PRIMARY: candidate C.** Selected by the rule in section 4 —
+> smallest MDE-to-threshold ratio under plan (b) — on 2026-09-24. No tie, so
+> the tie-break was not reached.
+>
+> **A and B were considered and not selected by the registered rule.** They
+> are kept in this document rather than deleted, because the rule that
+> rejected them is only checkable if what it chose between is visible. On
+> held-out data they are reported as **exploratory results only**: outside any
+> confirmatory claim, outside the Holm–Bonferroni family of section 3, and
+> never described as tested hypotheses. An exploratory number that clears a
+> bar is still exploratory.
+
+**Candidate C — queue imbalance, directional. REGISTERED PRIMARY.**
+> Queue imbalance at the inside, *(q_bid − q_ask) / (q_bid + q_ask)*, measured
+> at the end of a window of 50 book updates, predicts the sign of the
+> mid-price change over the following 50 book updates, with held-out
+> directional accuracy strictly greater than 50%.
+
+**Candidate A — order flow imbalance, directional. Considered, not selected.**
 > Order flow imbalance at the inside, measured over a window of *N* = 50
 > consecutive book updates and normalised by mean inside depth over that
 > window, predicts the *sign* of the mid-price change over the following 50
 > book updates, with held-out directional accuracy strictly greater than 50%
 > on windows whose mid-price change is nonzero.
 
-**Candidate B — order flow imbalance, magnitude.**
+**Candidate B — order flow imbalance, magnitude. Considered, not selected.**
 > A univariate ordinary-least-squares regression of the mid-price change over
 > the next 50 book updates on normalised order flow imbalance over the
 > previous 50, fitted on development sessions, achieves a strictly positive
 > out-of-sample R² on the held-out sessions.
-
-**Candidate C — queue imbalance, directional.**
-> Queue imbalance at the inside, *(q_bid − q_ask) / (q_bid + q_ask)*, measured
-> at the end of a window of 50 book updates, predicts the sign of the
-> mid-price change over the following 50 book updates, with held-out
-> directional accuracy strictly greater than 50%.
 
 Candidates A and B use the same feature and differ in what is claimed: A that
 the sign is predictable, B that the magnitude is. B is the stronger claim and
@@ -67,7 +84,53 @@ the more fragile. Candidate C tests a state variable rather than a flow
 variable and is the cheapest to compute, which matters if the strategy in
 section 6 is to run on a book update.
 
-Whichever is chosen, the other two move to section 3 as secondaries.
+### Why C, when a units-consistent rule would have chosen B
+
+This is the least comfortable fact in the document, and it is put here, in the
+section that names the primary, rather than in a footnote.
+
+The registered selection rule divides the MDE by the **threshold**. For a
+directional metric that threshold is a level near 0.55; for an R² metric it is
+already a difference, because that metric's null is zero. The rule therefore
+compares unlike quantities, and it flatters the directional candidates by
+roughly seventeen times. **Under a units-consistent rule — the MDE against the
+effect that actually has to be detected — candidate B has the smallest ratio
+and would have been selected.**
+
+| Candidate | Registered ratio | Units-consistent ratio | Development estimate | Its bar |
+|---|---:|---:|---:|---:|
+| A — OFI, directional | 0.0065 | 0.0698 | 0.56219 | 0.5516 |
+| B — OFI, R² | 0.0421 | **0.0421** | **0.00551** | **0.0261** |
+| C — queue imbalance | **0.0056** | 0.0603 | **0.62409** | **0.5516** |
+
+**Note what the last two columns say.** B's development estimate, R² =
+0.00551, lies **below** its own bar of 0.0261. C's, 0.62409, lies **above**
+its bar of 0.5516. The rule that would have selected B would have selected the
+candidate that development data says does not clear its threshold. That is
+visible only now, which is precisely why it cannot be used to choose.
+
+C is retained, for three reasons stated in full:
+
+1. **It is the registered rule's output.** That rule was fixed before any MDE
+   existed, and it is the only selection in this study not made with
+   development estimates in view. Every alternative on the table now —
+   including the units-consistent one — is a rule being considered *after* its
+   answer is known. That asymmetry is the whole content of a pre-registration,
+   and it does not stop applying because the registered rule turned out to be
+   imperfect.
+2. **The defect does not touch the rule's purpose.** The ratio exists to
+   exclude candidates the study cannot resolve. Under correct units B is
+   powered about 24× over and C about 17× over; both clear that purpose by a
+   wide margin. The units error changes the *ranking* of two adequately
+   powered candidates, not the *decision* the rule was built to make.
+3. **C is the pre-registered preference among comparable candidates.** Section
+   4 already fixes that ties go to the simpler feature, which is C: queue
+   imbalance is a state variable read at one instant, order flow imbalance a
+   flow accumulated over a window. Where the rule's discrimination between
+   them is an artifact, the registered preference is what remains.
+
+None of this makes the registered rule correct. It is recorded so that a
+reader can disagree with the choice on the same evidence the author had.
 
 ## 3. Secondary hypotheses and multiple-comparison correction
 
@@ -95,6 +158,23 @@ distinct quantity, and exempting it because it happens to test the same
 economic requirement as the primary would be the multiple-comparison problem
 by another name.
 
+**The family size does not shrink because A and B became exploratory.** With C
+registered as primary, the non-selected candidates are reported on held-out
+data as exploratory results outside every confirmatory claim (section 2). A
+reader might then argue that order flow imbalance has left the secondary
+family, since candidates A and B *are* the OFI claims, which would reduce the
+family from five to three and **loosen** every remaining secondary's corrected
+threshold.
+
+That argument is rejected and the family stays at **five**. Holm–Bonferroni
+controls the error rate over the tests actually conducted, and OFI is still
+going to be looked at on held-out data — calling that look exploratory changes
+its status in the write-up, not the number of comparisons made. Shrinking a
+correction family after the primary is known, in the direction that makes the
+survivors easier to clear, is the multiple-comparison problem arriving through
+the bookkeeping. The conservative reading costs nothing here and is the one
+registered.
+
 Registering both under a sign-based metric would have entered one feature
 twice, tightening every other feature's corrected threshold for no added
 evidence and presenting one result as two. Any feature added to this family in
@@ -107,14 +187,59 @@ the signal was right (section 4). This secondary tests the requirement with
 **no conversion at all**:
 
 > **V** = the mean **signed** mid-price change in the predicted direction, in
-> half-spreads, over windows with a nonzero move —
+> half-spreads, over **every window** —
 > *V = mean( Δ · sign(feature) )* — tested against **0.10**, one-sided,
 > under the same stationary bootstrap and block length as the primary.
+> A window with no move contributes Δ = 0; a window whose feature is exactly
+> zero contributes *sign* = 0. Both stay in the denominator. See the
+> correction below.
 
 0.10 is the economic requirement itself, in the units it was stated in, so
 this test needs neither *m* nor the independence assumption. It is a member of
 the secondary family and carries the Holm–Bonferroni correction like any
 other.
+
+#### Correction: V averages over all windows, and a zero feature contributes zero
+
+**Made 2026-09-24, in the stricter direction, before the registration commit.**
+Two points about V's population, both settled here so that the held-out
+computation cannot decide them.
+
+**A zero feature contributes zero and the window stays in the denominator.**
+*sign(0) = 0*, so a window in which the signal took no side contributes
+nothing to the numerator and still counts in the denominator. This is what the
+formula already says, and it is what the requirement means: 0.10 half-spreads
+**per window**, and a window in which the signal declined to take a side
+earned nothing in it. Dropping such windows would measure the value of the
+signal *when it fires* — a different and easier quantity, since the strategy
+still sat through the others. On development, dropping them would raise V for
+queue imbalance from 0.32542 to 0.36219, so the registered treatment is the
+conservative one. `research/study.py: direct_value()` implements it, and the
+same function serves the development and held-out paths so the two cannot
+diverge.
+
+**V averages over all windows, not only those that moved.** This section
+originally said "over windows with a nonzero move". That conditions the
+average on the move while testing it against a requirement stated *per
+window*, and so divides by the fraction of windows that move — the identical
+error corrected in *m* in section 4, and corrected here for the same reason
+and in the same direction. Zero-move windows have Δ = 0 and contribute
+nothing to the numerator, so the correction is exactly a change of
+denominator.
+
+| Feature | V over moved windows | **V over all windows** | Requirement |
+|---|---:|---:|---:|
+| `queue_imbalance` | 0.53204 | **0.32542** | 0.10 |
+| `ofi` | 0.21077 | **0.12892** | 0.10 |
+
+The conditional form overstates value per window by 1/0.61164 = 1.635×. Both
+features still clear 0.10 on development under the corrected definition, so
+the correction changes no development conclusion; it is made because the
+definition was wrong, not because the answer needed changing.
+
+This is a **secondary**, and the fix follows from the registered value
+requirement rather than from anything seen in the data, which is why it is
+made now rather than recorded and left. The primary metric is **unchanged**.
 
 **If the primary and this secondary disagree, the disagreement is the
 finding** and is reported as one: it localises the failure to the
@@ -837,10 +962,21 @@ argument by which zero-**label** windows are already excluded. The treatment
 is asymmetric. The effect is to bias C's accuracy **downward**: it is measured
 against a ceiling of 0.94564, not 1.
 
-It is left alone for the same reason the selection rule is: the computation
-has run, and tightening a metric in the direction that raises the selected
-candidate's estimate, after seeing that estimate, is not a correction a reader
-should have to trust. It is flagged here for the review.
+**The primary metric is unchanged, and the bias runs the safe way.** Scoring a
+zero feature as a miss caps C's achievable accuracy at **0.94564**, not 1, and
+pushes the measured value down. The primary test is therefore **conservative**:
+whatever accuracy C reports on held-out data, the quantity it is being asked to
+clear 0.5516 with has been handicapped, and a pass is a pass against a metric
+that was made harder than it needed to be. A correction here would raise the
+selected candidate's estimate, after that estimate was seen, which is not a
+change a reader should have to take on trust.
+
+The **secondary** V is treated differently and deliberately: there, a zero
+feature contributes zero to the numerator while the window stays in the
+denominator, which is also the conservative direction (see section 3). The two
+treatments differ because a miss and a zero answer different questions — "was
+the side right" has no answer when no side was taken, while "what was earned"
+has the answer zero. Both were settled before the registration commit.
 
 #### The MDE table
 

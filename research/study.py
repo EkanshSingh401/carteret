@@ -99,6 +99,41 @@ def _per_row_contribution(df: pd.DataFrame, feature: str, metric: str) -> np.nda
     raise ValueError(f"unknown metric {metric!r}")
 
 
+def direct_value(df: pd.DataFrame, feature: str) -> tuple[np.ndarray, int, int]:
+    """The direct-value secondary's per-window summand, section 3.
+
+        V = mean( Δ · sign(feature) )   over windows with a nonzero move
+
+    Returns the per-window terms, the number of windows, and how many of them
+    had a feature of exactly zero.
+
+    **Zero-feature windows contribute zero and stay in the denominator.** That
+    is what the formula says and it is what the economic requirement means: the
+    requirement is 0.10 half-spreads *per window*, and a window in which the
+    signal declined to take a side earned nothing in it. Dropping such windows
+    would measure the value of the signal *when it fires*, which is a different
+    and easier quantity -- the strategy still sat through those windows.
+
+    This differs deliberately from the primary directional metric, which scores
+    a zero feature as a miss (see the leakage audit). Both treatments are
+    conservative in the same direction; neither flatters the signal. They
+    differ because a miss and a zero are the right answers to different
+    questions: "was the side right" has no answer when no side was taken, while
+    "what was earned" has the answer zero.
+
+    **Zero-LABEL windows also stay in the denominator**, contributing zero,
+    for the same reason. This corrects the section-3 definition, which said
+    "over windows with a nonzero move": that conditions the average on the
+    move while testing it against a requirement stated *per window*, and so
+    divides by the fraction of windows that move -- the identical error that
+    was corrected in *m*. Both corrections are in the stricter direction.
+    """
+    sign = np.sign(df[feature].to_numpy(dtype=float))   # exactly 0 stays 0
+    delta = df["label_halfspreads"].to_numpy(dtype=float)  # zero when no move
+    terms = delta * sign
+    return terms, len(terms), int((sign == 0).sum())
+
+
 def clustered_mean(values: np.ndarray, clusters: np.ndarray) -> tuple[float, float, int]:
     """Mean with a cluster-robust standard error.
 
