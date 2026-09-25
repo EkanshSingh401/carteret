@@ -25,41 +25,45 @@
 # something anyone can do. run_heldout.sh recomputes it and refuses on a
 # mismatch.
 #
-# SET 2026-09-24, revised a second time after the strategy was demoted to
-# exploratory. The held-out sessions ARE on disk, fetched and verified under
-# explicit authorisation. No feature or label has been computed from either;
-# docs/manifests/ records data/ and results/ with digests at every step.
+# SET 2026-09-25, third revision, after the runner was found to be wired to
+# the script the first amendment replaced. The held-out sessions ARE on disk,
+# fetched and verified under explicit authorisation. No feature or label has
+# been computed from either.
 
 commit    29228cc4a3b493cf05ecaf66e14186541f9a402d
-ci_run    36073139831
+ci_run    36093805913
 sha256    28f10db45fff7316df6acca3c2871a9805511c893e1f8d36c4ac28e7f265708a
-frozen    d6600caf9ab0ce7a6db4a6a2c3141a33fcb6217e
+frozen    6b8a682ebca56c15de27de9ddc553eb3ef08382a
 
-# commit  the registration, UNCHANGED. Candidate C is the primary. Neither
-#         harness amendment edited a byte of docs/preregistration.md, because
-#         its digest is what makes the registration checkable.
-# sha256  of that file at that commit, and still. Recompute it with
+# commit  the registration, UNCHANGED through three harness amendments. Not a
+#         byte of docs/preregistration.md has been edited, because its digest
+#         is what makes the registration checkable.
+# sha256  of that file at that commit, and still:
 #
 #           git show 29228cc:docs/preregistration.md | shasum -a 256
 #
-# frozen  the frozen-code base: the second harness amendment. Analysis and
-#         tooling are frozen as of d6600ca, and the check is
+# frozen  the frozen-code base: the third amendment, which rewired
+#         run_heldout.sh onto research/heldout_study.py. Verify with
 #
-#           git diff d6600ca HEAD -- research/ src/ include/ tools/
+#           sh tools/check_frozen.sh
 #
-# ci_run  the run green on that amendment, all nine jobs, including the check
-#         that the registration quotes only computed values and the new check
-#         that every placeholder in it is allowlisted.
+#         which is THREE checks, because one was not enough and the single
+#         check it replaced could never pass: this file lives under research/,
+#         so a lock commit always follows the amendment it names. The checks
+#         are the frozen surface excluding this file, this file since the
+#         commit that wrote it, and the working tree against HEAD -- the last
+#         because the first two compare committed states while the code that
+#         would actually run can sit uncommitted beside them.
+#
+# ci_run  the run green on the third amendment.
 #
 # WHAT THIS LOCK DOES NOT COVER. Section 8 left the signal threshold and the
 # minimum-fills rule unfilled, so the STRATEGY component was never fully
-# registered. It is exploratory, under parameters declared in
-# docs/heldout-harness-amendment.md section 2 and before any held-out feature
-# was computed: signal threshold zero, which is the primary's own sign rule
-# and the only value requiring no choice, and no minimum-fills rule, with fill
-# counts reported instead.
+# registered. It is exploratory under parameters declared in
+# docs/heldout-harness-amendment.md section 2. The CONFIRMATORY scope --
+# primary C, the Holm family of five, the direct-value secondary -- reads no
+# unfilled constant and is unaffected.
 #
-# The CONFIRMATORY scope is unaffected and runs under the registration as
-# written: primary C against its bar, the Holm family of five, and the
-# direct-value secondary. Not one of them reads an unfilled constant; the
-# amendment lists each output against the constants it does read.
+# THE COMMANDS THE RUN WILL EXECUTE are recorded in section 3 of that
+# document, and run_heldout.sh --dry-run refuses to proceed unless what it
+# would run matches them.
