@@ -55,12 +55,35 @@ constexpr std::uint64_t kNs = 1000000000ULL;
 constexpr std::uint64_t kOpenNs = 34200ULL * kNs;
 constexpr std::uint64_t kCloseNs = 57600ULL * kNs;
 
-// Section 7, dollars per share. Tape C is the NASDAQ-listed rate; the study's
-// universe is NASDAQ sessions, and the tape a symbol prints on is not in the
-// ITCH feed, so the CONSERVATIVE rate is used -- Tape C at 0.0015 is lower
-// than Tape A/B at 0.0020, so using it cannot flatter the strategy.
-constexpr double kAddBase = 0.0015;
-constexpr double kAddTop = 0.00305;
+// Section 7, dollars per share.
+//
+// THE TAPE IS DERIVABLE, and an earlier comment here said it was not. The
+// Stock Directory 'R' message carries Market Category, which maps to tape:
+// Q, G and S are NASDAQ-listed and print on Tape C; N is NYSE, Tape A; and
+// A, P, Z and V are Tape B. The uniform Tape C rate is still what the primary
+// figures use, because that is what the run executed, and Tape C at 0.0015 is
+// the LOWER add rebate -- so the uniform figure cannot flatter the strategy.
+// The per-tape breakdown is reported beside it: fills are counted by tape and
+// the rebate is reweighted, which is accounting and changes no fill.
+constexpr double kAddBase = 0.0015;   // Tape C, NASDAQ-listed
+constexpr double kAddBaseAB = 0.0020; // Tapes A and B
+constexpr double kAddTop = 0.00305;   // top tier, not tape-split in section 7
+
+// Market Category -> tape. Anything unrecognised is counted separately rather
+// than folded into a tape it may not belong to.
+inline char tape_of(unsigned char cat) {
+    switch (cat) {
+    case 'Q':
+    case 'G':
+    case 'S': return 'C';
+    case 'N': return 'A';
+    case 'A':
+    case 'P':
+    case 'Z':
+    case 'V': return 'B';
+    default: return '?';
+    }
+}
 
 struct Inside {
     bool valid = false;
@@ -78,6 +101,7 @@ struct Quote {
 };
 
 struct SymState {
+    char tape = '?';
     Inside prev;
     std::uint32_t updates = 0;
     bool halted = false;
@@ -91,6 +115,7 @@ struct SymState {
 struct Tally {
     std::uint64_t quotes = 0;
     std::uint64_t fills = 0;
+    std::uint64_t fills_tape_a = 0, fills_tape_b = 0, fills_tape_c = 0, fills_tape_x = 0;
     double gross_halfspreads = 0.0; // (exit mid - entry) * side, in half spreads
     double gross_dollars = 0.0;     // same, in dollars per share
     double sum_spread_dollars = 0.0;
@@ -169,6 +194,12 @@ struct Strategy {
                 const double sgn = (s.quote.side == kBuy) ? 1.0 : -1.0;
                 const double g = (mid - (double)s.quote.price) * sgn; // Price(4) units
                 ++tally.fills;
+                switch (s.tape) {
+                case 'A': ++tally.fills_tape_a; break;
+                case 'B': ++tally.fills_tape_b; break;
+                case 'C': ++tally.fills_tape_c; break;
+                default: ++tally.fills_tape_x; break;
+                }
                 tally.gross_dollars += g / 10000.0;
                 tally.gross_halfspreads +=
                     s.quote.spread_at_entry > 0 ? g / (s.quote.spread_at_entry / 2.0) : 0.0;
@@ -201,7 +232,10 @@ struct Strategy {
 struct Driver {
     Strategy* s;
     void on(SystemEvent v) { s->sim.on(v); }
-    void on(StockDirectory v) { s->sim.on(v); }
+    void on(StockDirectory v) {
+        s->sim.on(v);
+        s->st[v.locate()].tape = tape_of(v.market_category());
+    }
     void on(StockTradingAction v) { s->on_trading_action(v.locate(), v.trading_state()); }
     void on(AddOrder v) {
         s->sim.on(v);
@@ -349,6 +383,21 @@ int main(int argc, char** argv) {
     std::printf("EXPLORATORY  NET per fill top   %.8f $/share  (sensitivity)\n", net_top);
     std::printf("EXPLORATORY  mean spread        %.6f $/share\n",
                 fills ? t.sum_spread_dollars / fills : 0.0);
+    // Post-hoc, accounting only: the same fills, with the rebate each one
+    // actually earns given its tape.
+    const double weighted_add = fills
+                                    ? (kAddBase * (double)t.fills_tape_c +
+                                       kAddBaseAB * (double)(t.fills_tape_a + t.fills_tape_b) +
+                                       kAddBase * (double)t.fills_tape_x) /
+                                          fills
+                                    : 0.0;
+    std::printf("EXPLORATORY  fills by tape      A %llu  B %llu  C %llu  unknown %llu\n",
+                (unsigned long long)t.fills_tape_a, (unsigned long long)t.fills_tape_b,
+                (unsigned long long)t.fills_tape_c, (unsigned long long)t.fills_tape_x);
+    std::printf("EXPLORATORY  per-tape rebate    %.8f $/share (weighted; unknown at Tape C)\n",
+                weighted_add);
+    std::printf("EXPLORATORY  NET per fill base, per-tape  %.8f $/share  (post-hoc)\n",
+                gross_per_fill + weighted_add);
     std::printf("EXPLORATORY  exit is a modelled liquidation at the mid, so this\n");
     std::printf("EXPLORATORY  overstates realisable P&L by the exit's half spread.\n");
 
