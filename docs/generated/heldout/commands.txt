@@ -1,0 +1,9 @@
+./build/release/census data/10302019.NASDAQ_ITCH50
+./build/release/determinism data/10302019.NASDAQ_ITCH50
+./build/release/replay --market Q data/10302019.NASDAQ_ITCH50
+./build/release/export_features --window 50 --symbols 50 --out results/heldout/features_10302019.NASDAQ_ITCH50.csv data/10302019.NASDAQ_ITCH50
+./build/release/census data/01302020.NASDAQ_ITCH50
+./build/release/determinism data/01302020.NASDAQ_ITCH50
+./build/release/replay --market Q data/01302020.NASDAQ_ITCH50
+./build/release/export_features --window 50 --symbols 50 --out results/heldout/features_01302020.NASDAQ_ITCH50.csv data/01302020.NASDAQ_ITCH50
+python3 research/heldout_study.py --sessions results/heldout/features_10302019.NASDAQ_ITCH50.csv results/heldout/features_01302020.NASDAQ_ITCH50.csv --out results/heldout --primary C --label heldout --strategy --exploratory --strategy-sessions data/10302019.NASDAQ_ITCH50 data/01302020.NASDAQ_ITCH50

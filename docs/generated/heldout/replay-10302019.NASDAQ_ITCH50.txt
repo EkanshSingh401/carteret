@@ -1,0 +1,68 @@
+file              data/10302019.NASDAQ_ITCH50
+hash policy       multiply-shift
+framing           length-prefixed
+messages parsed   293989079
+messages compared 290025046
+level compares    361548616
+BBO compares      290611500
+full compares     139
+invariant checks  17  (every 16777216 messages)
+unknown type      0
+length mismatch   0
+input ended       buffer exhausted at a message boundary
+trailing bytes    0
+live orders       ref 0 / fast 0
+index load factor 0.000, mean probe 1.236
+
+feed conditions (counted, never repaired -- docs/design.md record 007):
+                                    reference           fast
+  orphan execute                            0              0
+  orphan execute-with-price                 0              0
+  orphan cancel                             0              0
+  orphan delete                             0              0
+  orphan replace                            0              0
+  duplicate add                             0              0
+  zero-share cross trade                12085          12085
+  removed at zero shares              5341815        5341815
+  over-execution                            0              0
+  crossed observations                   2931           2931
+  locked observations                      34             34
+  after end of system hours             44214          44214
+  book messages                     290007256      290007256
+
+fast book structure:
+  window ticks                          256
+  order record bytes                     24
+  overflow hits                    10664631
+  window recenters                   868026
+  levels moved by recenters        13427625
+  sub-cent prices                    605403
+  pool exhausted                          0
+  symbol table overflow                   0
+  index insert failures                   0
+
+invariants:
+  reference violations                    0
+  fast violations                         0
+
+no divergence over 290025046 messages
+
+[not a benchmark] 270.1s wall for the differential replay
+
+crossed and locked observations (docs/design.md record 036):
+                                  crossed       locked
+  total                              2931           34
+    no trading action yet               0            0
+    operationally halted                0            0
+    symbol not trading               2930           34
+    awaiting reopening cross            1            0
+    unexplained                         0            0   <- fails the gate
+    in continuous trading            1230            0
+    first                        07:07:48     07:00:45
+    last                         20:00:00     17:15:00
+    distinct symbols                    5            2
+  deepest crossing                 54300 ticks
+  reopening windows                    8, longest 0.962 s, cap 0.100 s
+  windows closed by the cap            0   <- fails the gate
+  operational halts                    0 halted, 0 released (market 'Q')
+RESULT: identical

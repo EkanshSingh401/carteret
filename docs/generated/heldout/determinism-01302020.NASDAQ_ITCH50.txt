@@ -1,0 +1,6 @@
+file          data/01302020.NASDAQ_ITCH50
+messages      423285709
+effects       419016802
+live orders   0
+event stream  e16470ed04b456d78de374464be812d300df16c1bccce54ef11f37e311c74b09
+book state    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855

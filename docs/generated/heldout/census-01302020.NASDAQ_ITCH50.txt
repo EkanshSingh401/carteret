@@ -1,0 +1,38 @@
+file              data/01302020.NASDAQ_ITCH50
+bytes             12952050754
+framing           length-prefixed
+messages          423285709
+book-affecting    417219234  (98.6%)
+unknown type      0
+length mismatch   0
+input ended       buffer exhausted at a message boundary
+trailing bytes    0
+final message     'S' System Event, code 'C'  (End of Messages)
+complete session  yes  (ends on System Event 'C')
+first ts          10953404452051 ns
+last ts           72300000039817 ns
+after 'E' event   46451
+
+per type:
+  S             6
+  R          8916
+  H          8921
+  Y          9068
+  L        216802
+  V             1
+  K             2
+  J             5
+  A     184735355
+  F       1875350
+  E       8415610
+  C        139474
+  X       4990972
+  D     180285101
+  U      36777372
+  P       1779727
+  Q         17835
+  I       4025192
+
+[not a benchmark] 5.79s wall, 73.2 M msg/s
+
+RESULT: session complete and fully parsed

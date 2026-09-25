@@ -1,0 +1,70 @@
+=== pre-run checks, recorded for the results commit ===
+=== (a) frozen check ===
+a) frozen surface since 6b8a682ebca56c15de27de9ddc553eb3ef08382a, excluding the lock
+   empty
+b) the lock itself since d4ce15e75a2944e3c02bacca01c3c5024ed62aa5
+   empty
+c) working tree vs HEAD across the frozen surface
+   clean
+FROZEN CHECK PASSED
+
+=== (d) results/heldout must not exist ===
+absent: results/heldout does not exist
+  present: results/features
+  present: results/leakage
+  present: results/micro-bx
+  present: results/queue-bx
+  present: results/rehearsal
+
+=== (b) clean rebuild of build/release from HEAD d4ce15e75a2944e3c02bacca01c3c5024ed62aa5 ===
+build/release removed, reconfigured with: cmake --preset release  (CMAKE_BUILD_TYPE=RelWithDebInfo)
+
+--- compiler ---
+CMAKE_CXX_COMPILER:FILEPATH=/usr/bin/c++
+Apple clang version 21.0.0 (clang-2100.0.123.102)
+Target: arm64-apple-darwin25.4.0
+
+--- flags ---
+CMAKE_CXX_FLAGS:STRING=
+CMAKE_CXX_FLAGS_RELWITHDEBINFO:STRING=-O2 -g -DNDEBUG
+carteret_fp adds: -ffp-contract=off  (see CMakeLists.txt)
+64:target_compile_options(carteret_fp INTERFACE -ffp-contract=off)
+
+--- cmake / build tool ---
+cmake version 4.4.3
+
+--- test suite on THIS build ---
+15/15 passed (ctest --preset release)
+
+--- SHA-256 of every binary the runner invokes ---
+1fb5b3710aaf8a38a462ecc3da60402850643b1457760d591f00a5d7427b0e0b  build/release/census
+7cc96e48ace78f2b02eaff00640421998c0acc5259572d09b6f650ec8cf8d3fd  build/release/determinism
+5e4f6f69842f4d2e2f80717d9662fed00fa099d403d86b19b5879b39ae0e535f  build/release/replay
+418b54897c622812d6ab94c36ab0f146b94ca71e2ad1bdb8d69fae9e4ca68296  build/release/export_features
+29ffdec0543c441dbc57b6ca3794e84607ed684080f62b78968a0e75996fb587  build/release/strategy_pnl
+
+=== (c) Python, packages, seeds ===
+Python 3.14.3
+numpy   2.4.6
+pandas  3.0.3
+arch    8.0.0
+scipy   1.18.1
+
+--- bootstrap seed and replications, as the harness uses them ---
+35:REPLICATIONS = 10_000
+36:SEED = 20191030
+174:    ap.add_argument("--bootstrap", type=int, default=10000)
+175:    ap.add_argument("--seed", type=int, default=gated.SEED)
+
+  The seed is fixed at 20191030 and the replication count at 10,000 for
+  every interval. The same seed is used for the primary, each secondary
+  and the exploratory candidates; they resample different series, so a
+  shared seed does not couple them.
+
+=== (e) what the determinism step asserts ===
+  The runner invokes: determinism <session>   -- WITHOUT --check.
+  determinism compares against expected digests only when given
+  --check <event-hex> <book-hex>. tests/golden_hashes.txt holds values
+  for the SYNTHETIC session alone; no held-out session has a golden
+  hash, and none could without having been run before.
+  Therefore, for the held-out sessions: RECORDED, NOT GATED.
