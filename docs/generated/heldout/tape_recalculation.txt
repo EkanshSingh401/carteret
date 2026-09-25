@@ -1,0 +1,80 @@
+EXPLORATORY  strategy P&L -- NOT a registered result
+EXPLORATORY  session            data/10302019.NASDAQ_ITCH50
+EXPLORATORY  rule 4             OFF (primary arm)
+EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+EXPLORATORY  quotes placed      377165
+EXPLORATORY  fills              30373
+EXPLORATORY  fill rate          0.0805
+EXPLORATORY  gross per fill     -0.384426 half-spreads
+EXPLORATORY  gross per fill     -0.00357011 $/share
+EXPLORATORY  add rebate base    0.00150000 $/share
+EXPLORATORY  add rebate top     0.00305000 $/share
+EXPLORATORY  NET per fill base  -0.00207011 $/share
+EXPLORATORY  NET per fill top   -0.00052011 $/share  (sensitivity)
+EXPLORATORY  mean spread        0.028592 $/share
+EXPLORATORY  fills by tape      A 3574  B 11683  C 15116  unknown 0
+EXPLORATORY  per-tape rebate    0.00175116 $/share (weighted; unknown at Tape C)
+EXPLORATORY  NET per fill base, per-tape  -0.00181895 $/share  (post-hoc)
+EXPLORATORY  exit is a modelled liquidation at the mid, so this
+EXPLORATORY  overstates realisable P&L by the exit's half spread.
+EXPLORATORY  strategy P&L -- NOT a registered result
+EXPLORATORY  session            data/10302019.NASDAQ_ITCH50
+EXPLORATORY  rule 4             ON (sensitivity)
+EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+EXPLORATORY  quotes placed      377165
+EXPLORATORY  fills              32718
+EXPLORATORY  fill rate          0.0867
+EXPLORATORY  gross per fill     -0.339980 half-spreads
+EXPLORATORY  gross per fill     -0.00300553 $/share
+EXPLORATORY  add rebate base    0.00150000 $/share
+EXPLORATORY  add rebate top     0.00305000 $/share
+EXPLORATORY  NET per fill base  -0.00150553 $/share
+EXPLORATORY  NET per fill top   0.00004447 $/share  (sensitivity)
+EXPLORATORY  mean spread        0.027911 $/share
+EXPLORATORY  fills by tape      A 3934  B 12510  C 16274  unknown 0
+EXPLORATORY  per-tape rebate    0.00175130 $/share (weighted; unknown at Tape C)
+EXPLORATORY  NET per fill base, per-tape  -0.00125423 $/share  (post-hoc)
+EXPLORATORY  exit is a modelled liquidation at the mid, so this
+EXPLORATORY  overstates realisable P&L by the exit's half spread.
+EXPLORATORY  strategy P&L -- NOT a registered result
+EXPLORATORY  session            data/01302020.NASDAQ_ITCH50
+EXPLORATORY  rule 4             OFF (primary arm)
+EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+EXPLORATORY  quotes placed      688247
+EXPLORATORY  fills              46545
+EXPLORATORY  fill rate          0.0676
+EXPLORATORY  gross per fill     -0.570855 half-spreads
+EXPLORATORY  gross per fill     -0.00562391 $/share
+EXPLORATORY  add rebate base    0.00150000 $/share
+EXPLORATORY  add rebate top     0.00305000 $/share
+EXPLORATORY  NET per fill base  -0.00412391 $/share
+EXPLORATORY  NET per fill top   -0.00257391 $/share  (sensitivity)
+EXPLORATORY  mean spread        0.045102 $/share
+EXPLORATORY  fills by tape      A 3053  B 16666  C 26826  unknown 0
+EXPLORATORY  per-tape rebate    0.00171183 $/share (weighted; unknown at Tape C)
+EXPLORATORY  NET per fill base, per-tape  -0.00391209 $/share  (post-hoc)
+EXPLORATORY  exit is a modelled liquidation at the mid, so this
+EXPLORATORY  overstates realisable P&L by the exit's half spread.
+EXPLORATORY  strategy P&L -- NOT a registered result
+EXPLORATORY  session            data/01302020.NASDAQ_ITCH50
+EXPLORATORY  rule 4             ON (sensitivity)
+EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+EXPLORATORY  quotes placed      688247
+EXPLORATORY  fills              50470
+EXPLORATORY  fill rate          0.0733
+EXPLORATORY  gross per fill     -0.506243 half-spreads
+EXPLORATORY  gross per fill     -0.00457975 $/share
+EXPLORATORY  add rebate base    0.00150000 $/share
+EXPLORATORY  add rebate top     0.00305000 $/share
+EXPLORATORY  NET per fill base  -0.00307975 $/share
+EXPLORATORY  NET per fill top   -0.00152975 $/share  (sensitivity)
+EXPLORATORY  mean spread        0.043663 $/share
+EXPLORATORY  fills by tape      A 3259  B 17954  C 29257  unknown 0
+EXPLORATORY  per-tape rebate    0.00171015 $/share (weighted; unknown at Tape C)
+EXPLORATORY  NET per fill base, per-tape  -0.00286960 $/share  (post-hoc)
+EXPLORATORY  exit is a modelled liquidation at the mid, so this
+EXPLORATORY  overstates realisable P&L by the exit's half spread.

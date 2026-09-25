@@ -1982,3 +1982,50 @@ draw.
 arm64 with `-ffp-contract=off`. The 1,000,000-draw prefix reproduces the
 golden test's sweep value exactly. The x86-64 glibc comparison is pending the
 Stage 4 run and is the point of the mechanism.
+
+## 039 — Compute each metric's permutation null on development data before registration
+
+**Decision.** For every directional metric, compute its **permutation null** —
+*P(f>0)·P(l>0) + P(f<0)·P(l<0)* — on development sessions **before** the
+registration commit, and register the test against that null rather than
+assuming 0.5. Where the null departs materially from 0.5, either register the
+departure or change the metric, but do not discover it afterwards.
+
+**Why.** The directional metric scores a feature of exactly zero as a **miss**,
+because `sign(0)` equals the sign of no nonzero label. That is a defensible
+choice — a feature with no side made no prediction and earned nothing — but it
+moves the null. Under random pairing the expected accuracy is not 0.5 unless
+the feature is almost never zero. A test written against 0.5 is therefore a
+test against the wrong number, and how wrong depends on a property of the
+feature nobody looked at.
+
+**The two cases that motivated this, both from the held-out run of 2026-09-25.**
+
+| Feature | P(feature = 0) | Permutation null | Registered test |
+|---|---:|---:|---|
+| `trade_sign` | 0.538 | **0.231** | against 0.5 — **structurally unable to succeed** |
+| queue imbalance (the primary, C) | 0.068 | **0.473** | against 0.5 — conservative, and it held anyway |
+
+`trade_sign` is zero whenever a window contains no execution, which is more
+than half of them. Scoring those as misses caps its achievable accuracy near
+0.46 — **below the 0.5 null it was tested against** — so "not significant"
+was guaranteed before any data existed. The registered verdict stands and is
+reported, but it is not evidence about the feature: post-hoc, `trade_sign` is
+0.0437 above its own null (95% interval [0.0425, 0.0448]) and reaches 0.5946
+on the windows where it is nonzero.
+
+Candidate C ran the other way. Its null is 0.473, so the registered test was
+**stricter** than a correctly centred one, and the signal held regardless:
+0.596 as registered against 0.640 where the feature is nonzero. A conservative
+test that passes needs no apology. A test that cannot pass is not a test.
+
+**What this costs if skipped.** One of the five registered secondary slots was
+spent on a comparison that could not have come out any other way. The
+correction family still counted it, so every other member carried a tighter
+adjusted threshold for no evidence gained — the same waste `docs/design.md`
+record 031 avoids by dropping a feature that duplicates another in sign.
+
+**Scope.** This applies to any sign-based metric on a feature that can be
+exactly zero. It does not apply to the magnitude metric, whose null is zero by
+construction, nor to the direct-value test, which already treats a zero
+feature as contributing zero rather than as a wrong answer.

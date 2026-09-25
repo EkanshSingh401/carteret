@@ -1,0 +1,48 @@
+POST-HOC, LABELLED. Not registered, not confirmatory, and reported
+beside the registered verdicts rather than in place of them.
+
+The registered directional metric scores a feature of exactly zero as a
+MISS. Under random pairing the expected accuracy is therefore
+P(f>0)P(l>0) + P(f<0)P(l<0), which equals 0.5 only when the feature is
+almost never zero. For a SPARSE feature the null sits far below 0.5, and
+a test against 0.5 cannot detect predictive content in it at all.
+
+held-out windows with a move: 718,890
+P(label +) 0.50382   P(label -) 0.49618
+
+feature              P(f=0)     null  registered   vs null  f!=0 only     n(f!=0)
+queue_imbalance     0.06840  0.46577     0.59601  +0.13024    0.63977     669,721
+ofi                 0.01683  0.49160     0.55436  +0.06275    0.56385     706,792
+trade_sign          0.53815  0.23093     0.27460  +0.04367    0.59456     332,017
+
+TRADE_SIGN. It is zero in 53.8% of moved windows -- a window with no
+execution has no trade sign -- so its permutation null is 0.23093. Its
+registered accuracy of 0.27460 is ABOVE that null by 0.044, and among
+windows where it is nonzero it is 0.59456, comparable to the primary.
+
+The registered verdict STANDS AS REPORTED: not significant against 0.5.
+What this post-hoc shows is that the registered test could not have
+reached any other verdict. A feature zero in half the windows is capped
+near 0.46 under the registered scoring, below the 0.5 null, so 'not
+significant' was structurally guaranteed and is not evidence that the
+feature carries no signal. That is a defect in how the metric treats
+sparse features, and it is recorded rather than repaired: changing a
+metric after seeing the result is what the registration exists to stop.
+
+---
+
+POST-HOC INTERVALS. Same plan-(b) stationary bootstrap, same block
+length L = 177.58, same seed 20191030, 10,000 replications as the registered
+intervals. The statistics below are NOT registered and are labelled
+post-hoc wherever they appear.
+
+feature             excess over null            95% interval  acc where f!=0            95% interval
+queue_imbalance              0.13024      [0.12875, 0.13174]         0.63977      [0.63818, 0.64135]
+ofi                          0.06275      [0.06073, 0.06477]         0.56385      [0.56181, 0.56588]
+trade_sign                   0.04367      [0.04250, 0.04484]         0.59456      [0.59209, 0.59703]
+
+Every excess over its own null is significantly positive, trade_sign
+included. Under the REGISTERED test trade_sign is 'not significant
+against 0.5' and that verdict stands; against the null its own
+sparsity implies, it carries signal. The two statements are both true
+and are about different nulls.

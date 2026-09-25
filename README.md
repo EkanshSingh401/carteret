@@ -33,11 +33,179 @@ and analysis, and the queue-position simulator and bias study.
 
 Outstanding: the benchmark harness has been built and smoke-tested but has
 produced **no published number**, because that requires the x86_64 Linux host.
-The Stage 8 study is drafted and gated but **unregistered**: the author
-chooses the primary hypothesis, completes the power analysis on development
-sessions, commits `docs/preregistration.md`, and writes that commit's hash
-into `research/heldout.lock`. The held-out sessions have not been
-downloaded.
+
+The Stage 8 study is **registered and run**; its results are below.
+
+## Pre-registered study
+
+Registered before the held-out sessions were downloaded, run once on
+2026-09-25. The registration is `docs/preregistration.md`, commit `29228cc`,
+SHA-256 `28f10db45fff7316df6acca3c2871a9805511c893e1f8d36c4ac28e7f265708a`,
+unchanged through three harness amendments. `research/heldout.lock` pins it.
+
+**Primary hypothesis (candidate C).** Queue imbalance at the inside predicts
+the sign of the mid-price change over the following 50 book updates.
+
+| | |
+|---|---:|
+| Held-out directional accuracy | **0.59601** |
+| 95% interval, intraday stationary bootstrap at *L* = 177.58 | **[0.59431, 0.59771]** |
+| Registered economic bar | 0.5516 |
+| Null | 0.5 |
+| Windows with a nonzero move | 718,890 |
+
+**SIGNAL HOLDS.** The interval lies entirely above both the null and the bar.
+The symbol-clustered sensitivity — anti-conservative, and it decides nothing —
+is [0.56603, 0.62599] over 67 symbols and agrees.
+
+**The registered metric is conservative for C.** It scores a feature of
+exactly zero as a *miss*, and queue imbalance is exactly zero in 6.8% of
+moved windows. Accuracy is 0.596 as registered against **0.640 where the
+feature is nonzero** (post-hoc, [0.63818, 0.64135]). The verdict held under a
+metric that counted non-predictions as wrong answers.
+
+**Secondaries**, Holm–Bonferroni over a registered family of five.
+
+| Member | Estimate | 95% interval | Holm-adjusted *p* | |
+|---|---:|---|---:|---|
+| Order flow imbalance | 0.55436 | [0.55230, 0.55641] | < 1e-12 | significant |
+| Trade-sign imbalance | 0.27460 | [0.26948, 0.27971] | 1 | not significant |
+| Direct value | 0.29054 | [0.28776, 0.29332] | < 1e-12 | significant |
+| Micro-price deviation | — | dropped: sign-identical to queue imbalance | — | — |
+| Queue-position-conditioned OFI | — | **registered, not implemented, not run** | — | — |
+
+Three of five members were tested. Micro-price deviation is legitimately
+dropped. **Queue-position-conditioned OFI was never implemented**; it is named
+in the registered family and no code produces it. The correction was applied
+over five regardless, so the members that were tested carry a more
+conservative threshold than four would have given, and no reported
+significance is overstated. It is still a registered secondary that was not
+run.
+
+**Order flow imbalance appears twice, under two different tests.** As a Holm
+secondary it is tested against the null of 0.5 — confirmatory, adjusted,
+significant. As candidate A it is tested against its economic bar of 0.5516 —
+exploratory, unadjusted, outside the family. Same feature and same estimate;
+"better than chance" and "better than the cost floor" are different claims.
+
+**Trade-sign imbalance: the registered test could not have succeeded.** The
+metric scores a zero feature as a miss, and trade sign is zero in **53.8%** of
+moved windows, because a window with no execution has no trade sign. Its
+permutation null — *P(f>0)P(l>0) + P(f<0)P(l<0)* — is **0.231**, not 0.5, and
+the achievable accuracy is capped near 0.46, below the null it was tested
+against. "Not significant" was guaranteed before any data existed. The
+registered verdict stands as reported; it is not evidence about the feature.
+Post-hoc, trade sign is +0.0437 above its own null ([0.04250, 0.04484]) and
+reaches 0.5946 where it is nonzero ([0.59209, 0.59703]). `docs/design.md`
+record 039 registers the rule this should have followed.
+
+**Direct-value secondary.** Mean signed mid move in the predicted direction,
+over every window, with a zero feature contributing zero:
+**0.29054 half-spreads per window**, [0.28776, 0.29332], against the
+registered requirement of 0.10. Clears.
+
+**Exploratory — candidates A and B**, considered and not selected by the
+registered rule. A: 0.55436, [0.55230, 0.55641], bar 0.5516. B: 0.00348,
+[0.00300, 0.00396], bar 0.0261. Outside every confirmatory claim and outside
+the Holm family. A clears its bar and that remains exploratory.
+
+### Exploratory — the maker strategy
+
+**Exploratory, not confirmatory.** Section 8 of the registration left the
+signal threshold and the minimum-fills rule unfilled, so this component was
+never fully registered. It runs with declared parameters — signal threshold
+zero, which is the primary's own sign rule and the only value requiring no
+choice, and no minimum-fills rule — recorded in
+`docs/heldout-harness-amendment.md` before any held-out feature was computed.
+
+| Session | Rule 4 | Quotes | Fills | Fill rate | Gross/fill | Net, base | Net, top |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 2019-10-30 | off | 377,165 | 30,373 | 8.05% | −0.384 hs | −$0.00207 | −$0.00052 |
+| 2019-10-30 | on | 377,165 | 32,718 | 8.67% | −0.340 hs | −$0.00151 | +$0.00004 |
+| 2020-01-30 | off | 688,247 | 46,545 | 6.76% | −0.571 hs | −$0.00412 | −$0.00257 |
+| 2020-01-30 | on | 688,247 | 50,470 | 7.33% | −0.506 hs | −$0.00308 | −$0.00153 |
+
+**The strategy loses money in every arm at the base tier.** The one positive
+figure, +$0.00004/share, is a single session under the rule-4-on sensitivity
+at the top tier — the most flattering combination available — and it rounds
+to break-even. Both ingredients are ones the registration warns can only
+flatter: rule 4 adds fills it cannot verify, and the top tier assumes more
+than 1.5% of consolidated added volume.
+
+**Why a signal that predicts direction still loses money.** Passive fills are
+**adversely selected**. A resting quote fills when the market comes to it,
+which is disproportionately when the price is about to move through it, so the
+fills are a biased sample of the windows the signal was right about. Measured
+here: gross **−0.34 to −0.57 half-spreads per fill** before any rebate. The
+add rebate of $0.0015 to $0.00305 per share does not close a gap that size.
+
+Crossing the spread instead does not help, and the arithmetic says so before
+any test: taking costs about **2 half-spreads** — one to cross, one paid as
+the take fee on a one-cent spread — against a signal worth **0.29
+half-spreads** of directional value per window. *That is arithmetic on the
+measured value, not a tested claim; no taker variant was run.*
+
+**Tape correction, post-hoc.** The run applied the Tape C add rebate of
+$0.0015 uniformly. The tape is derivable from the Stock Directory Market
+Category (Q/G/S → C, N → A, A/P/Z/V → B), and Tapes A and B pay $0.0020.
+Recomputing the rebate from the recorded fills — **the fills are unchanged
+and reproduce exactly** — gives a weighted rate of $0.00171 to $0.00175 and
+moves net P&L by about $0.00025 per share. Every arm remains negative at the
+base tier.
+
+### Scope
+
+**With two held-out sessions, these confirmatory verdicts apply to those
+sessions and are not generalised beyond them.** A block bootstrap within two
+days estimates the uncertainty of a quantity measured on those two days.
+
+### Limitations of the study
+
+- **Two held-out sessions.** The scope sentence above is the whole of it.
+- **The symbol universe uses whole-day information.** The 50 symbols per
+  session are the 50 with the most book messages *in that session*, ranked
+  over the complete day. A live strategy could not have chosen them. It is
+  applied identically to development and held-out data, so it does not
+  advantage the held-out result — but the universe is not implementable in
+  real time.
+- **Queue-position-conditioned OFI was registered and not run.**
+- **The simulator assumes no market impact**, which is defensible for one
+  round lot and not for more, and models **displayed liquidity only** — it
+  sees no hidden or midpoint-pegged interest, and rule 4 exists precisely
+  because a non-displayed print cannot be attributed.
+- **The exit is a modelled liquidation at the mid**, which overstates
+  realisable P&L by the exit's own half spread. A round-trip maker strategy
+  would have to earn the spread twice.
+- **The tape recalculation is post-hoc**, not what the run executed.
+- **The strategy component is exploratory**, because two of its registered
+  constants were never filled in.
+
+### Amendment history
+
+The registration was never edited. Three amendments to the *harness* are
+recorded in [`docs/heldout-harness-amendment.md`](docs/heldout-harness-amendment.md):
+
+1. The held-out path did not implement the registered rules — wrong
+   estimator, wrong unit of analysis, and no verdict at all.
+2. The strategy demoted to exploratory, with declared parameters, and a CI
+   gate on unfilled placeholders in the registration.
+3. The runner was still wired to the script the first amendment replaced.
+   Two prior amendments and two locks described a wiring that did not exist.
+
+Earlier amendments to the registration itself, all made before the held-out
+data was reachable, are in [`docs/preregistration.md`](docs/preregistration.md):
+the block-length rule, candidate B's summand, the *m* population, and the
+held-out window projection.
+
+### Prior art
+
+Queue imbalance predicting the direction of the next mid-price move is a
+documented effect: **Gould and Bonart, "Queue Imbalance as a One-Tick-Ahead
+Price Predictor in a Limit Order Book", *Market Microstructure and Liquidity*
+2(1), 2016**. Finding it again is not a novel result. What this study adds is
+the cost-inclusive held-out test with exact market-by-order queue position,
+and the finding that the signal holds while the strategy built on it does not
+pay.
 
 ## Limitations
 
