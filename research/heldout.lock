@@ -35,6 +35,41 @@ ci_run    36093805913
 sha256    28f10db45fff7316df6acca3c2871a9805511c893e1f8d36c4ac28e7f265708a
 frozen    6b8a682ebca56c15de27de9ddc553eb3ef08382a
 
+consumed  2026-09-25
+executed  d4ce15e75a2944e3c02bacca01c3c5024ed62aa5
+results   ed9027220b84816b32b1fa5a1adeb418ee8bc4f8
+binary    1fb5b3710aaf8a38a462ecc3da60402850643b1457760d591f00a5d7427b0e0b  census
+binary    7cc96e48ace78f2b02eaff00640421998c0acc5259572d09b6f650ec8cf8d3fd  determinism
+binary    5e4f6f69842f4d2e2f80717d9662fed00fa099d403d86b19b5879b39ae0e535f  replay
+binary    418b54897c622812d6ab94c36ab0f146b94ca71e2ad1bdb8d69fae9e4ca68296  export_features
+binary    29ffdec0543c441dbc57b6ca3794e84607ed684080f62b78968a0e75996fb587  strategy_pnl
+
+# CONSUMED. The run happened, once, on 2026-09-25. This lock is spent.
+#
+# executed  the commit HEAD pointed at when run_heldout.sh ran, recorded by
+#           the runner itself into results/heldout/head.txt and committed in
+#           the results commit. It is not the author's word for it.
+# results   the commit carrying the outputs, the command list and the
+#           pre-run checks.
+# binary    the SHA-256 of each binary the run invoked, recorded before it
+#           started and committed in docs/generated/heldout/prerun_checks.txt.
+#
+# WHAT check_frozen.sh VERIFIES ONCE A LOCK IS CONSUMED. A spent lock makes a
+# claim about the past, not about HEAD, and the code has moved on since -- the
+# tape comment in src/strategy_pnl.cpp was corrected after the run. Checking a
+# historical claim against HEAD would fail for ever and would say nothing
+# about whether the run was sound, so the check becomes:
+#
+#   git diff <frozen> <executed> -- research/ src/ include/ tools/ \
+#     ':!research/heldout.lock'      must be empty
+#
+# and the recorded binary digests must match what the run recorded. Both are
+# facts about the past that no later commit can change.
+#
+# A NEW HELD-OUT RUN NEEDS A NEW LOCK. This one cannot be reused: the result
+# it authorised exists, and research/run_heldout.sh refuses a second run while
+# results/heldout is populated.
+
 # commit  the registration, UNCHANGED through three harness amendments. Not a
 #         byte of docs/preregistration.md has been edited, because its digest
 #         is what makes the registration checkable.
