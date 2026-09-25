@@ -41,6 +41,23 @@ def main() -> int:
     ap.add_argument("--bootstrap", type=int, default=10000)
     args = ap.parse_args()
 
+    # THIS SCRIPT CANNOT PRODUCE A REGISTERED VERDICT, and held-out mode is
+    # refused outright. It takes --primary and --threshold, nothing ever
+    # passed them, and with no primary named it printed a note and returned
+    # ZERO -- which is how a runner wired to it survived two amendments and
+    # two locks. research/heldout_study.py replaces it. See section 3 of
+    # docs/heldout-harness-amendment.md.
+    if args.heldout is not None:
+        print("REFUSED: research/signal_study.py cannot run the held-out study.",
+              file=sys.stderr)
+        print("  It computes the wrong interval, runs one session at a time, and",
+              file=sys.stderr)
+        print("  reports no verdict unless --primary and --threshold are passed.",
+              file=sys.stderr)
+        print("  Use research/heldout_study.py, which run_heldout.sh invokes.",
+              file=sys.stderr)
+        return 3
+
     session = args.heldout or args.development
     held_out = args.heldout is not None
     args.out.mkdir(parents=True, exist_ok=True)

@@ -18,7 +18,20 @@
 # Check 5 is the one-run rule. A second run needs the existing results moved
 # aside deliberately, and the writeup must say a second run happened and why.
 #
-#   usage: research/run_heldout.sh [--dry-run]
+#   usage: research/run_heldout.sh [--dry-run] [--rehearse]
+#
+# --dry-run    prints the exact commands the real run would execute and checks
+#              them against the list recorded in
+#              docs/heldout-harness-amendment.md. It fails if they differ, so
+#              a runner wired to the wrong script cannot pass it. An earlier
+#              --dry-run exited before it reached the commands at all, which
+#              is why a runner pointing at a script that reported no verdict
+#              passed every gate; see section 3 of that document.
+#
+# --rehearse   executes the IDENTICAL code path on the seven development
+#              sessions. Only the session list and the output directory
+#              differ. Lock validation is skipped, because development data
+#              is not what the lock protects.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -28,13 +41,35 @@ LOCK="research/heldout.lock"
 PREREG="docs/preregistration.md"
 OUT="results/heldout"
 DRY_RUN=0
-[ "${1:-}" = "--dry-run" ] && DRY_RUN=1
+REHEARSE=0
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=1 ;;
+    --rehearse) REHEARSE=1 ;;
+    *) echo "unknown flag $arg" >&2; exit 2 ;;
+  esac
+done
+[ "$REHEARSE" -eq 1 ] && OUT="results/rehearsal"
+AMEND="docs/heldout-harness-amendment.md"
+
+# The analysis entry point. Named once, here, so the dry run and the real run
+# cannot disagree about which script executes.
+STUDY="research/heldout_study.py"
+LEGACY="research/signal_study.py"
 
 fail() {
   echo "REFUSED: $1" >&2
   exit 1
 }
 
+if [ "$REHEARSE" -eq 1 ]; then
+  echo "REHEARSAL: development sessions, identical code path, lock gates skipped."
+  echo "  Development data is not what the lock protects. Everything below this"
+  echo "  point is the same code the real run executes."
+  echo
+fi
+
+if [ "$REHEARSE" -eq 0 ]; then
 # --- 1. the lock names a commit ---------------------------------------------
 
 [ -f "$LOCK" ] || fail "$LOCK does not exist"
@@ -125,7 +160,9 @@ if [ -e "$OUT" ] && [ -n "$(ls -A "$OUT" 2> /dev/null)" ]; then
   deliberately, and say in the writeup that a second run happened and why."
 fi
 
-# --- the registered sessions ------------------------------------------------
+fi  # end of the lock gates
+
+# --- the sessions under test ------------------------------------------------
 #
 # Read from docs/data.md so the list cannot drift from the registration. A
 # session is held out if its row says so.
@@ -145,41 +182,125 @@ if [ "${#HELDOUT[@]}" -eq 0 ]; then
   fail "no held-out sessions found in docs/data.md"
 fi
 
-echo "registration commit  $COMMIT"
-echo "registration subject $(git log -1 --format=%s "$COMMIT")"
-echo "registration date    $(git log -1 --format=%ad --date=iso "$COMMIT")"
-echo "$PREREG unchanged since that commit"
-echo
-echo "held-out sessions (${#HELDOUT[@]}):"
-for f in "${HELDOUT[@]}"; do echo "  $f"; done
+# The development list, for --rehearse. Read from the same table, so the two
+# lists cannot drift apart either.
+DEV=()
+while IFS= read -r line; do
+  [ -n "$line" ] && DEV+=("$line")
+# Column 3 must be a backticked .gz path and column 5 must say development.
+# Matching "development" anywhere on the line picks up prose and the transfer
+# table, which is how "data/development Mac" appeared in a command list.
+done < <(awk -F'|' '$3 ~ /`.*\.gz`/ && $5 ~ /development/ && !/HELD OUT/ {
+           gsub(/`/, "", $3); gsub(/^[ \t]+|[ \t]+$/, "", $3); print $3
+         }' docs/data.md)
+
+SESSIONS=()
+if [ "$REHEARSE" -eq 1 ]; then
+  LABEL="development"
+  SESSIONS=("${DEV[@]}")
+  [ "${#SESSIONS[@]}" -gt 0 ] || fail "no development sessions found in docs/data.md"
+else
+  LABEL="heldout"
+  SESSIONS=("${HELDOUT[@]}")
+  echo "registration commit  $COMMIT"
+  echo "registration subject $(git log -1 --format=%s "$COMMIT")"
+  echo "registration date    $(git log -1 --format=%ad --date=iso "$COMMIT")"
+  echo "$PREREG unchanged since that commit"
+  echo
+fi
+
+echo "sessions under test (${#SESSIONS[@]}), label $LABEL:"
+for f in "${SESSIONS[@]}"; do echo "  $f"; done
 echo
 
+# --- the commands the run will execute -------------------------------------
+#
+# Built as a list FIRST, so --dry-run shows exactly what --dry-run is checking
+# and the real run executes nothing else. The previous runner built no list:
+# its dry run stopped before the commands existed, so it could not notice that
+# the command it would have run pointed at a script which reported no verdict.
+
+CMDS=()
+FEATURES=()
+RAW=()
+for path in "${SESSIONS[@]}"; do
+  file="$(basename "$path")"
+  name="${file%.gz}"
+  RAW+=("data/$name")
+  FEATURES+=("$OUT/features_${name}.csv")
+  CMDS+=("./build/release/census data/$name")
+  CMDS+=("./build/release/determinism data/$name")
+  CMDS+=("./build/release/replay --market Q data/$name")
+  CMDS+=("./build/release/export_features --window 50 --symbols 50 --out $OUT/features_${name}.csv data/$name")
+done
+CMDS+=("python3 $STUDY --sessions ${FEATURES[*]} --out $OUT --primary C --label $LABEL --strategy --exploratory --strategy-sessions ${RAW[*]}")
+
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "dry run: every gate passed. Re-run without --dry-run to fetch and run."
+  echo "commands this run would execute, in order:"
+  printf '  %s\n' "${CMDS[@]}"
+  echo
+
+  # The expected list lives in the amendment document, between markers. A
+  # runner wired to the legacy script produces a different last line and fails
+  # here. This is the check the old dry run did not have.
+  if [ "$REHEARSE" -eq 0 ]; then
+    exp="$(awk '/<!-- expected-commands -->/{f=1;next} /<!-- \/expected-commands -->/{f=0} f' "$AMEND" \
+           | sed -n 's/^    //p')"
+    got="$(printf '%s\n' "${CMDS[@]}")"
+    if [ "$exp" != "$got" ]; then
+      echo "EXPECTED, from $AMEND:" >&2
+      printf '%s\n' "$exp" >&2
+      echo "GOT:" >&2
+      printf '%s\n' "$got" >&2
+      fail "the commands this runner would execute do not match the list
+  recorded in $AMEND. Either the runner was rewired without updating the
+  record, or the record was changed without rewiring the runner. Both are
+  reasons to stop."
+    fi
+    echo "commands match the list recorded in $AMEND"
+  fi
+  echo "dry run: every gate passed. Re-run without --dry-run to execute."
   exit 0
+fi
+
+# The legacy path must not be reachable. It reported no verdict and returned
+# zero, which is how it survived two amendments and two locks.
+if grep -q "$LEGACY" <<< "${CMDS[*]}"; then
+  fail "a command references $LEGACY, which cannot produce a registered verdict."
 fi
 
 mkdir -p "$OUT"
 git rev-parse HEAD > "$OUT/head.txt"
-cp "$LOCK" "$OUT/heldout.lock"
+cp "$LOCK" "$OUT/heldout.lock" 2>/dev/null || true
 cp "$PREREG" "$OUT/preregistration.md"
+printf '%s\n' "${CMDS[@]}" > "$OUT/commands.txt"
 
-for path in "${HELDOUT[@]}"; do
+for path in "${SESSIONS[@]}"; do
   file="$(basename "$path")"
+  name="${file%.gz}"
   dir="$(dirname "$path")"
-  echo "=== $file ==="
-  if [ ! -f "data/${file%.gz}" ]; then
+  echo "=== $name ==="
+  if [ ! -f "data/$name" ]; then
+    if [ "$REHEARSE" -eq 1 ]; then
+      fail "rehearsal expects data/$name to be present already"
+    fi
     tools/fetch_data.sh "$file" "$dir"
   fi
-  # Correctness first. A held-out session that fails a correctness layer makes
-  # the study inconclusive rather than negative; see the pre-registration's
-  # failure criteria.
-  ./build/release/census "data/${file%.gz}" | tee "$OUT/census-${file%.gz}.txt"
-  ./build/release/determinism "data/${file%.gz}" | tee "$OUT/determinism-${file%.gz}.txt"
-  ./build/release/replay "data/${file%.gz}" | tee "$OUT/replay-${file%.gz}.txt"
-  python3 research/signal_study.py --heldout "data/${file%.gz}" --out "$OUT" \
-    | tee "$OUT/study-${file%.gz}.txt"
+  # Correctness first. A session that fails a correctness layer makes the
+  # study inconclusive rather than negative; see the failure criteria.
+  ./build/release/census "data/$name" | tee "$OUT/census-$name.txt"
+  ./build/release/determinism "data/$name" | tee "$OUT/determinism-$name.txt"
+  ./build/release/replay --market Q "data/$name" | tee "$OUT/replay-$name.txt"
+  ./build/release/export_features --window 50 --symbols 50 \
+    --out "$OUT/features_${name}.csv" "data/$name"
 done
+
+# ONE call, over every session together. The registered inference pools them
+# and resamples WITHIN sessions; running the analysis per session would be the
+# degenerate estimator section 4 rejected.
+python3 "$STUDY" --sessions "${FEATURES[@]}" --out "$OUT" --primary C \
+  --label "$LABEL" --strategy --exploratory --strategy-sessions "${RAW[@]}" \
+  | tee "$OUT/study.txt"
 
 echo
 echo "wrote $OUT"

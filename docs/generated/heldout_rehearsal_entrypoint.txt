@@ -1,0 +1,1196 @@
+REHEARSAL: development sessions, identical code path, lock gates skipped.
+  Development data is not what the lock protects. Everything below this
+  point is the same code the real run executes.
+
+sessions under test (7), label development:
+  Nasdaq ITCH/01302019.NASDAQ_ITCH50.gz
+  Nasdaq ITCH/03272019.NASDAQ_ITCH50.gz
+  Nasdaq PSX ITCH/05302019.NASDAQ_ITCH50.gz
+  Nasdaq ITCH/07302019.NASDAQ_ITCH50.gz
+  Nasdaq ITCH/08302019.NASDAQ_ITCH50.gz
+  Nasdaq ITCH/S101819-v50.txt.gz
+  Nasdaq ITCH/12302019.NASDAQ_ITCH50.gz
+
+=== 01302019.NASDAQ_ITCH50 ===
+file              data/01302019.NASDAQ_ITCH50
+bytes             11245883092
+framing           length-prefixed
+messages          368366634
+book-affecting    363118215  (98.6%)
+unknown type      0
+length mismatch   0
+input ended       buffer exhausted at a message boundary
+trailing bytes    0
+final message     'S' System Event, code 'C'  (End of Messages)
+complete session  yes  (ends on System Event 'C')
+first ts          11039687760787 ns
+last ts           72300000033998 ns
+after 'E' event   31547
+
+per type:
+  S             6
+  R          8714
+  H          8805
+  Y          8821
+  L        193769
+  V             1
+  J            62
+  A     162970455
+  F       1725898
+  E       8096995
+  C        158886
+  X       4669874
+  D     158273361
+  U      27222746
+  P       1326184
+  Q         17430
+  B           116
+  I       3684511
+
+[not a benchmark] 5.63s wall, 65.5 M msg/s
+
+RESULT: session complete and fully parsed
+file          data/01302019.NASDAQ_ITCH50
+messages      368366634
+effects       364461951
+live orders   0
+event stream  63b8e6ad3784dde24ceea3c1115d8e1ef720b3e7fd8a8d03dec1c63d22d7a87e
+book state    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+file              data/01302019.NASDAQ_ITCH50
+hash policy       multiply-shift
+framing           length-prefixed
+messages parsed   368366634
+messages compared 364479470
+level compares    447244161
+BBO compares      365202430
+full compares     173
+invariant checks  21  (every 16777216 messages)
+unknown type      0
+length mismatch   0
+input ended       buffer exhausted at a message boundary
+trailing bytes    0
+live orders       ref 0 / fast 0
+index load factor 0.000, mean probe 1.234
+
+feed conditions (counted, never repaired -- docs/design.md record 007):
+                                    reference           fast
+  orphan execute                            0              0
+  orphan execute-with-price                 0              0
+  orphan cancel                             0              0
+  orphan delete                             0              0
+  orphan replace                            0              0
+  duplicate add                             0              0
+  zero-share cross trade                11996          11996
+  removed at zero shares              6422992        6422992
+  over-execution                            0              0
+  crossed observations                    598            598
+  locked observations                      65             65
+  after end of system hours             31546          31546
+  book messages                     364461945      364461945
+
+fast book structure:
+  window ticks                          256
+  order record bytes                     24
+  overflow hits                    10329245
+  window recenters                  1131675
+  levels moved by recenters        17728296
+  sub-cent prices                    718627
+  pool exhausted                          0
+  symbol table overflow                   0
+  index insert failures                   0
+
+invariants:
+  reference violations                    0
+  fast violations                         0
+
+no divergence over 364479470 messages
+
+[not a benchmark] 339.2s wall for the differential replay
+
+crossed and locked observations (docs/design.md record 036):
+                                  crossed       locked
+  total                               598           65
+    no trading action yet               0            0
+    operationally halted                0            0
+    symbol not trading                537           63
+    awaiting reopening cross           61            2
+    unexplained                         0            0   <- fails the gate
+    in continuous trading             590           65
+    first                        07:27:31     09:50:24
+    last                         11:49:22     11:44:24
+    distinct symbols                    4            3
+  deepest crossing                 10100 ticks
+  reopening windows                   47, longest 0.677 s, cap 0.100 s
+  windows closed by the cap            0   <- fails the gate
+  operational halts                    0 halted, 0 released (market 'Q')
+RESULT: identical
+session          data/01302019.NASDAQ_ITCH50
+window           50 inside updates
+universe         50 symbols
+rows             574268
+dropped, halt    0
+dropped, bounds  48
+wrote results/rehearsal/features_01302019.NASDAQ_ITCH50.csv
+=== 03272019.NASDAQ_ITCH50 ===
+file              data/03272019.NASDAQ_ITCH50
+bytes             12874304981
+framing           length-prefixed
+messages          422264305
+book-affecting    417247370  (98.8%)
+unknown type      0
+length mismatch   0
+input ended       buffer exhausted at a message boundary
+trailing bytes    0
+final message     'S' System Event, code 'C'  (End of Messages)
+complete session  yes  (ends on System Event 'C')
+first ts          10951068525924 ns
+last ts           72300000033611 ns
+after 'E' event   32076
+
+per type:
+  S             6
+  R          8712
+  H          8780
+  Y          8853
+  L        193290
+  V             1
+  K             1
+  J            30
+  A     186296811
+  F       1477447
+  E       7331047
+  C        137556
+  X       5495709
+  D     181953144
+  U      34555656
+  P       1105314
+  Q         17445
+  I       3674503
+
+[not a benchmark] 5.68s wall, 74.3 M msg/s
+
+RESULT: session complete and fully parsed
+file          data/03272019.NASDAQ_ITCH50
+messages      422264305
+effects       418370135
+live orders   0
+event stream  0a2a64dd73be25539c7e12535709ba88774b659aa95e94f07783f8ec114570bb
+book state    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+file              data/03272019.NASDAQ_ITCH50
+hash policy       multiply-shift
+framing           length-prefixed
+messages parsed   422264305
+messages compared 418387627
+level compares    519773224
+BBO compares      419223884
+full compares     199
+invariant checks  24  (every 16777216 messages)
+unknown type      0
+length mismatch   0
+input ended       buffer exhausted at a message boundary
+trailing bytes    0
+live orders       ref 0 / fast 0
+index load factor 0.000, mean probe 1.247
+
+feed conditions (counted, never repaired -- docs/design.md record 007):
+                                    reference           fast
+  orphan execute                            0              0
+  orphan execute-with-price                 0              0
+  orphan cancel                             0              0
+  orphan delete                             0              0
+  orphan replace                            0              0
+  duplicate add                             0              0
+  zero-share cross trade                11938          11938
+  removed at zero shares              5821114        5821114
+  over-execution                            0              0
+  crossed observations                  10991          10991
+  locked observations                     137            137
+  after end of system hours             32075          32075
+  book messages                     418370129      418370129
+
+fast book structure:
+  window ticks                          256
+  order record bytes                     24
+  overflow hits                    11455702
+  window recenters                  1088403
+  levels moved by recenters        17718464
+  sub-cent prices                    670034
+  pool exhausted                          0
+  symbol table overflow                   0
+  index insert failures                   0
+
+invariants:
+  reference violations                    0
+  fast violations                         0
+
+no divergence over 418387627 messages
+
+[not a benchmark] 526.9s wall for the differential replay
+
+crossed and locked observations (docs/design.md record 036):
+                                  crossed       locked
+  total                             10991          137
+    no trading action yet               0            0
+    operationally halted                0            0
+    symbol not trading              10221          133
+    awaiting reopening cross          770            4
+    unexplained                         0            0   <- fails the gate
+    in continuous trading           10778          115
+    first                        08:19:09     08:43:42
+    last                         17:00:00     16:47:28
+    distinct symbols                   13            8
+  deepest crossing                490000 ticks
+  reopening windows                   32, longest 0.002 s, cap 0.100 s
+  windows closed by the cap            0   <- fails the gate
+  operational halts                    0 halted, 0 released (market 'Q')
+RESULT: identical
+session          data/03272019.NASDAQ_ITCH50
+window           50 inside updates
+universe         50 symbols
+rows             764626
+dropped, halt    0
+dropped, bounds  50
+wrote results/rehearsal/features_03272019.NASDAQ_ITCH50.csv
+=== 05302019.NASDAQ_ITCH50 ===
+file              data/05302019.NASDAQ_ITCH50
+bytes             10007898168
+framing           length-prefixed
+messages          327006172
+book-affecting    321814145  (98.4%)
+unknown type      0
+length mismatch   0
+input ended       buffer exhausted at a message boundary
+trailing bytes    0
+final message     'S' System Event, code 'C'  (End of Messages)
+complete session  yes  (ends on System Event 'C')
+first ts          10943176560489 ns
+last ts           72300000036296 ns
+after 'E' event   30816
+
+per type:
+  S             6
+  R          8795
+  H          8832
+  Y          8897
+  L        204901
+  V             1
+  K             1
+  J            18
+  A     144146286
+  F       1207474
+  E       7218925
+  C        120275
+  X       2950440
+  D     140132577
+  U      26038168
+  P       1238971
+  Q         17588
+  I       3704017
+
+[not a benchmark] 4.45s wall, 73.5 M msg/s
+
+RESULT: session complete and fully parsed
+file          data/05302019.NASDAQ_ITCH50
+messages      327006172
+effects       323070710
+live orders   0
+event stream  9b284e1922d0cf7a88c1bba0fc4a814e4e5f2ebeb45cca7e8c860ac5ff12230f
+book state    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+file              data/05302019.NASDAQ_ITCH50
+hash policy       multiply-shift
+framing           length-prefixed
+messages parsed   327006172
+messages compared 323088337
+level compares    401795775
+BBO compares      323738719
+full compares     155
+invariant checks  19  (every 16777216 messages)
+unknown type      0
+length mismatch   0
+input ended       buffer exhausted at a message boundary
+trailing bytes    0
+live orders       ref 0 / fast 0
+index load factor 0.000, mean probe 1.246
+
+feed conditions (counted, never repaired -- docs/design.md record 007):
+                                    reference           fast
+  orphan execute                            0              0
+  orphan execute-with-price                 0              0
+  orphan cancel                             0              0
+  orphan delete                             0              0
+  orphan replace                            0              0
+  duplicate add                             0              0
+  zero-share cross trade                12217          12217
+  removed at zero shares              5221183        5221183
+  over-execution                            0              0
+  crossed observations                   9686           9686
+  locked observations                      27             27
+  after end of system hours             30815          30815
+  book messages                     323070704      323070704
+
+fast book structure:
+  window ticks                          256
+  order record bytes                     24
+  overflow hits                     8951188
+  window recenters                   847543
+  levels moved by recenters        11169606
+  sub-cent prices                    640562
+  pool exhausted                          0
+  symbol table overflow                   0
+  index insert failures                   0
+
+invariants:
+  reference violations                    0
+  fast violations                         0
+
+no divergence over 323088337 messages
+
+[not a benchmark] 445.4s wall for the differential replay
+
+crossed and locked observations (docs/design.md record 036):
+                                  crossed       locked
+  total                              9686           27
+    no trading action yet               0            0
+    operationally halted                0            0
+    symbol not trading               9064           27
+    awaiting reopening cross          622            0
+    unexplained                         0            0   <- fails the gate
+    in continuous trading            9517            8
+    first                        08:59:08     07:09:23
+    last                         18:00:31     18:00:35
+    distinct symbols                    4            2
+  deepest crossing                 47000 ticks
+  reopening windows                   21, longest 0.005 s, cap 0.100 s
+  windows closed by the cap            0   <- fails the gate
+  operational halts                    0 halted, 0 released (market 'Q')
+RESULT: identical
+session          data/05302019.NASDAQ_ITCH50
+window           50 inside updates
+universe         50 symbols
+rows             530582
+dropped, halt    0
+dropped, bounds  50
+wrote results/rehearsal/features_05302019.NASDAQ_ITCH50.csv
+=== 07302019.NASDAQ_ITCH50 ===
+file              data/07302019.NASDAQ_ITCH50
+bytes             8661679413
+framing           length-prefixed
+messages          282229684
+book-affecting    276789789  (98.1%)
+unknown type      0
+length mismatch   0
+input ended       buffer exhausted at a message boundary
+trailing bytes    0
+final message     'S' System Event, code 'C'  (End of Messages)
+complete session  yes  (ends on System Event 'C')
+first ts          10970642174571 ns
+last ts           72300000037782 ns
+after 'E' event   40069
+
+per type:
+  S             6
+  R          8849
+  H          8869
+  Y          8959
+  L        210706
+  V             1
+  J             2
+  A     124164371
+  F       1296379
+  E       7582422
+  C        135573
+  X       2358032
+  D     119999061
+  U      21253951
+  P       1461010
+  Q         17700
+  I       3723793
+
+[not a benchmark] 3.64s wall, 77.5 M msg/s
+
+RESULT: session complete and fully parsed
+file          data/07302019.NASDAQ_ITCH50
+messages      282229684
+effects       278268505
+live orders   0
+event stream  81fd9be8949e2fb48774a119200cbe62168eb1df092a417a28d9d1e829f9c66c
+book state    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+file              data/07302019.NASDAQ_ITCH50
+hash policy       multiply-shift
+framing           length-prefixed
+messages parsed   282229684
+messages compared 278286223
+level compares    347113742
+BBO compares      278843682
+full compares     133
+invariant checks  16  (every 16777216 messages)
+unknown type      0
+length mismatch   0
+input ended       buffer exhausted at a message boundary
+trailing bytes    0
+live orders       ref 0 / fast 0
+index load factor 0.000, mean probe 1.267
+
+feed conditions (counted, never repaired -- docs/design.md record 007):
+                                    reference           fast
+  orphan execute                            0              0
+  orphan execute-with-price                 0              0
+  orphan cancel                             0              0
+  orphan delete                             0              0
+  orphan replace                            0              0
+  duplicate add                             0              0
+  zero-share cross trade                12181          12181
+  removed at zero shares              5461689        5461689
+  over-execution                            0              0
+  crossed observations                    893            893
+  locked observations                     103            103
+  after end of system hours             40068          40068
+  book messages                     278268499      278268499
+
+fast book structure:
+  window ticks                          256
+  order record bytes                     24
+  overflow hits                     9001298
+  window recenters                   647186
+  levels moved by recenters        11159181
+  sub-cent prices                    507677
+  pool exhausted                          0
+  symbol table overflow                   0
+  index insert failures                   0
+
+invariants:
+  reference violations                    0
+  fast violations                         0
+
+no divergence over 278286223 messages
+
+[not a benchmark] 260.6s wall for the differential replay
+
+crossed and locked observations (docs/design.md record 036):
+                                  crossed       locked
+  total                               893          103
+    no trading action yet               0            0
+    operationally halted                0            0
+    symbol not trading                872          103
+    awaiting reopening cross           21            0
+    unexplained                         0            0   <- fails the gate
+    in continuous trading             621           91
+    first                        09:03:32     08:17:56
+    last                         16:30:00     11:06:36
+    distinct symbols                    5            2
+  deepest crossing                 19900 ticks
+  reopening windows                    9, longest 11743.358 s, cap 0.100 s
+  windows closed by the cap            0   <- fails the gate
+  operational halts                    0 halted, 0 released (market 'Q')
+RESULT: identical
+session          data/07302019.NASDAQ_ITCH50
+window           50 inside updates
+universe         50 symbols
+rows             395568
+dropped, halt    0
+dropped, bounds  50
+wrote results/rehearsal/features_07302019.NASDAQ_ITCH50.csv
+=== 08302019.NASDAQ_ITCH50 ===
+file              data/08302019.NASDAQ_ITCH50
+bytes             9501203136
+framing           length-prefixed
+messages          310317357
+book-affecting    305105310  (98.3%)
+unknown type      0
+length mismatch   0
+input ended       buffer exhausted at a message boundary
+trailing bytes    0
+final message     'S' System Event, code 'C'  (End of Messages)
+complete session  yes  (ends on System Event 'C')
+first ts          11046036981912 ns
+last ts           72300000037069 ns
+after 'E' event   37967
+
+per type:
+  S             6
+  R          8841
+  H          8849
+  Y          8951
+  L        212660
+  V             1
+  J             8
+  A     136528131
+  F       1458567
+  E       6844298
+  C         95619
+  X       2608749
+  D     133168073
+  U      24401873
+  P       1232826
+  Q         17685
+  I       3722220
+
+[not a benchmark] 4.10s wall, 75.8 M msg/s
+
+RESULT: session complete and fully parsed
+file          data/08302019.NASDAQ_ITCH50
+messages      310317357
+effects       306355827
+live orders   0
+event stream  30a999fdf3a29dbc82782f80a35c93efd7e63be9689fcd535867ecf4a009e991
+book state    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+file              data/08302019.NASDAQ_ITCH50
+hash policy       multiply-shift
+framing           length-prefixed
+messages parsed   310317357
+messages compared 306373517
+level compares    383586887
+BBO compares      306992370
+full compares     147
+invariant checks  18  (every 16777216 messages)
+unknown type      0
+length mismatch   0
+input ended       buffer exhausted at a message boundary
+trailing bytes    0
+live orders       ref 0 / fast 0
+index load factor 0.000, mean probe 1.272
+
+feed conditions (counted, never repaired -- docs/design.md record 007):
+                                    reference           fast
+  orphan execute                            0              0
+  orphan execute-with-price                 0              0
+  orphan cancel                             0              0
+  orphan delete                             0              0
+  orphan replace                            0              0
+  duplicate add                             0              0
+  zero-share cross trade                12264          12264
+  removed at zero shares              4818625        4818625
+  over-execution                            0              0
+  crossed observations                   1148           1148
+  locked observations                      26             26
+  after end of system hours             37966          37966
+  book messages                     306355821      306355821
+
+fast book structure:
+  window ticks                          256
+  order record bytes                     24
+  overflow hits                     9709796
+  window recenters                   872775
+  levels moved by recenters        15056700
+  sub-cent prices                    758869
+  pool exhausted                          0
+  symbol table overflow                   0
+  index insert failures                   0
+
+invariants:
+  reference violations                    0
+  fast violations                         0
+
+no divergence over 306373517 messages
+
+[not a benchmark] 340.2s wall for the differential replay
+
+crossed and locked observations (docs/design.md record 036):
+                                  crossed       locked
+  total                              1148           26
+    no trading action yet               0            0
+    operationally halted                0            0
+    symbol not trading               1081           26
+    awaiting reopening cross           67            0
+    unexplained                         0            0   <- fails the gate
+    in continuous trading            1144           26
+    first                        09:30:01     09:31:25
+    last                         16:00:00     14:19:17
+    distinct symbols                    4            4
+  deepest crossing                 14200 ticks
+  reopening windows                    9, longest 0.001 s, cap 0.100 s
+  windows closed by the cap            0   <- fails the gate
+  operational halts                    0 halted, 0 released (market 'Q')
+RESULT: identical
+session          data/08302019.NASDAQ_ITCH50
+window           50 inside updates
+universe         50 symbols
+rows             496658
+dropped, halt    0
+dropped, bounds  50
+wrote results/rehearsal/features_08302019.NASDAQ_ITCH50.csv
+=== S101819-v50.txt ===
+file              data/S101819-v50.txt
+bytes             9271490178
+framing           length-prefixed
+messages          302347067
+book-affecting    296949353  (98.2%)
+unknown type      0
+length mismatch   0
+input ended       buffer exhausted at a message boundary
+trailing bytes    0
+final message     'S' System Event, code 'C'  (End of Messages)
+complete session  yes  (ends on System Event 'C')
+first ts          11022641474038 ns
+last ts           72300000035300 ns
+after 'E' event   40165
+
+per type:
+  S             6
+  R          8887
+  H          8903
+  Y          8991
+  L        214866
+  V             1
+  K             1
+  J             6
+  A     132547823
+  F       1328373
+  E       7003614
+  C        106494
+  X       2752498
+  D     128766419
+  U      24444132
+  P       1396841
+  Q         17781
+  I       3741431
+
+[not a benchmark] 4.00s wall, 75.6 M msg/s
+
+RESULT: session complete and fully parsed
+file          data/S101819-v50.txt
+messages      302347067
+effects       298363981
+live orders   0
+event stream  fb0000f373e209d8ce15f06ab5367cf517bcaeafe03afdd7df99859c1a91280c
+book state    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+file              data/S101819-v50.txt
+hash policy       multiply-shift
+framing           length-prefixed
+messages parsed   302347067
+messages compared 298381771
+level compares    372264123
+BBO compares      298985986
+full compares     143
+invariant checks  17  (every 16777216 messages)
+unknown type      0
+length mismatch   0
+input ended       buffer exhausted at a message boundary
+trailing bytes    0
+live orders       ref 0 / fast 0
+index load factor 0.000, mean probe 1.248
+
+feed conditions (counted, never repaired -- docs/design.md record 007):
+                                    reference           fast
+  orphan execute                            0              0
+  orphan execute-with-price                 0              0
+  orphan cancel                             0              0
+  orphan delete                             0              0
+  orphan replace                            0              0
+  duplicate add                             0              0
+  zero-share cross trade                12505          12505
+  removed at zero shares              5109777        5109777
+  over-execution                            0              0
+  crossed observations                   2956           2956
+  locked observations                      26             26
+  after end of system hours             40164          40164
+  book messages                     298363975      298363975
+
+fast book structure:
+  window ticks                          256
+  order record bytes                     24
+  overflow hits                    10325147
+  window recenters                   966813
+  levels moved by recenters        14489104
+  sub-cent prices                    516514
+  pool exhausted                          0
+  symbol table overflow                   0
+  index insert failures                   0
+
+invariants:
+  reference violations                    0
+  fast violations                         0
+
+no divergence over 298381771 messages
+
+[not a benchmark] 360.7s wall for the differential replay
+
+crossed and locked observations (docs/design.md record 036):
+                                  crossed       locked
+  total                              2956           26
+    no trading action yet               0            0
+    operationally halted                0            0
+    symbol not trading               2841           23
+    awaiting reopening cross          115            3
+    unexplained                         0            0   <- fails the gate
+    in continuous trading            1959           26
+    first                        09:30:01     09:45:42
+    last                         16:55:47     15:18:26
+    distinct symbols                   11            7
+  deepest crossing                 48600 ticks
+  reopening windows                   11, longest 0.001 s, cap 0.100 s
+  windows closed by the cap            0   <- fails the gate
+  operational halts                    0 halted, 0 released (market 'Q')
+RESULT: identical
+session          data/S101819-v50.txt
+window           50 inside updates
+universe         50 symbols
+rows             433841
+dropped, halt    0
+dropped, bounds  49
+wrote results/rehearsal/features_S101819-v50.txt.csv
+=== 12302019.NASDAQ_ITCH50 ===
+file              data/12302019.NASDAQ_ITCH50
+bytes             8251407909
+framing           length-prefixed
+messages          268744780
+book-affecting    263241937  (98.0%)
+unknown type      0
+length mismatch   0
+input ended       buffer exhausted at a message boundary
+trailing bytes    0
+final message     'S' System Event, code 'C'  (End of Messages)
+complete session  yes  (ends on System Event 'C')
+first ts          11072057543747 ns
+last ts           72300000040070 ns
+after 'E' event   51201
+
+per type:
+  S             6
+  R          8906
+  H          8966
+  Y          9013
+  L        215161
+  V             1
+  K             3
+  J            34
+  A     117145568
+  F       1485888
+  E       5722824
+  C         99917
+  X       2787676
+  D     114360997
+  U      21639067
+  P       1218602
+  Q         17836
+  I       4024315
+
+[not a benchmark] 3.90s wall, 69.0 M msg/s
+
+RESULT: session complete and fully parsed
+file          data/12302019.NASDAQ_ITCH50
+messages      268744780
+effects       264478381
+live orders   0
+event stream  1576148f7deaf00ed8b86055c436499acf514a130c019fdef58d2b19111ef307
+book state    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+file              data/12302019.NASDAQ_ITCH50
+hash policy       multiply-shift
+framing           length-prefixed
+messages parsed   268744780
+messages compared 264496253
+level compares    330641357
+BBO compares      265030523
+full compares     127
+invariant checks  15  (every 16777216 messages)
+unknown type      0
+length mismatch   0
+input ended       buffer exhausted at a message boundary
+trailing bytes    0
+live orders       ref 0 / fast 0
+index load factor 0.000, mean probe 1.263
+
+feed conditions (counted, never repaired -- docs/design.md record 007):
+                                    reference           fast
+  orphan execute                            0              0
+  orphan execute-with-price                 0              0
+  orphan cancel                             0              0
+  orphan delete                             0              0
+  orphan replace                            0              0
+  duplicate add                             0              0
+  zero-share cross trade                12189          12189
+  removed at zero shares              4270459        4270459
+  over-execution                            0              0
+  crossed observations                   8580           8580
+  locked observations                      70             70
+  after end of system hours             51200          51200
+  book messages                     264478375      264478375
+
+fast book structure:
+  window ticks                          256
+  order record bytes                     24
+  overflow hits                    12959982
+  window recenters                   703924
+  levels moved by recenters        11999325
+  sub-cent prices                    656931
+  pool exhausted                          0
+  symbol table overflow                   0
+  index insert failures                   0
+
+invariants:
+  reference violations                    0
+  fast violations                         0
+
+no divergence over 264496253 messages
+
+[not a benchmark] 246.5s wall for the differential replay
+
+crossed and locked observations (docs/design.md record 036):
+                                  crossed       locked
+  total                              8580           70
+    no trading action yet               0            0
+    operationally halted                0            0
+    symbol not trading               7945           62
+    awaiting reopening cross          635            8
+    unexplained                         0            0   <- fails the gate
+    in continuous trading            8372           70
+    first                        08:00:50     09:30:01
+    last                         20:00:00     15:14:23
+    distinct symbols                   13            6
+  deepest crossing                140000 ticks
+  reopening windows                   33, longest 0.001 s, cap 0.100 s
+  windows closed by the cap            0   <- fails the gate
+  operational halts                    0 halted, 0 released (market 'Q')
+RESULT: identical
+session          data/12302019.NASDAQ_ITCH50
+window           50 inside updates
+universe         50 symbols
+rows             407728
+dropped, halt    0
+dropped, bounds  50
+wrote results/rehearsal/features_12302019.NASDAQ_ITCH50.csv
+==========================================================================
+REGISTERED ANALYSIS -- DEVELOPMENT
+==========================================================================
+sessions 7   windows 3,603,271   symbols 96
+  features_01302019.NASDAQ_ITCH50
+  features_03272019.NASDAQ_ITCH50
+  features_05302019.NASDAQ_ITCH50
+  features_07302019.NASDAQ_ITCH50
+  features_08302019.NASDAQ_ITCH50
+  features_12302019.NASDAQ_ITCH50
+  features_S101819-v50.txt
+
+registered constants, read not estimated:
+  block length L for the primary                177.58
+  block lengths for the secondaries             ofi 299.58, trade_sign 1612.0, value 3.6
+  accuracy bar for C                            0.5516
+  R2 bar for B                                  0.0261
+  m over all windows                            0.9686
+  value requirement                             0.10 half-spreads/window
+  Holm family                                   5
+  rule 4 in the primary specification           OFF
+  base add / take / top add ($/share)           0.0015 / 0.003 / 0.00305
+
+--------------------------------------------------------------------------
+PRIMARY -- candidate C, queue imbalance, directional
+--------------------------------------------------------------------------
+  windows with a move   2,203,916
+  directional accuracy  0.62409
+  plan (b) SE at L=177.58  0.000515
+  95% interval          [0.62308, 0.62510]
+  registered bar        0.5516
+  null                  0.5
+  VERDICT               SIGNAL HOLDS
+
+  With two held-out sessions, a confirmatory verdict applies to those sessions and is not generalised beyond them.
+
+  sensitivity, symbol-clustered SE 0.012619 over 96 symbols,
+    95% interval [0.59936, 0.64882]
+    Anti-conservative under common market moves. Decides nothing;
+    if it disagrees with the block bootstrap the verdict follows
+    the block bootstrap and the disagreement is reported.
+
+--------------------------------------------------------------------------
+SECONDARIES -- Holm-Bonferroni, family of 5
+--------------------------------------------------------------------------
+  test               estimate        SE              95% interval         p    Holm p  sig
+  ofi                 0.56219  0.000600        [0.56101, 0.56337]         0         0  yes
+  trade_sign          0.31333  0.001452        [0.31048, 0.31617]         1         1  no
+  direct_value        0.32542  0.000774        [0.32390, 0.32694]         0         0  yes
+
+  direct-value secondary: mean signed mid move in the predicted
+  direction, half-spreads, over ALL windows; a zero feature
+  contributes zero and stays in the denominator (161,623 of
+  3,603,271 windows). Tested against 0.10, one-sided.
+  requirement 0.10   estimate 0.32542   CLEARS on the interval
+
+  Family size is five and does not shrink because A and B became
+  exploratory; section 3 records why. Two of the five members are
+  reported above, the primary is reported separately, and micro-
+  price deviation is dropped as sign-identical to queue imbalance.
+
+--------------------------------------------------------------------------
+EXPLORATORY -- candidates A and B, considered and NOT selected
+--------------------------------------------------------------------------
+  A  OFI directional   0.56219  [0.56101, 0.56337]  bar 0.5516
+  B  OFI out-of-sample R2  0.00551  [0.00515, 0.00586]  bar 0.0261
+
+  EXPLORATORY ONLY. Outside every confirmatory claim and outside
+  the Holm family. A number here that clears a bar is still
+  exploratory and is never reported as a tested hypothesis.
+
+--------------------------------------------------------------------------
+STRATEGY -- maker, base tier, with the top-tier sensitivity
+--------------------------------------------------------------------------
+  EXPLORATORY. docs/preregistration.md section 8 never filled the
+  signal threshold or the minimum-fills rule, so this component
+  was never fully registered and CANNOT be confirmatory.
+  Declared parameters: signal threshold 0 (the primary's own sign
+  rule, the only value requiring no choice); no minimum-fills
+  rule, fill counts reported instead.
+
+  EXPLORATORY  strategy P&L -- NOT a registered result
+  EXPLORATORY  session            data/01302019.NASDAQ_ITCH50
+  EXPLORATORY  rule 4             OFF (primary arm)
+  EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+  EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+  EXPLORATORY  quotes placed      554492
+  EXPLORATORY  fills              57011
+  EXPLORATORY  fill rate          0.1028
+  EXPLORATORY  gross per fill     -0.323761 half-spreads
+  EXPLORATORY  gross per fill     -0.00402957 $/share
+  EXPLORATORY  add rebate base    0.00150000 $/share
+  EXPLORATORY  add rebate top     0.00305000 $/share
+  EXPLORATORY  NET per fill base  -0.00252957 $/share
+  EXPLORATORY  NET per fill top   -0.00097957 $/share  (sensitivity)
+  EXPLORATORY  mean spread        0.035218 $/share
+  EXPLORATORY  exit is a modelled liquidation at the mid, so this
+  EXPLORATORY  overstates realisable P&L by the exit's half spread.
+
+  EXPLORATORY  strategy P&L -- NOT a registered result
+  EXPLORATORY  session            data/01302019.NASDAQ_ITCH50
+  EXPLORATORY  rule 4             ON (sensitivity)
+  EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+  EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+  EXPLORATORY  quotes placed      554492
+  EXPLORATORY  fills              60729
+  EXPLORATORY  fill rate          0.1095
+  EXPLORATORY  gross per fill     -0.284822 half-spreads
+  EXPLORATORY  gross per fill     -0.00322317 $/share
+  EXPLORATORY  add rebate base    0.00150000 $/share
+  EXPLORATORY  add rebate top     0.00305000 $/share
+  EXPLORATORY  NET per fill base  -0.00172317 $/share
+  EXPLORATORY  NET per fill top   -0.00017317 $/share  (sensitivity)
+  EXPLORATORY  mean spread        0.034833 $/share
+  EXPLORATORY  exit is a modelled liquidation at the mid, so this
+  EXPLORATORY  overstates realisable P&L by the exit's half spread.
+
+  EXPLORATORY  strategy P&L -- NOT a registered result
+  EXPLORATORY  session            data/03272019.NASDAQ_ITCH50
+  EXPLORATORY  rule 4             OFF (primary arm)
+  EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+  EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+  EXPLORATORY  quotes placed      732585
+  EXPLORATORY  fills              45015
+  EXPLORATORY  fill rate          0.0614
+  EXPLORATORY  gross per fill     -0.404919 half-spreads
+  EXPLORATORY  gross per fill     -0.00662912 $/share
+  EXPLORATORY  add rebate base    0.00150000 $/share
+  EXPLORATORY  add rebate top     0.00305000 $/share
+  EXPLORATORY  NET per fill base  -0.00512912 $/share
+  EXPLORATORY  NET per fill top   -0.00357912 $/share  (sensitivity)
+  EXPLORATORY  mean spread        0.037872 $/share
+  EXPLORATORY  exit is a modelled liquidation at the mid, so this
+  EXPLORATORY  overstates realisable P&L by the exit's half spread.
+
+  EXPLORATORY  strategy P&L -- NOT a registered result
+  EXPLORATORY  session            data/03272019.NASDAQ_ITCH50
+  EXPLORATORY  rule 4             ON (sensitivity)
+  EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+  EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+  EXPLORATORY  quotes placed      732585
+  EXPLORATORY  fills              48816
+  EXPLORATORY  fill rate          0.0666
+  EXPLORATORY  gross per fill     -0.361298 half-spreads
+  EXPLORATORY  gross per fill     -0.00583118 $/share
+  EXPLORATORY  add rebate base    0.00150000 $/share
+  EXPLORATORY  add rebate top     0.00305000 $/share
+  EXPLORATORY  NET per fill base  -0.00433118 $/share
+  EXPLORATORY  NET per fill top   -0.00278118 $/share  (sensitivity)
+  EXPLORATORY  mean spread        0.036324 $/share
+  EXPLORATORY  exit is a modelled liquidation at the mid, so this
+  EXPLORATORY  overstates realisable P&L by the exit's half spread.
+
+  EXPLORATORY  strategy P&L -- NOT a registered result
+  EXPLORATORY  session            data/05302019.NASDAQ_ITCH50
+  EXPLORATORY  rule 4             OFF (primary arm)
+  EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+  EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+  EXPLORATORY  quotes placed      509203
+  EXPLORATORY  fills              35936
+  EXPLORATORY  fill rate          0.0706
+  EXPLORATORY  gross per fill     -0.362086 half-spreads
+  EXPLORATORY  gross per fill     -0.00322782 $/share
+  EXPLORATORY  add rebate base    0.00150000 $/share
+  EXPLORATORY  add rebate top     0.00305000 $/share
+  EXPLORATORY  NET per fill base  -0.00172782 $/share
+  EXPLORATORY  NET per fill top   -0.00017782 $/share  (sensitivity)
+  EXPLORATORY  mean spread        0.024922 $/share
+  EXPLORATORY  exit is a modelled liquidation at the mid, so this
+  EXPLORATORY  overstates realisable P&L by the exit's half spread.
+
+  EXPLORATORY  strategy P&L -- NOT a registered result
+  EXPLORATORY  session            data/05302019.NASDAQ_ITCH50
+  EXPLORATORY  rule 4             ON (sensitivity)
+  EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+  EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+  EXPLORATORY  quotes placed      509203
+  EXPLORATORY  fills              38831
+  EXPLORATORY  fill rate          0.0763
+  EXPLORATORY  gross per fill     -0.322260 half-spreads
+  EXPLORATORY  gross per fill     -0.00284077 $/share
+  EXPLORATORY  add rebate base    0.00150000 $/share
+  EXPLORATORY  add rebate top     0.00305000 $/share
+  EXPLORATORY  NET per fill base  -0.00134077 $/share
+  EXPLORATORY  NET per fill top   0.00020923 $/share  (sensitivity)
+  EXPLORATORY  mean spread        0.024278 $/share
+  EXPLORATORY  exit is a modelled liquidation at the mid, so this
+  EXPLORATORY  overstates realisable P&L by the exit's half spread.
+
+  EXPLORATORY  strategy P&L -- NOT a registered result
+  EXPLORATORY  session            data/07302019.NASDAQ_ITCH50
+  EXPLORATORY  rule 4             OFF (primary arm)
+  EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+  EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+  EXPLORATORY  quotes placed      368934
+  EXPLORATORY  fills              26644
+  EXPLORATORY  fill rate          0.0722
+  EXPLORATORY  gross per fill     -0.456818 half-spreads
+  EXPLORATORY  gross per fill     -0.00566901 $/share
+  EXPLORATORY  add rebate base    0.00150000 $/share
+  EXPLORATORY  add rebate top     0.00305000 $/share
+  EXPLORATORY  NET per fill base  -0.00416901 $/share
+  EXPLORATORY  NET per fill top   -0.00261901 $/share  (sensitivity)
+  EXPLORATORY  mean spread        0.024488 $/share
+  EXPLORATORY  exit is a modelled liquidation at the mid, so this
+  EXPLORATORY  overstates realisable P&L by the exit's half spread.
+
+  EXPLORATORY  strategy P&L -- NOT a registered result
+  EXPLORATORY  session            data/07302019.NASDAQ_ITCH50
+  EXPLORATORY  rule 4             ON (sensitivity)
+  EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+  EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+  EXPLORATORY  quotes placed      368934
+  EXPLORATORY  fills              28800
+  EXPLORATORY  fill rate          0.0781
+  EXPLORATORY  gross per fill     -0.409444 half-spreads
+  EXPLORATORY  gross per fill     -0.00504844 $/share
+  EXPLORATORY  add rebate base    0.00150000 $/share
+  EXPLORATORY  add rebate top     0.00305000 $/share
+  EXPLORATORY  NET per fill base  -0.00354844 $/share
+  EXPLORATORY  NET per fill top   -0.00199844 $/share  (sensitivity)
+  EXPLORATORY  mean spread        0.023832 $/share
+  EXPLORATORY  exit is a modelled liquidation at the mid, so this
+  EXPLORATORY  overstates realisable P&L by the exit's half spread.
+
+  EXPLORATORY  strategy P&L -- NOT a registered result
+  EXPLORATORY  session            data/08302019.NASDAQ_ITCH50
+  EXPLORATORY  rule 4             OFF (primary arm)
+  EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+  EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+  EXPLORATORY  quotes placed      475437
+  EXPLORATORY  fills              29270
+  EXPLORATORY  fill rate          0.0616
+  EXPLORATORY  gross per fill     -0.488226 half-spreads
+  EXPLORATORY  gross per fill     -0.00376529 $/share
+  EXPLORATORY  add rebate base    0.00150000 $/share
+  EXPLORATORY  add rebate top     0.00305000 $/share
+  EXPLORATORY  NET per fill base  -0.00226529 $/share
+  EXPLORATORY  NET per fill top   -0.00071529 $/share  (sensitivity)
+  EXPLORATORY  mean spread        0.024731 $/share
+  EXPLORATORY  exit is a modelled liquidation at the mid, so this
+  EXPLORATORY  overstates realisable P&L by the exit's half spread.
+
+  EXPLORATORY  strategy P&L -- NOT a registered result
+  EXPLORATORY  session            data/08302019.NASDAQ_ITCH50
+  EXPLORATORY  rule 4             ON (sensitivity)
+  EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+  EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+  EXPLORATORY  quotes placed      475437
+  EXPLORATORY  fills              31867
+  EXPLORATORY  fill rate          0.0670
+  EXPLORATORY  gross per fill     -0.441930 half-spreads
+  EXPLORATORY  gross per fill     -0.00333778 $/share
+  EXPLORATORY  add rebate base    0.00150000 $/share
+  EXPLORATORY  add rebate top     0.00305000 $/share
+  EXPLORATORY  NET per fill base  -0.00183778 $/share
+  EXPLORATORY  NET per fill top   -0.00028778 $/share  (sensitivity)
+  EXPLORATORY  mean spread        0.023895 $/share
+  EXPLORATORY  exit is a modelled liquidation at the mid, so this
+  EXPLORATORY  overstates realisable P&L by the exit's half spread.
+
+  EXPLORATORY  strategy P&L -- NOT a registered result
+  EXPLORATORY  session            data/S101819-v50.txt
+  EXPLORATORY  rule 4             OFF (primary arm)
+  EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+  EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+  EXPLORATORY  quotes placed      411854
+  EXPLORATORY  fills              33252
+  EXPLORATORY  fill rate          0.0807
+  EXPLORATORY  gross per fill     -0.486480 half-spreads
+  EXPLORATORY  gross per fill     -0.00540764 $/share
+  EXPLORATORY  add rebate base    0.00150000 $/share
+  EXPLORATORY  add rebate top     0.00305000 $/share
+  EXPLORATORY  NET per fill base  -0.00390764 $/share
+  EXPLORATORY  NET per fill top   -0.00235764 $/share  (sensitivity)
+  EXPLORATORY  mean spread        0.031135 $/share
+  EXPLORATORY  exit is a modelled liquidation at the mid, so this
+  EXPLORATORY  overstates realisable P&L by the exit's half spread.
+
+  EXPLORATORY  strategy P&L -- NOT a registered result
+  EXPLORATORY  session            data/S101819-v50.txt
+  EXPLORATORY  rule 4             ON (sensitivity)
+  EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+  EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+  EXPLORATORY  quotes placed      411854
+  EXPLORATORY  fills              35986
+  EXPLORATORY  fill rate          0.0874
+  EXPLORATORY  gross per fill     -0.427833 half-spreads
+  EXPLORATORY  gross per fill     -0.00457886 $/share
+  EXPLORATORY  add rebate base    0.00150000 $/share
+  EXPLORATORY  add rebate top     0.00305000 $/share
+  EXPLORATORY  NET per fill base  -0.00307886 $/share
+  EXPLORATORY  NET per fill top   -0.00152886 $/share  (sensitivity)
+  EXPLORATORY  mean spread        0.030420 $/share
+  EXPLORATORY  exit is a modelled liquidation at the mid, so this
+  EXPLORATORY  overstates realisable P&L by the exit's half spread.
+
+  EXPLORATORY  strategy P&L -- NOT a registered result
+  EXPLORATORY  session            data/12302019.NASDAQ_ITCH50
+  EXPLORATORY  rule 4             OFF (primary arm)
+  EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+  EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+  EXPLORATORY  quotes placed      389466
+  EXPLORATORY  fills              26524
+  EXPLORATORY  fill rate          0.0681
+  EXPLORATORY  gross per fill     -0.408481 half-spreads
+  EXPLORATORY  gross per fill     -0.00765024 $/share
+  EXPLORATORY  add rebate base    0.00150000 $/share
+  EXPLORATORY  add rebate top     0.00305000 $/share
+  EXPLORATORY  NET per fill base  -0.00615024 $/share
+  EXPLORATORY  NET per fill top   -0.00460024 $/share  (sensitivity)
+  EXPLORATORY  mean spread        0.041960 $/share
+  EXPLORATORY  exit is a modelled liquidation at the mid, so this
+  EXPLORATORY  overstates realisable P&L by the exit's half spread.
+
+  EXPLORATORY  strategy P&L -- NOT a registered result
+  EXPLORATORY  session            data/12302019.NASDAQ_ITCH50
+  EXPLORATORY  rule 4             ON (sensitivity)
+  EXPLORATORY  signal threshold   0  (declared; section 8 never filled one)
+  EXPLORATORY  minimum fills rule none (declared; counts reported instead)
+  EXPLORATORY  quotes placed      389466
+  EXPLORATORY  fills              28633
+  EXPLORATORY  fill rate          0.0735
+  EXPLORATORY  gross per fill     -0.355434 half-spreads
+  EXPLORATORY  gross per fill     -0.00660689 $/share
+  EXPLORATORY  add rebate base    0.00150000 $/share
+  EXPLORATORY  add rebate top     0.00305000 $/share
+  EXPLORATORY  NET per fill base  -0.00510689 $/share
+  EXPLORATORY  NET per fill top   -0.00355689 $/share  (sensitivity)
+  EXPLORATORY  mean spread        0.040467 $/share
+  EXPLORATORY  exit is a modelled liquidation at the mid, so this
+  EXPLORATORY  overstates realisable P&L by the exit's half spread.
+
+  The section 9 minimum-fills criterion applies to the STRATEGY
+  component alone. It does not gate the confirmatory results
+  above, which depend on no unfilled constant.
+
+==========================================================================
+wrote results/rehearsal
+
+wrote results/rehearsal
+Report strictly per the decision rules in docs/preregistration.md section 8:
+  signal holds / fails / inconclusive, and separately
+  strategy profitable / unprofitable / inconclusive at the base tier,
+  with the top-tier sensitivity alongside.

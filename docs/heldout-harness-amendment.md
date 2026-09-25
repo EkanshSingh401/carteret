@@ -242,3 +242,117 @@ The manifest committed with this amendment reports both held-out sessions
 present, as authorised, and **no feature file derived from either**. The
 rehearsal below used development sessions only, and the strategy was rehearsed
 on a development session.
+
+---
+
+# Third amendment, 2026-09-24: the runner pointed at the wrong script
+
+The registration is **still not edited**; its digest remains
+`28f10db45fff7316df6acca3c2871a9805511c893e1f8d36c4ac28e7f265708a`.
+
+## What was wrong
+
+The first amendment wrote `research/heldout_study.py`, rehearsed it, and
+documented it. The second amendment added the strategy, the placeholder gate
+and a second lock. **Neither rewired `research/run_heldout.sh`**, which went
+on invoking `research/signal_study.py` — the script the first amendment
+existed to replace.
+
+So the two amendment sections above, and both lock commits, described a wiring
+that did not exist. Running the study would have executed the defective path:
+no `--primary`, no `--threshold`, "No verdict is reported", **exit 0**.
+
+## How it was found, and why nothing caught it
+
+It was found by reading `run_heldout.sh` line by line while preparing to run
+it, after the frozen-code check failed for an unrelated reason and forced a
+stop. Three things that ought to have caught it did not:
+
+- **`--dry-run` could not.** It exited *before* the section that invokes the
+  analysis. It validated the lock, printed the session list and stopped. A dry
+  run that never reaches the command it would run cannot report that the
+  command is wrong, and its passing was read as evidence the path was sound.
+- **The rehearsal could not.** `heldout_study.py` was rehearsed by calling it
+  **directly**. That tests the script and says nothing about whether anything
+  invokes it. The entry point was never exercised.
+- **CI could not.** No job runs the held-out entry point; it needs market data
+  that is not in the repository and must not be.
+
+The common shape: every check tested a *component*, and the defect was in the
+*wiring between* components. A test that never executes the entry point cannot
+detect that the entry point calls the wrong thing.
+
+## The corrected checks
+
+**1. The frozen-code check was wrongly defined**, and its failure is what
+forced the stop that found the rest. `research/heldout.lock` lives under
+`research/`, so `git diff <frozen-base> HEAD -- research/` can never be empty
+once the lock is written: the lock commit necessarily follows the amendment it
+points at. It is now two checks, both of which must pass:
+
+```
+git diff <frozen-base> HEAD -- research/ src/ include/ tools/ ':!research/heldout.lock'
+git diff <lock-commit>  HEAD -- research/heldout.lock
+```
+
+The first is the frozen surface; the second says the lock has not moved since
+it was written. Excluding the lock from its own check is not a loosening —
+the lock is the *statement* of what is frozen, not part of the frozen surface.
+
+**2. The runner invokes the amended harness**, once, over every session
+together, because the registered inference pools them and resamples within
+sessions.
+
+**3. `signal_study.py` refuses held-out mode outright**, exit 3. The legacy
+path cannot be reached by accident again.
+
+**4. `--dry-run` is now meaningful.** It builds the command list first, prints
+it, and checks it against the list recorded below. A runner wired to the wrong
+script produces a different last line and **fails**. The real run additionally
+refuses if any command mentions the legacy script.
+
+**5. `--rehearse` executes the identical code path** on the seven development
+sessions. Only the session list and the output directory differ.
+
+## The commands the real run executes
+
+Checked by `--dry-run` against this block. If the runner is rewired without
+updating this list, or this list is edited without rewiring the runner, the
+dry run fails.
+
+<!-- expected-commands -->
+    ./build/release/census data/10302019.NASDAQ_ITCH50
+    ./build/release/determinism data/10302019.NASDAQ_ITCH50
+    ./build/release/replay --market Q data/10302019.NASDAQ_ITCH50
+    ./build/release/export_features --window 50 --symbols 50 --out results/heldout/features_10302019.NASDAQ_ITCH50.csv data/10302019.NASDAQ_ITCH50
+    ./build/release/census data/01302020.NASDAQ_ITCH50
+    ./build/release/determinism data/01302020.NASDAQ_ITCH50
+    ./build/release/replay --market Q data/01302020.NASDAQ_ITCH50
+    ./build/release/export_features --window 50 --symbols 50 --out results/heldout/features_01302020.NASDAQ_ITCH50.csv data/01302020.NASDAQ_ITCH50
+    python3 research/heldout_study.py --sessions results/heldout/features_10302019.NASDAQ_ITCH50.csv results/heldout/features_01302020.NASDAQ_ITCH50.csv --out results/heldout --primary C --label heldout --strategy --exploratory --strategy-sessions data/10302019.NASDAQ_ITCH50 data/01302020.NASDAQ_ITCH50
+<!-- /expected-commands -->
+
+## Trace: every step, and which registered output it produces
+
+| # | Step | Produces |
+|---|---|---|
+| 1 | `census` per session | clean framing, complete session — §9 failure criterion 3 |
+| 2 | `determinism` per session | determinism hash — §9, `docs/correctness.md` layer 5 |
+| 3 | `replay --market Q` per session | `RESULT: identical` and the crossed/locked gate — §9 criterion 4 |
+| 4 | `export_features` per session | the windows, features and labels every metric reads |
+| 5 | `heldout_study.py`, once, over both | everything below |
+
+Within step 5:
+
+| Registered output | Produced by |
+|---|---|
+| Primary C accuracy, plan-(b) interval, verdict vs 0.5516 | PRIMARY block; `stationary_bootstrap_se` shared with `gated.py` |
+| Symbol-clustered sensitivity, labelled, deciding nothing | PRIMARY block, `clustered_se_influence` |
+| Holm–Bonferroni over the family of five | SECONDARIES block, `holm()` |
+| Direct-value secondary vs 0.10 | SECONDARIES block, `study.direct_value` |
+| A and B, labelled exploratory | EXPLORATORY block |
+| Strategy P&L, both arms, both tiers, fill counts | STRATEGY block → `./build/release/strategy_pnl`, twice per session |
+| Two-session scope sentence | printed with the primary verdict |
+
+`strategy_pnl` is the only binary invoked by step 5 rather than by the runner
+directly; it is called with `--symbols 50 <session>` and again with `--rule4`.

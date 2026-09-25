@@ -1,0 +1,11 @@
+$ sh tools/check_frozen.sh
+a) frozen surface since d6600caf9ab0ce7a6db4a6a2c3141a33fcb6217e, excluding the lock
+   empty
+b) the lock itself since 55a5ff794aaacc0d508e0be0f4fd3502e47cfcfc
+   empty
+c) working tree vs HEAD across the frozen surface
+   UNCOMMITTED:
+      M research/run_heldout.sh
+      M research/signal_study.py
+     ?? tools/check_frozen.sh
+FROZEN CHECK FAILED
