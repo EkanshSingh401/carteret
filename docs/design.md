@@ -2029,3 +2029,243 @@ record 031 avoids by dropping a feature that duplicates another in sign.
 exactly zero. It does not apply to the magnitude metric, whose null is zero by
 construction, nor to the direct-value test, which already treats a zero
 feature as contributing zero rather than as a wrong answer.
+
+---
+
+## 040 — The last-level miss is a demand fill from DRAM, counted on the core
+
+**Status:** in force.
+
+**Context.** Record 015 requires last-level misses to be attributed per
+message, by type and by order age, before any claim about the bottleneck. On
+the benchmark host, a Ryzen 9 5950X, that runs into two facts about Zen 3.
+The L3 belongs to the CCD, and the L3's own counters count for the whole CCD,
+so no L3-side count can be attributed to one thread, let alone one message.
+And the generic `LLC-load-misses` event the runner's `perf stat` line asked
+for is `<not supported>` on this CPU under kernel 6.8 and perf 6.8.12: the
+column the method depends on would have printed nothing.
+
+**Decision.** The last-level miss is counted on the core, as
+`ls_dmnd_fills_from_sys.mem_io_local` — event `0x43`, umask `0x08`, raw
+`0x0843`: demand fills into this core's L1D whose line came from DRAM or IO on
+the local node. Three companions from the same event say where the lines that
+did not come from DRAM came from:
+
+| Raw | Event | Source of the line |
+|---|---|---|
+| `0x0843` | `ls_dmnd_fills_from_sys.mem_io_local` | DRAM or IO, local node — **the last-level miss** |
+| `0x0243` | `ls_dmnd_fills_from_sys.int_cache` | the L3, or another L2 in the same CCX |
+| `0x0443` | `ls_dmnd_fills_from_sys.ext_cache_local` | a cache in a different CCX |
+| `0x0143` | `ls_dmnd_fills_from_sys.lcl_l2` | this core's L2 |
+
+All four are opened on the benchmark thread, user mode only, pinned so they
+are never multiplexed, and read with user-mode `rdpmc` under the kernel's
+sequence lock (`bench/pmc.hpp`). The NMI watchdog does not run on the
+isolated CPUs (`watchdog_cpumask` is `0-7,16-31`), so all six core counters
+are free there.
+
+**What it counts, and what it does not.** *Demand* fills: a line the hardware
+prefetcher brought in, then hit by a load, is not counted here. For the
+book's accesses that is the right accounting. An index slot is named by a
+hash and a pool slot by the index, so no prefetcher can anticipate them and
+each miss is one the book waits for; the input stream is sequential, the
+prefetcher hides it, and it correctly does not appear.
+
+**Validation, made before any book measurement used the event.**
+`bench/chase.cpp` runs a random pointer chase: one cycle through every cache
+line of a buffer, each load dependent on the last, 4 KB pages. It is the one
+access pattern whose cache behaviour follows from the buffer size alone. On
+cpu8, machine check clean, 20,000,000 loads per size, fills per load:
+
+| Buffer | DRAM | L3 | Other CCX | L2 | ns / load |
+|---:|---:|---:|---:|---:|---:|
+| 256 KB | 0.0000 | 0.1082 | 0.0000 | 0.8918 | 4.96 |
+| 768 KB | **0.0000** | 0.5972 | 0.0000 | 0.4028 | 11.58 |
+| 16 MB | 0.0000 | 0.9857 | 0.0000 | 0.0143 | 19.53 |
+| 28 MB | 0.0693 | 0.9228 | 0.0000 | 0.0079 | 25.83 |
+| 40 MB | 0.2901 | 0.7046 | 0.0000 | 0.0052 | 41.03 |
+| 48 MB | 0.4195 | 0.5762 | **0.0000** | 0.0043 | 49.89 |
+| 64 MB | 0.5845 | 0.4125 | **0.0000** | 0.0030 | 61.48 |
+| 256 MB | 0.9110 | 0.0884 | 0.0000 | 0.0006 | 88.04 |
+| 1 GB | **0.9842** | 0.0156 | 0.0000 | 0.0001 | 95.98 |
+
+Both conditions hold. Far above 32 MB there is a DRAM fill on 98.4% of loads
+and the loads cost 96 ns; under 1 MB there are none. Every region was also
+counted through `read()` on the event descriptors, and the `rdpmc` counts
+agree at every size, so the fast path the book uses is checked against the
+kernel's own count rather than trusted. A first run of the same sweep
+matched this one to within 0.02 fills per load at every size above 256 KB.
+
+**The table also settles the capacity the book is compared against.** The
+other-CCX column is zero at 48 and 64 MB — sizes that would fit in the two
+CCDs' L3 together. The other CCD's L3 does not take this core's evictions, so
+64 MB is not available to one core: at 64 MB, 58% of loads go to DRAM. The
+capacity is one CCD's 32 MB, and in practice somewhat less for a random
+working set, since 7% of loads already miss at 28 MB. Record 041 uses this.
+
+**Alternatives considered.**
+- *The L3 PMU.* Counts for the whole CCD; cannot be attributed to a thread or
+  a message.
+- *`perf stat` over the whole run.* Counts, but cannot say which messages
+  took the misses, which is the whole of record 015.
+- *`read()` per message.* A system call per message costs more than the
+  message.
+- *`LLC-load-misses`.* Not supported on this CPU.
+
+**Consequences.** Four `rdpmc` reads on each side of every message are too
+expensive to leave in a timed run, so attribution runs are untimed and
+separate from timing runs. The counts are exact per message but say nothing
+about which structure a line belonged to; record 042 covers that.
+
+**Evidence.** The table above, 2026-09-26, cpu8 of the benchmark host,
+`bench/chase.cpp` built with GCC 13.4.0.
+
+---
+
+## 041 — The benchmark owns one CCD
+
+**Status:** in force.
+
+**Context.** The 5950X has two CCDs of eight cores, each with its own 32 MB
+L3, and a task anywhere on a CCD competes for that CCD's L3. The book is far
+larger than one. `bench_book`'s allocation log (record 042) reports what the
+baseline build reserves:
+
+| Structure | Reserved |
+|---|---:|
+| order index (16 M slots of 16 bytes) | 256.0 MB |
+| order pool (8 M orders of 24 bytes) | 192.0 MB |
+| order references, parallel to the pool | 64.0 MB |
+| symbol table, with the occupancy bitmaps | 3.8 MB |
+| **before level windows and overflow nodes** | **515.8 MB** |
+
+That is not the ~100 MB the planning figure assumed. The pool and reference
+array are touched only up to the peak number of live orders, because the LIFO
+free list fills the pool forward from slot zero; the index is touched across
+the whole table, because the hash scatters references over all of it.
+Record 040 shows the comparison is against 32 MB, not the 64 MB total.
+
+**Decision.** The book runs on cpu8, the first CPU of the second CCD, and
+nothing else runs on that CCD. `isolcpus`, `nohz_full` and `rcu_nocbs` each
+cover 8-15, and `tools/machine_check.sh` checks all three against the bench
+core's L3 domain as read from the cache hierarchy, fails if any user task has
+run there, and lists the device interrupts routed there with their delivered
+counts. The runner runs it before every experiment and records the
+interrupts delivered to cpu8 during each.
+
+Four facts about this host that the check had to be taught, each of which
+would have let it pass while measuring the wrong thing:
+
+- **Boost.** Core Performance Boost is off in firmware: the CPUID `cpb` flag
+  is absent and the acpi-cpufreq `cpb` control reads 0. `cpuinfo_max_freq`
+  nonetheless reads 5.08 GHz — acpi-cpufreq reports the CPPC highest-perf
+  capability there — so it is not used. The check measures the bench core
+  instead: 3,399.9 MHz of core cycles against a 3,400.0 MHz TSC, ratio
+  1.0000.
+- **SMT.** Off in firmware; `smt/control` reads `notsupported`, and cpu8 has
+  no sibling.
+- **lfence.** CPUID `8000_0021 EAX[2]`, LFENCE always serializing, is set, so
+  the timer's `lfence; rdtsc` fence holds dispatch without relying on an MSR
+  bit a user cannot read.
+- **Interrupts.** Eight NVMe per-queue interrupts, 73-80, are managed onto
+  CPUs 8-15 one each, and `isolcpus` does not move managed interrupts. That
+  disk is not mounted and they have delivered nothing. Routed-but-silent
+  passes; any delivery fails.
+
+**One deliberate exception.** The SPSC experiment needs a second core, and
+runs its producer on cpu9. It is on the same CCD on purpose: the question is
+whether moving the parse off the book's core pays for moving every message
+through the shared L3, and a producer on the other CCD would answer a
+different question. The entry says so.
+
+**Pinning is `taskset` alone.** `chrt -f` is refused — the account has no
+real-time privilege — and on an isolated `nohz_full` core the benchmark is the
+only runnable task, so there is nothing a priority would have kept off it.
+
+**Alternatives considered.**
+- *Run on the first CCD.* It hosts the OS, the shell and every interrupt that
+  is not managed; its L3 is shared with all of them.
+- *Isolate only the bench core.* A neighbour on the same CCD evicts the
+  book's lines, and the machine check would pass while it happened.
+
+**Consequences.** Every latency figure from this host is a figure for a book
+several times larger than its L3, on one core that has that L3 to itself.
+That is stated wherever the figures are cited.
+
+**Evidence.** Machine check output embedded in every Stage 4 entry in
+`docs/benchmarks.md`; `tests/machine_check_negative.sh` drives each of the
+conditions above from a synthetic tree and requires each break to fail.
+
+---
+
+## 042 — Structures are attributed through IBS, and ages from an uncounted pass
+
+**Status:** in force.
+
+**Context.** Record 015's third attribution, by structure, needs the data
+address of the loads that miss. On AMD, `perf mem` samples through IBS
+rather than the load-latency facility it uses elsewhere, and whether it works
+depends on the kernel, the perf build and the account's privileges.
+
+**perf mem works on this host.** Kernel 6.8.0-124, perf 6.8.12, as an
+unprivileged user at `perf_event_paranoid` 1: `perf mem record` opens
+`ibs_op//` with `IP|TID|TIME|ADDR|PERIOD|DATA_SRC|WEIGHT`, and on a 256 MB
+pointer chase 98.3% of weighted load samples report `RAM hit`. Two caveats.
+IBS samples kernel ops too, at kernel addresses, and those are dropped. And
+`/proc/kallsyms` is restricted, which costs kernel symbol names and nothing
+the attribution uses. The data sources this IBS reports for loads are
+`L1 hit`, `L2 hit`, `core, same node Any cache hit` — the L3 or another L2 in
+the CCX — and `RAM hit`.
+
+**Decision — addresses.** A sampled address is resolved against the exact
+range of every structure, taken from the allocations themselves.
+`FastBook`'s storage is private, and `/proc/self/maps` cannot substitute: the
+kernel merges adjacent anonymous mappings with the same permissions, so two
+consecutive large vectors can appear as one region. `bench_book` replaces the
+global `operator new` and logs the large allocations in constructor order,
+which names them, and every level window and overflow-map node, whose size
+is learned by allocating one. The symbol table is split into occupancy
+bitmaps and side headers by offset within each side.
+`bench/perf_mem_attribute.py` does the resolution.
+
+**Decision — ages.** A message's order age needs the time its order was
+added, which the book does not expose, so the harness keeps its own table. Run
+alongside the book, that table **doubled the DRAM fills it was measuring** —
+2.33 per message against 1.12 without it, on a synthetic session — because
+its own lookups evicted the book's lines. Ages are therefore computed in a
+separate pass that is not counted and written as one byte per message, which
+the counted pass reads as a sequential stream. The counted pass is repeated
+without the stream and both are reported: on the synthetic session the stream
+costs 1.139 against 1.078 fills per message, 5.7%, and the Stage 4 entry
+states the figure for the real session.
+
+**Alternatives considered.**
+- *Label regions by size from `/proc/self/maps`.* Rejected for the merging
+  above, and because the 32-byte-order build's pool is exactly the size of the
+  index.
+- *Keep the age table in the counted pass.* Measured; it doubles the answer.
+
+**Consequences.** Structure shares are sampled estimates, with the sample
+counts printed beside them; per-message counts (record 040) are exact but
+structure-blind. The two are reported together and neither is quoted as the
+other.
+
+---
+
+## 043 — The draw checksum agrees on glibc x86-64
+
+**Status:** in force. Completes the comparison record 038 left pending.
+
+**Result.** `tools/draw_checksum` on the benchmark host — x86-64, glibc
+2.35, GCC 13.4.0, `-ffp-contract=off` confirmed in the compile flags — gives
+**6095088912012545764** over the full 5,798,550-draw sequence, in both the
+RelWithDebInfo and Release builds. That is the value recorded from arm64 with
+Apple's libm. **Match.**
+
+**What it establishes.** Every draw the study and Stage 7 consume is the same
+integer nanosecond on both hosts. Record 038 put the chance of at least one
+differing draw at 47% *if the two libraries disagree in the last bit*; a
+match says that, on these inputs, either they agree or no disagreement fell
+close enough to an integer boundary to move a draw. It does not say the two
+`log1p` implementations are identical, and the checksum stays in the runner
+so a later library or compiler that moves a draw is caught the same way.
