@@ -282,3 +282,216 @@ met, the sweep prefetches the index slot of the message *d* ahead, for *d* in
 1, 2, 4, 8 and 16, through an `OrderIndex` specialisation in `bench/` that
 adds a prefetch to the baseline index and changes nothing else, with the
 prediction that some *d* between 4 and 16 cuts batch time by at least 10%.
+
+
+### 2026-09-26 — Stage 4 on the 5950X: results, scored against the predictions above
+
+- Host: AMD Ryzen 9 5950X, cpu8 on the isolated second CCD, boost, PBO and SMT
+  off (`docs/design.md` record 041). GCC 13.4.0, Release, `taskset -c 8`
+  (no `chrt`; record 041).
+- Sessions: `12302019.NASDAQ_ITCH50` (264,478,375 book messages timed per
+  run) and `20190130.BX_ITCH_50`, both SHA-256-matched to `docs/data.md`.
+- Every configuration: `--verify` first — each replayed the whole session
+  against the reference book, **RESULT: identical** in every case — then 5
+  batch and 5 per-message runs, warmup 2,000,000 messages.
+- Machine check: **clean before every one of the 24 experiments.** Network
+  1.7-14 KB/s at each start, no fetch running. Zero major page faults in any
+  timed region. Draw checksum agrees (record 043).
+- Raw output: `bench/run_linux.sh` into `results/stage4-nasdaq`,
+  `results/stage4-nasdaq-layout` and `results/stage4-bx` on the host.
+
+<details><summary>machine check (baseline; the other 23 are identical but for
+the probe's MHz reading)</summary>
+
+```
+=== machine ===
+  cpu        AMD Ryzen 9 5950X 16-Core Processor
+  microcode  0xa201009
+  kernel     6.8.0-124-generic
+  compiler   g++-13 (Ubuntu 13.4.0-6ubuntu1~22~ppa2) 13.4.0
+  cmdline    BOOT_IMAGE=/boot/vmlinuz-6.8.0-124-generic root=UUID=5f217358-fb6e-42fd-92ed-12dbc8acb6bd ro quiet splash isolcpus=8-15 nohz_full=8-15 rcu_nocbs=8-15 vt.handoff=7
+  bench core 8
+  L3 domain  8-15
+
+=== timing ===
+  OK    constant_tsc
+  OK    nonstop_tsc
+  OK    rdtscp
+  OK    lfence always dispatch-serializing (CPUID 8000_0021 EAX[2])
+
+=== isolation ===
+  OK    isolcpus covers the whole L3 domain 8-15
+  OK    nohz_full covers 8-15
+  OK    rcu_nocbs covers 8-15
+  OK    no user task has run on the L3 domain
+  OK    device irqs routed to the domain but silent (0 delivered): 73 74 75 76 77 78 79 80
+
+=== SMT ===
+  OK    SMT control: notsupported
+  OK    bench core 8 has no sibling thread
+
+=== frequency ===
+  OK    governor=performance on 8-15
+  driver     acpi-cpufreq
+  OK    AMD boost disabled (every cpufreq boost/cpb control reads 0)
+  OK    CPB not advertised: Core Performance Boost is off in firmware
+  OK    core 3399.9 MHz against TSC 3400.0 MHz on cpu8 (ratio 1.0000)
+
+=== counters ===
+  perf_event_paranoid 1
+  OK    user-mode rdpmc granted on a self-monitoring event
+
+=== memory ===
+  THP        always [madvise] never
+  hugepages  0
+
+Clean. Measurements from this host are interpretable.
+```
+
+</details>
+
+#### Failed experiment, kept: the first layout run measured the baseline four times
+
+The first NASDAQ run's `order-32`, `window-512`, `window-1024` and
+`window-2048` builds passed their switches to CMake as cache variables, which
+never reached the compiler. All four binaries printed `order bytes 24`,
+`window ticks 256`, and reported the baseline's 703,924 recenters at every
+"width" — which is how it was caught. Their numbers (170.72, 166.57, 167.61
+and 167.31 ns) are **four more baseline runs and nothing else**, spread 2.5%
+around 167.78, which is a fair statement of run-to-run variation across
+separate processes on this host. The build was fixed
+(`CMakeLists.txt` forwards both switches) and the four were rerun; the rows
+below are the rerun, and each printed its own configuration.
+
+#### Timing, NASDAQ
+
+Batch is the median of 5 runs [min, max]. Per-message is the median across
+the 5 runs of each run's all-types percentile. DRAM fills are exact per
+message, from the attribution run without the age stream.
+
+| Configuration | Batch ns/msg | p50 | p99 | p99.9 | DRAM fills/msg |
+|---|---:|---:|---:|---:|---:|
+| baseline: multiply-shift, 24 B, 256 ticks | **167.78** [165.46, 168.92] | 120 | 660 | 1140 | 0.983 |
+| hash: identity | **142.36** [139.59, 143.39] | 100 | 620 | 1080 | 0.623 |
+| hash: `std::hash` | **142.91** [141.46, 143.11] | 100 | 640 | 1100 | — |
+| index: chained | **179.84** [179.19, 180.64] | 130 | 700 | 1190 | 0.944 |
+| order: 32 bytes | **171.16** [168.51, 173.59] | 130 | 680 | 1140 | 0.979 |
+| window: 512 | **168.23** [166.01, 170.54] | 130 | 580* | 1050 | — |
+| window: 1024 | **161.72** [158.17, 165.72] | 130 | 520* | 1130 | — |
+| window: 2048 | **155.89** [154.36, 156.01] | 120 | 480* | 760 | — |
+| SPSC (book on cpu8, parse on cpu9) | **219.93** [219.12, 224.68] | 130 | 690* | 1180 | — |
+
+*Pooled across runs; the run-by-run median was not extracted for these rows.
+Per-message samples have the 20 ns instrument subtracted.
+
+Per type, baseline, pooled (ns): `A` p50 120 / p99.9 900; `D` 130 / 1070;
+`E` 130 / 850; `X` 100 / 550; `U` **320** / 1390. `U` is a remove and an
+add and costs 2.5× `D` at the median.
+
+BX baseline: **140.54** ns [140.28, 144.02]; p50 120, p99.9 780. Overflow
+2.37% and 3,206,627 recenters, reproducing S-002 exactly.
+
+#### Where the misses are (baseline, NASDAQ)
+
+By type (exact, per message): `A` 1.16 DRAM fills, `D` 0.58, `E` 0.79, `U`
+2.30. `A` is 44% of messages and 52% of all DRAM fills: the insert of a new
+reference into a scattered 256 MB index misses on 91% of adds.
+
+By order age, `E X D U` pooled, with the age stream:
+
+| Age of named order | Messages | DRAM fills/msg | ≥1 DRAM fill |
+|---|---:|---:|---:|
+| < 1 ms | 16.9 M | **0.19** | 17.7% |
+| 1-10 ms | 9.5 M | 0.15 | 13.2% |
+| 10-100 ms | 14.7 M | 0.36 | 30.4% |
+| 100 ms - 1 s | 24.1 M | 0.33 | 25.8% |
+| > 1 s | 78.2 M | **1.39** | 67.3% |
+
+Record 015's hypothesis holds: a message naming an order under 1 ms old
+takes a seventh of the DRAM fills of one naming an order over a second old.
+But 55% of order-referencing messages name orders older than a second, and
+those carry 41% of all DRAM fills. The age stream's own cost: 1.014 against
+0.983 fills per message, **3.2%**.
+
+By structure (`perf mem`, IBS, 38,017 user-mode load samples of which **418
+were served from DRAM** — a small sample; shares are ±5 points or so):
+
+| Structure | Share of DRAM-served loads | Share of load latency |
+|---|---:|---:|
+| overflow-map nodes | **48.3%** | 45.3% |
+| order index | 26.8% | 16.1% |
+| order pool | 15.6% | 16.1% |
+| level windows | 5.5% | 5.6% |
+| everything else | 3.8% | 16.9% |
+| bitmaps | 0.0% | 1.8% |
+
+The overflow map holds 4.9% of orders on this session and owns half the
+DRAM-served loads: a `std::map` walk is a chain of dependent node loads, each
+a likely miss. The allocation log filled during this pass (more than 4 M
+node allocations), so some late nodes resolve to "everything else"; that
+bucket took 2.4% of DRAM samples, which bounds the undercount.
+
+`perf stat` (whole process, structures pass plus one batch pass): IPC 1.20
+baseline, 1.42 identity, 1.13 chained, 1.20 order-32. DRAM fills fall 28%
+from multiply-shift to identity (564 M to 405 M); chained and order-32 are
+within 3% of the baseline.
+
+#### The predictions, scored
+
+| # | Prediction | Result | |
+|---|---|---|---|
+| 1 | batch 110-200 ns; DRAM 1.0-2.0/msg; `A` ≥ 0.8; `U` ≥ 1.5× `D` | 167.78; **0.98**; 1.16; 2.5× | held, but for DRAM, just under the range |
+| 2 | per-message p50 above batch mean | 120 vs 167.78 | **failed** — and badly posed: a median against a mean that carries the parse and the tail |
+| 3 | < 1 ms ≤ 0.4; > 1 s ≥ 1.2; holds for pool, fails for index | 0.19; 1.39; young orders' index slots are resident too | held for the numbers; **failed** for the index — a slot written under a millisecond ago is still cached, whatever the hash |
+| 4 | index ≥ 40% of DRAM loads; pool second; bitmaps+headers < 5% | 26.8%; pool third; 1.2% | **failed**: the overflow map owns 48% |
+| 5 | identity ≥ 15% faster; `A` < 0.4 DRAM; longer probes; `std::hash` within 2% | 15.2%; 0.59; 1.131 vs 1.105; 0.4% | held, except `A` stays at 0.59 |
+| 6 | chaining 10-40% slower, ≥ 0.3 more DRAM/msg | 7.2% slower, 0.04 **fewer** | **failed** on magnitude and on mechanism: chaining loses on instructions (IPC 1.13), not misses |
+| 7 | order-32 within 5%; 0.05-0.25 fewer fills > 100 ms; < 0.05 difference < 10 ms | +2.0%; > 1 s 1.38 vs 1.39; < 1 ms 0.20 vs 0.19 | first and last held; **the straddle saving did not appear** |
+| 8 | SPSC within 5%; consumer p50 +0-15 ns | **31% slower**; +10 ns | **failed** on throughput |
+| 9 | 512 within 3%; 2048 recenter p50 ≥ 4×; 2048 within 5% | +0.3%; 2.6×; **−7.1%** | first held; wider was faster, and its rebuilds cheaper than predicted |
+| 10 | recenters < 0.1%, p50 > 10×, set the max, move p99.9 < 5% | NASDAQ 0.25%, 6.8×, no, 8.8%; BX 4.29%, 3.1×, no, 36% | **failed** on every count |
+
+#### Interpretation
+
+**The contradictions first.** SPSC is the largest: moving the parse to a
+second core made the replay 31% slower (219.93 against 167.78 ns). The
+consumer's book call is only 10 ns slower at the median, so the loss is in
+the handoff — the ring, the cross-core transfer of each message line, and
+the consumer waiting on it — not in the book. At this message rate a
+single-threaded replay is the faster design.
+
+The overflow map, not the index, is the largest single owner of DRAM-served
+loads, from 4.9% of orders. The window experiment says the same thing from
+the other side: widening to 2,048 ticks cut overflow from 4.90% to 1.03% and
+batch time by 7.1%, although it quadrupled the level arrays to 833 MB. That
+is the opposite of S-001's worry that width would cost locality; on this
+session the map lookups it removes cost more than the width adds.
+
+The recenter tail matters more than S-002 predicted. On BX, where 4.3% of
+messages trigger one, the recenter-free p99.9 is 500 ns against 780 with
+them. The claim that sliding is not a throughput regression is still
+untested: it needs a fixed-window build, which this run did not include.
+
+**What held.** Identity hashing is 15.2% faster than multiply-shift and cuts
+DRAM fills by 37%, because roughly increasing references put recent orders
+in neighbouring slots; `std::hash` matches it to 0.4%, as a control should.
+Record 016 said the default would be chosen by measurement: the measurement
+now favours identity. The default in `include/` is not changed here, because
+this stage's scope excludes it; `docs/design.md` record 044 says what
+changing it involves.
+
+**The prefetch sweep does not run.** The rule fixed before the run required
+the index or the pool to own at least 40% of DRAM-served loads. They own
+26.8% and 15.6%. The structure that does qualify on share, the overflow map,
+is a pointer chase whose next address is not computable from the message.
+
+**The unexplained tail.** The all-types maximum is about 1.1 ms in every
+baseline run, on an `F` message that triggers no recenter, with no page fault
+and 151 timer ticks across the whole experiment. It recurs at the same size
+across runs, so it is a property of some message rather than noise, and it is
+**not yet attributed**. Until it is, the maximum is reported and not
+explained.
+
+**What these numbers do not show.** Replay from a file: throughput, not
+responsiveness under a real arrival process (Scope, above). One core with a
+CCD's L3 to itself. A book 20× that L3.

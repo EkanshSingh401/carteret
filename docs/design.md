@@ -2269,3 +2269,31 @@ match says that, on these inputs, either they agree or no disagreement fell
 close enough to an integer boundary to move a draw. It does not say the two
 `log1p` implementations are identical, and the checksum stays in the runner
 so a later library or compiler that moves a draw is caught the same way.
+
+---
+
+## 044 — Stage 4's findings that bear on the book's design
+
+**Status:** hypothesis. Measured; not acted on, because Stage 4's scope
+excluded `include/`.
+
+**Evidence.** `docs/benchmarks.md`, 2026-09-26 Stage 4 entry, NASDAQ
+12302019 on the 5950X.
+
+- **Hash policy (record 016).** Identity is 15.2% faster than multiply-shift
+  in batch (142.36 against 167.78 ns) with 37% fewer DRAM fills per message,
+  at a mean probe length of 1.131 against 1.105. Record 016 said the default
+  would be chosen by measurement; this is that measurement. Changing the
+  default means one template argument in `fast_book.hpp`, and it must be
+  re-measured on a second session first, because identity's advantage rests on
+  how a venue assigns references (record 012) and a venue that scattered them
+  would reverse it.
+- **Overflow map (records 018, 033).** 4.9% of orders own 48% of DRAM-served
+  loads. A 2,048-tick window cut batch time 7.1% despite 833 MB of level
+  arrays. The next candidate is a cheaper overflow structure rather than a
+  wider window.
+- **SPSC.** 31% slower than direct. Not pursued.
+- **Chaining (041's comparison).** 7.2% slower, from instructions rather than
+  misses. Open addressing stays.
+- **Order size (record 017).** 32 bytes is 2.0% slower and saves no fills on
+  old orders. 24 bytes stays.
