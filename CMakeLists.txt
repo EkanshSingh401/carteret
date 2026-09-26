@@ -25,7 +25,18 @@ if(CARTERET_NATIVE)
   add_compile_options(-march=native)
 endif()
 
-option(CARTERET_ASAN "AddressSanitizer and UndefinedBehaviorSanitizer build" OFF)
+# The two layout experiments of docs/design.md records 017 and 018 are
+# compile-time switches in fast_book.hpp. A cache variable alone never reaches
+# the compiler: Stage 4's first run passed -DCARTERET_ORDER_BYTES=32 and
+# -DCARTERET_WINDOW_TICKS=2048 this way and measured the baseline four times
+# under four labels. Each is forwarded as a definition when set.
+foreach(knob CARTERET_ORDER_BYTES CARTERET_WINDOW_TICKS)
+  if(DEFINED ${knob})
+    add_compile_definitions(${knob}=${${knob}})
+  endif()
+endforeach()
+
+option(CARTERET_ASAN"AddressSanitizer and UndefinedBehaviorSanitizer build" OFF)
 if(CARTERET_ASAN)
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address,undefined)
