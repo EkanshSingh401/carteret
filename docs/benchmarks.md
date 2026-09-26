@@ -20,7 +20,10 @@ ring turns out slower than direct processing, that is the result.
    differently, and a blended figure hides that a delete is cheap while a
    replace is two index operations.
 5. `perf stat` alongside wall time: cycles, instructions, IPC, LLC-load-misses,
-   branch-misses and dTLB-load-misses, each per message.
+   branch-misses and dTLB-load-misses, each per message. On the Zen 3
+   benchmark host `LLC-load-misses` is not supported and prints nothing, so
+   the last-level miss is the demand-fill-from-DRAM event validated in
+   `docs/design.md` record 040, and the dTLB miss is `ls_l1_d_tlb_miss.all`.
 6. The timer is fenced: `lfence; rdtsc` opens a region and `rdtscp; lfence`
    closes it. `rdtscp` alone waits for earlier instructions but permits later
    ones to begin before the counter is read.
@@ -205,5 +208,77 @@ is not a timing. Record 033 has the design reasoning.
 
 ## Log
 
-*(Empty. The first timing entry is written from a run on the Linux benchmark
-host, per Stage 4. No timing is written from the development host.)*
+### Stage 4 predictions — recorded 2026-09-26, before any run on market data
+
+Host: AMD Ryzen 9 5950X, boost, PBO and SMT off, cpu8 on the isolated second
+CCD (`docs/design.md` record 041). Sessions: `12302019.NASDAQ_ITCH50` for
+the full matrix; `20190130.BX_ITCH_50` for the baseline, because S-002's
+recenter prediction was made on it. GCC 13.4.0, Release, 5 runs.
+
+**What was seen before writing these.** Nothing from market data. The harness
+was smoke-tested on a 3,000,000-message synthetic session from
+`gen_synthetic`, whose shape is nothing like a real one (53.8% overflow, six
+level windows), and on the pointer chase of record 040. The synthetic run put
+the baseline at 378 ns per message and the chained index about 5% slower; it
+is mentioned so that no prediction below can be suspected of borrowing from a
+run that was not disclosed, and it is not a result.
+
+**The arithmetic the predictions rest on.** The baseline reserves 516 MB
+against one CCD's 32 MB (record 041). The index is 256 MB and multiply-shift
+scatters references across all of it, so an index probe is expected to fill
+from DRAM on nearly every message that performs one. Record 040 puts a
+dependent DRAM fill at about 96 ns on this host.
+
+1. **Baseline, NASDAQ.** Batch between 110 and 200 ns per book message.
+   DRAM fills per book message between 1.0 and 2.0 overall; at least 0.8 on
+   `A`, whose index insert lands on a random slot; `U` the most expensive
+   type, at least 1.5× `D`, since it is a remove and an add.
+2. **Mode gap.** Per-message p50 is **above** batch mean by more than the
+   20 ns instrument, because batch mode lets the core start the next
+   message's index miss before the current one retires and the fence forbids
+   it.
+3. **Attribution by age (record 015).** Messages naming an order younger
+   than 1 ms take at most 0.4 DRAM fills; those naming an order older than
+   1 s take at least 1.2. The hypothesis that short-lived orders stay
+   resident is predicted to hold for the pool and fail for the index, since
+   the index is scattered regardless of age.
+4. **Attribution by structure (perf mem).** The index owns the largest share
+   of DRAM-served load samples, at least 40%; the pool is second; bitmaps
+   and symbol headers together under 5%.
+5. **Hash policy (record 016).** Identity beats multiply-shift by at least
+   15% in batch, because roughly increasing references put recent orders in
+   neighbouring slots, and cuts DRAM fills on `A` below 0.4 — while its mean
+   probe length is **higher**. `std::hash` is the identity on libstdc++ and
+   lands within 2% of identity: the control.
+6. **Open addressing against chaining.** Chaining loses by 10-40% in batch:
+   a head and a node are two dependent lines where a slot is one, and the
+   32 MB head array alone is the size of the L3. It takes at least 0.3 more
+   DRAM fills per message that probes.
+7. **24 against 32-byte orders (record 017).** Within 5% overall. The 32-byte
+   build takes fewer DRAM fills on messages naming orders older than 100 ms,
+   by 0.05-0.25 per message — the 25% of records that straddle a line — and
+   the difference on orders younger than 10 ms is under 0.05.
+8. **SPSC against direct.** Batch throughput within 5% of direct: the parse
+   is a small fraction of a message and moving it off the core saves little,
+   while every message's bytes now arrive through the L3. The consumer's
+   per-message p50 is higher than direct's by 0-15 ns.
+9. **Window size.** 512 ticks within 3% of 256 in batch. At 2,048 the
+   recenter p50 is at least 4× the 256-tick figure, because a rebuild clears
+   the whole window, while recenters are rarer; batch within 5% of 256.
+10. **Recenters, separated (S-002 carried forward, NASDAQ and BX).** Under
+    0.1% of timed messages. Their p50 is more than 10× the ordinary p50, they
+    set the maximum, and removing them moves the all-types p99.9 by less than
+    5%. The S-002 claim that sliding is not a throughput regression is not
+    testable by this run without a fixed-window build, and is not claimed
+    either way.
+
+**The prefetch sweep runs only if attribution warrants it,** by a rule fixed
+here: the index or the pool owns at least 40% of DRAM-served load samples,
+**and** that structure's address for a message is computable from the message
+alone before the book is called — true of the index slot, which is a hash of
+the reference, and not of the pool slot, which is read from the index. If
+the rule is not met the sweep is not run and the entry says why. If it is
+met, the sweep prefetches the index slot of the message *d* ahead, for *d* in
+1, 2, 4, 8 and 16, through an `OrderIndex` specialisation in `bench/` that
+adds a prefetch to the baseline index and changes nothing else, with the
+prediction that some *d* between 4 and 16 cuts batch time by at least 10%.
