@@ -112,7 +112,7 @@ if [ "$have" -gt "$TOTAL" ]; then
   echo "partial is larger than the file ($have > $TOTAL); deleting and restarting" >&2
   rm -f "$PART"; have=0
 fi
-echo "resuming at $have"
+echo "continuing at $have"
 
 while [ "$have" -lt "$TOTAL" ]; do
   start=$have

@@ -50,17 +50,17 @@ Maker-taker. The venue used by the pre-registered study
 | 2019-07-30 | `Nasdaq ITCH/07302019.NASDAQ_ITCH50.gz` | 3.66 GB | development |
 | 2019-08-30 | `Nasdaq ITCH/08302019.NASDAQ_ITCH50.gz` | 4.08 GB | development |
 | 2019-10-18 | `Nasdaq ITCH/S101819-v50.txt.gz` | 3.95 GB | development |
-| 2019-10-30 | `Nasdaq ITCH/10302019.NASDAQ_ITCH50.gz` | 3.87 GB | **HELD OUT — do not fetch** |
+| 2019-10-30 | `Nasdaq ITCH/10302019.NASDAQ_ITCH50.gz` | 3.87 GB | **held out** — fetched under the lock, run once 2026-09-25 |
 | 2019-12-30 | `Nasdaq ITCH/12302019.NASDAQ_ITCH50.gz` | 3.52 GB | development (spent on Stage 3) |
-| 2020-01-30 | `Nasdaq ITCH/01302020.NASDAQ_ITCH50.gz` | 5.60 GB | **HELD OUT — do not fetch** |
+| 2020-01-30 | `Nasdaq ITCH/01302020.NASDAQ_ITCH50.gz` | 5.60 GB | **held out** — fetched under the lock, run once 2026-09-25 |
 
 ### The split, and its one flaw
 
 Seven development sessions, two held out. Recorded **before any feature code
 was written**, which is the only property that makes it meaningful. The two
-held-out sessions have not been downloaded and must not be until
-`research/heldout.lock` names a commit containing the completed
-`docs/preregistration.md`.
+held-out sessions were not downloaded until `research/heldout.lock` named a
+commit containing the completed `docs/preregistration.md`; they were then
+fetched, verified, and used once, on 2026-09-25.
 
 The flaw, stated rather than buried: **2019-12-30 sits chronologically after
 2019-10-30**, so the development set is not strictly earlier than the held-out
@@ -347,6 +347,13 @@ per-type counts.
 | 2019-12-30 `12302019.NASDAQ_ITCH50` | 268,744,780 | 4,248,527 | **264,496,253** | 98.42% |
 | **seven development sessions** | **2,281,275,999** | **27,782,801** | **2,253,493,198** | **98.78%** |
 | 2019-01-30 `20190130.BX_ITCH_50` | 82,841,542 | 8,315,955 | **74,525,587** | 89.96% |
+| 2019-10-30 `10302019.NASDAQ_ITCH50` (held out) | 293,989,079 | 3,964,033 | **290,025,046** | 98.65% |
+| 2020-01-30 `01302020.NASDAQ_ITCH50` (held out) | 423,285,709 | 4,251,070 | **419,034,639** | 99.00% |
+| **all ten sessions** | **3,081,392,329** | **44,313,859** | **3,037,078,470** | **98.56%** |
+
+The held-out rows are the figures in the committed replay and census output,
+`docs/generated/heldout/replay-*.txt` and `census-*.txt`; every session in the
+table reported `RESULT: identical`.
 
 The BX session is the outlier, and for one reason: it carries **8,301,264**
 `N` Retail Price Improvement Indicator messages, a type NASDAQ does not use at
@@ -387,7 +394,7 @@ GET /ITCH/Nasdaq%20ITCH/01302019.NASDAQ_ITCH50.gz   Range: bytes=0-1023
 ```
 
 206 with a `Content-Range` exactly matching the request, so
-`tools/fetch_chunked.sh` fetches 64 MiB at a time and resumes from whatever it
+`tools/fetch_chunked.sh` fetches 64 MiB at a time and continues from whatever it
 already has.
 
 ### Throughput is not a constant, and the first figure measured was the wrong one

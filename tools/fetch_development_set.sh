@@ -12,7 +12,7 @@
 #
 #   caffeinate -i -s sh tools/fetch_development_set.sh
 #
-# Safe to re-run. fetch_chunked.sh resumes from the bytes already on disk, and
+# Safe to re-run. fetch_chunked.sh continues from the bytes already on disk, and
 # verify_session.sh is idempotent, so an interrupted run continues rather than
 # starting over.
 #

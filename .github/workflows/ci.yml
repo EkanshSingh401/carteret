@@ -104,6 +104,11 @@ jobs:
       # re-run. It needs no market data: the generated file is committed.
       - name: check the registration quotes the computed values
         run: python3 tools/check_numbers.py
+      # The same gate covers README.md: a figure tagged src:<path> must occur
+      # in that committed file. The negative test breaks one figure, one key
+      # and one source at a time and requires each to fail.
+      - name: check the numbers gate can fail
+        run: bash tests/numbers_negative.sh
       # A "(to be filled)" left in the registration means a constant the study
       # depends on was never registered. That happened once and was caught only
       # by reading the held-out harness before running it; this makes the next

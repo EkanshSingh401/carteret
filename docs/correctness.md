@@ -90,11 +90,16 @@ project until it is explained.
 *Does not prove:* that any field inside a message is decoded correctly. A
 census that agrees perfectly is consistent with every field offset being wrong.
 
-*Results.* Recorded here per session as the gate runs.
+*Results.* Both gates, as recorded in the `v0.1.0` tag.
 
-| Session | Messages | Types matched | Unknown | Length mismatch | Date |
-|---|---:|---|---:|---:|---|
-| *(pending Stage 1)* | | | | | |
+| Session | Messages | Types matched | Unknown | Length mismatch |
+|---|---:|---|---:|---:|
+| `ex20101224.TEST_ITCH_50` (RITCH fixture) | 12,012 | 22 of 22 | 0 | 0 |
+| `20190130.BX_ITCH_50` | 82,841,542 | 22 of 22 | 0 | 0 |
+
+RITCH's counter predates the `'O'` message and does not report it; the census
+counts zero of them, as expected for sessions predating specification revision
+2023-04-28.
 
 ---
 
@@ -159,11 +164,28 @@ of the level, then stops.
 *Does not prove:* that the reference book is right. It proves the two agree.
 Layers 2, 3 and 5 are what constrain the reference book itself.
 
-*Results.* Recorded here per session as the gate runs.
+*Results.* Every session this project has used, replayed in full. The counts
+are `messages compared` as the differential printed it; `docs/data.md` defines
+that count against the other three and gives parsed and excluded counts per
+session.
 
-| Session | Messages replayed | Divergences | Date |
-|---|---:|---:|---|
-| *(pending Stage 3)* | | | |
+| Session | Messages compared | Result |
+|---|---:|---|
+| `20190130.BX_ITCH_50` | 74,525,587 | identical |
+| `01302019.NASDAQ_ITCH50` | 364,479,470 | identical |
+| `03272019.NASDAQ_ITCH50` | 418,387,627 | identical |
+| `05302019.NASDAQ_ITCH50` | 323,088,337 | identical |
+| `07302019.NASDAQ_ITCH50` | 278,286,223 | identical |
+| `08302019.NASDAQ_ITCH50` | 306,373,517 | identical |
+| `S101819-v50.txt` | 298,381,771 | identical |
+| `12302019.NASDAQ_ITCH50` | 264,496,253 | identical |
+| `10302019.NASDAQ_ITCH50` (held out) | 290,025,046 | identical |
+| `01302020.NASDAQ_ITCH50` (held out) | 419,034,639 | identical |
+| **ten sessions** | **3,037,078,470** | **no divergence** |
+
+The held-out rows are committed verbatim in `docs/generated/heldout/`. The
+others were transcribed from the runs into `docs/data.md`; their raw output is
+not committed.
 
 ---
 
@@ -293,6 +315,8 @@ trading-state half of the crossing gate without changing any result.
 | Integrity — trailing garbage | appended bytes from a bad continued transfer | `integrity_negative`, exit 4 |
 | Integrity — SHA-256 | a wrong digest on an otherwise perfect file | `integrity_negative`, exit 5 |
 | Integrity — *(control)* | a good archive must pass | `integrity_negative`, exit 0 |
+| Numbers — README and registration | a figure its named source does not contain, a figure matching only inside a longer number, a missing or untracked source, a wrong or unknown generated key | `tests/numbers_negative.sh`, run in CI |
+| Numbers — *(control)* | the committed documents must pass | `tests/numbers_negative.sh` |
 
 The differential test substitutes a deliberately wrong book through
 `Differential`'s book template parameter, so what is exercised is the
