@@ -12,6 +12,11 @@
 #include "carteret/hash_policy.hpp"
 #include "carteret/order_index.hpp"
 
+// The benchmark's separately chained index specialises OrderIndex, so every
+// test here runs against it too: the open-vs-chained comparison in Stage 4 is
+// only a comparison if both sides are correct.
+#include "../bench/chained_index.hpp"
+
 #include <cstdio>
 #include <random>
 #include <unordered_map>
@@ -233,6 +238,7 @@ int main() {
     run_all<IdentityHash>(IdentityHash::name);
     run_all<MultiplyShiftHash>(MultiplyShiftHash::name);
     run_all<StdHash>(StdHash::name);
+    run_all<bench::ChainedMultiplyShift>(bench::ChainedMultiplyShift::name);
 
     if (failures == 0) {
         std::printf("all order index tests passed\n");

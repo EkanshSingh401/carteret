@@ -13,6 +13,11 @@
 
 #include "itch_builder.hpp"
 
+// The fast book with the benchmark's separately chained index. It is the same
+// book with a different OrderIndex specialisation, and it is replayed against
+// the reference book here for the same reason the three hash policies are.
+#include "../bench/chained_index.hpp"
+
 #include <cstdio>
 #include <random>
 #include <vector>
@@ -373,6 +378,7 @@ int main() {
     run_policy<IdentityHash>(IdentityHash::name, 1, 40000);
     run_policy<MultiplyShiftHash>(MultiplyShiftHash::name, 2, 40000);
     run_policy<StdHash>(StdHash::name, 3, 40000);
+    run_policy<bench::ChainedMultiplyShift>("chained", 4, 40000);
 
     if (failures == 0) {
         std::printf("all differential tests passed\n");
