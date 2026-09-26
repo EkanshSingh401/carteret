@@ -100,7 +100,7 @@ add_executable(strategy_pnl src/strategy_pnl.cpp)
 target_link_libraries(strategy_pnl PRIVATE carteret carteret_fp)
 
 if(CARTERET_BENCH)
-  add_executable(bench_book bench/bench_book.cpp bench/timer.cpp)
+  add_executable(bench_book bench/bench_book.cpp bench/timer.cpp bench/alloc_map.cpp)
   target_link_libraries(bench_book PRIVATE carteret hdr_histogram_static)
   target_compile_definitions(bench_book PRIVATE CARTERET_HAVE_HDR=1)
   # The vendored headers are not held to this project's warning set.
