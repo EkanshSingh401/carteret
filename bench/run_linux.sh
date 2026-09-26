@@ -77,7 +77,7 @@ mkdir -p "$OUT"
 # housekeeping cores, and its page-cache writes evict what the benchmark just
 # read. Refused if a fetch is running or the NIC moved more than 64 KB/s over
 # five seconds; the measured rate is recorded either way.
-net_bytes() { awk 'NR > 2 && $1 != "lo:" {s += $2 + $10} END {print s + 0}' /proc/net/dev; }
+net_bytes() { awk 'NR > 2 && $1 != "lo:" {s += $2 + $10} END {printf "%.0f\n", s}' /proc/net/dev; }
 n0=$(net_bytes); sleep 5; n1=$(net_bytes)
 NET_RATE=$(( (n1 - n0) / 5 ))
 FETCHING=$(pgrep -fa 'fetch_chunked|fetch_data|curl .*emi.nasdaq' | grep -v pgrep || true)
