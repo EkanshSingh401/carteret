@@ -106,6 +106,11 @@ if(CARTERET_BENCH)
   # The vendored headers are not held to this project's warning set.
   target_include_directories(bench_book SYSTEM PRIVATE
     ${hdr_histogram_SOURCE_DIR}/include)
+
+  # Validates the miss counters before the book uses them: a pointer chase
+  # whose cache behaviour is known from its size alone.
+  add_executable(chase bench/chase.cpp bench/timer.cpp)
+  target_link_libraries(chase PRIVATE carteret)
 endif()
 
 enable_testing()
