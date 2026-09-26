@@ -123,7 +123,8 @@ int main(int argc, char** argv) {
     std::printf("pointer chase, %llu dependent loads per size, one random cycle over every "
                 "line, 4 KB pages\n",
                 static_cast<unsigned long long>(steps));
-    std::printf("fills per load, by source (rdpmc; read() in brackets where they differ)\n");
+    std::printf("fills per load, by source, through rdpmc; rdpmc=rd says whether\n"
+                "read() agrees, and a row where it does not is followed by read()'s\n");
     std::printf("%10s %9s %9s %9s %9s %10s %9s\n", "size", "dram", "l3", "xccx", "l2",
                 "ns/load", "rdpmc=rd");
 
