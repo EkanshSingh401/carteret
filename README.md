@@ -3,40 +3,235 @@
 [![ci](https://github.com/EkanshSingh401/carteret/actions/workflows/ci.yml/badge.svg)](https://github.com/EkanshSingh401/carteret/actions/workflows/ci.yml)
 
 A NASDAQ TotalView-ITCH 5.0 feed handler and market-by-order limit order book
-in C++20, with a benchmark harness, a five-layer correctness argument, a
-queue-position bias study, and a pre-registered predictive study.
+in C++20. It is checked message by message against an independent reference
+book over ten full trading sessions, timed on an isolated core with
+per-message hardware-counter attribution, and used for two studies: how far
+market-by-price queue models depart from exact queue position, and a
+pre-registered predictive study run once on held-out sessions.
 
 Named for the New Jersey data centre the ITCH 5.0 specification names as the
 origin of the TotalView feed.
 
 ## Results
 
+The figures in this section and the next carry a tag naming the committed
+file they come from, and CI fails if that file does not contain them
+([below](#numbers-are-checked-not-typed)).
+
+### Correctness
+
 | | |
 |---|---|
-| Messages parsed | 82,841,542 (`20190130.BX_ITCH_50`, 2.42 GB) |
-| Parser verified against | `RITCH::count_messages()`, exact on all 22 types it reports |
-| Fuzzing | 408M executions under ASan and UBSan, no findings |
-| Book update p50 / p99.9 | — |
-| Throughput | — |
-| Machine | — |
+| Sessions replayed against the reference book | **10** (eight NASDAQ, one BX, two held-out NASDAQ) |
+| Messages compared | **3,037,078,470** <!--src:docs/data.md--> |
+| Result | `RESULT: identical` on every session, no divergence |
+| Parser census | 82,841,542 <!--src:docs/correctness.md--> messages of `20190130.BX_ITCH_50`, exact against `RITCH::count_messages()` on all 22 types it reports |
+| Fuzzing | 407,989,301 <!--src:docs/correctness.md--> executions under ASan and UBSan, no findings |
 
-*Latency and throughput stay empty until they are measured on the x86_64 Linux
-benchmark host. Nothing timed on the development host or in CI is published;
-see `docs/benchmarks.md`.*
+"Identical" is checked after **every** message: the touched level's share
+count, order count and full FIFO sequence of order references, and the best
+bid and offer on both sides. The complete book state is hashed and compared at
+fixed intervals and at end of session. The reference book is a
+deliberately plain `std::map` / `std::unordered_map` / `std::list`
+implementation; what agreement does and does not prove is in
+[Correctness](#correctness-1). Per-session counts: `docs/correctness.md`.
 
-**Status: in progress.** Implemented and passing: the wire layer and framing,
-the specification tables with a compile-time field-layout audit, typed views
-for all 23 message types, the handler-templated parser, the fuzz target, the
-message census, the reference book, the fast book, the differential harness,
-the determinism hashes, the MoldUDP64 feed layer, the microstructure export
-and analysis, and the queue-position simulator and bias study.
+### Performance — the shipped default
 
-Outstanding: the benchmark harness has been built and smoke-tested but has
-produced **no published number**, because that requires the x86_64 Linux host.
+| | |
+|---|---|
+| Batch-timed, mean per book message | **167.78 ns** <!--src:docs/benchmarks.md--> — median of 5 runs, range 165.46 <!--src:docs/benchmarks.md--> to 168.92 <!--src:docs/benchmarks.md--> ns |
+| Per-message p50, median of 5 runs | 120 ns <!--src:docs/benchmarks.md--> |
+| Per-message p99 | 660 ns <!--src:docs/benchmarks.md--> |
+| Per-message p99.9 | 1,140 ns <!--src:docs/benchmarks.md--> |
+| DRAM fills per book message | 0.983 <!--src:docs/benchmarks.md-->, counted exactly with `rdpmc` |
+| Session | `12302019.NASDAQ_ITCH50`, 264,478,375 <!--src:docs/benchmarks.md--> book messages per run, replayed from a memory-mapped file |
+| Machine | AMD Ryzen 9 5950X, one core (cpu8) on an isolated CCD, boost, PBO and SMT off, 3.4 GHz fixed; GCC 13.4.0, Release |
 
-The Stage 8 study is **registered and run**; its results are below.
+The shipped default is multiply-shift hashing, 24-byte order records and a
+256-tick sliding price window. Batch timing reads the clock around the whole
+replay; per-message timing fences each call with `lfence; rdtsc` /
+`rdtscp; lfence` and has the measured 20 ns <!--src:docs/benchmarks.md--> instrument cost
+subtracted. The
+two answer different questions and are reported separately: the mean carries
+the tail, the median does not. Every run first replayed the session against
+the reference book and reported identical, and `tools/machine_check.sh` was
+clean before each of the 24 <!--src:docs/benchmarks.md--> experiments. Method, the full configuration
+matrix and the raw machine report: [`docs/benchmarks.md`](docs/benchmarks.md).
 
-## Pre-registered study
+Ten outcomes were predicted in writing before the first run on market data.
+**Five failed** (below, and scored in full in `docs/benchmarks.md`).
+
+### Queue-position bias
+
+On two sessions, 93,525 <!--src:docs/design.md--> synthetic one-lot orders
+each, placed at the inside, every model seeing identical placements and
+identical executed volume:
+
+| | BX 2019-01-30 | NASDAQ 2019-12-30 |
+|---|---:|---:|
+| Exact (market-by-order) fill rate | 25.12% <!--src:docs/design.md--> | 57.21% <!--src:docs/design.md--> |
+| Conservative model, bias vs exact | **−20.9%** <!--src:docs/design.md--> | **−21.2%** <!--src:docs/design.md--> |
+| Conservative, front of queue to back | −6% to −57% <!--src:docs/design.md--> | −3% to −64% <!--src:docs/design.md--> |
+| Proportional model, bias vs exact | −0.5% <!--src:docs/design.md--> | −0.7% <!--src:docs/design.md--> |
+
+The conservative model — the cautious choice a backtest reaches for — is the
+worst, and worsens monotonically with queue depth on both sessions.
+Proportional's small net bias is **not accuracy**: it is two errors of
+opposite sign and comparable size (a shape term and an attribution term,
+separated by an instrument model whose prediction was committed before it was
+built) that both roughly double between the sessions while the net stays
+near zero. The sessions differ in venue, date and symbol basket at once, so
+no difference between them is attributed to venue. Detail:
+[Queue-position bias](#queue-position-bias-1).
+
+### Pre-registered study
+
+Registration committed, CI-green and hash-locked before the held-out sessions
+were downloaded; run once, on 2026-09-25.
+
+| | |
+|---|---:|
+| Primary: queue imbalance predicts the sign of the next mid move over 50 book updates | |
+| Held-out directional accuracy | **0.59601** <!--src:docs/generated/heldout/study.txt--> |
+| 95% interval, intraday stationary bootstrap | [0.59431 <!--src:docs/generated/heldout/study.txt-->, 0.59771 <!--src:docs/generated/heldout/study.txt-->] |
+| Registered economic bar | 55.16% <!--gen:accuracy_bar--> |
+| Verdict | **SIGNAL HOLDS**, on those two sessions |
+| Maker strategy built on it (exploratory) | **loses money in every arm at the base cost tier** |
+
+Passive fills are adversely selected by −0.34 to −0.57 half-spreads per
+fill (`docs/generated/heldout/study.txt`), which no add rebate closes. A signal that predicts direction and a
+strategy that pays for it are different claims, and they came out
+differently. The effect itself is documented prior art (Gould and Bonart,
+2016); what is added is the cost-inclusive held-out test with exact queue
+position. Detail, secondaries, and three harness amendments recorded rather
+than smoothed over: [Pre-registered study](#pre-registered-study-in-detail).
+
+## What Stage 4 found and did not apply
+
+Measured on the same host and session as the default above. Each is a
+recorded finding (`docs/design.md` record 044), **not a change to the shipped
+book**: Stage 4's scope excluded `include/`, and each needs re-measuring on a
+second session before it could justify a new default.
+
+| Change | Batch ns/msg | Against the default | Why |
+|---|---:|---:|---|
+| Identity hash instead of multiply-shift | 142.36 <!--src:docs/benchmarks.md--> | 15.2% <!--src:docs/benchmarks.md--> faster | roughly increasing references land in neighbouring slots; 37% <!--src:docs/benchmarks.md--> fewer DRAM fills |
+| 2,048-tick window instead of 256 | 155.89 <!--src:docs/benchmarks.md--> | 7.1% <!--src:docs/benchmarks.md--> faster | overflow 4.90% <!--src:docs/benchmarks.md--> → 1.03% <!--src:docs/benchmarks.md-->; the `std::map` overflow walk cost more than 833 MB <!--src:docs/benchmarks.md--> of level arrays |
+| SPSC ring, parse on a second core | 219.93 <!--src:docs/benchmarks.md--> | **31% <!--src:docs/benchmarks.md--> slower** | the handoff costs more than the parse it moves |
+| Chained index instead of open addressing | 179.84 <!--src:docs/benchmarks.md--> | 7.2% <!--src:docs/benchmarks.md--> slower | more instructions (IPC 1.13 <!--src:docs/benchmarks.md--> vs 1.20 <!--src:docs/benchmarks.md-->), not more misses |
+| 32-byte order records instead of 24 | 171.16 <!--src:docs/benchmarks.md--> | 2.0% <!--src:docs/benchmarks.md--> slower | the predicted saving on line-straddling records did not appear |
+
+Identity's advantage rests on how this venue assigns order references; a venue
+that scattered them would reverse it. That is why it is recorded and not
+applied.
+
+**Where the misses are.** `perf mem` (IBS) attributes
+48.3% <!--src:docs/benchmarks.md--> of DRAM-served loads to the overflow map, which
+holds 4.9% <!--src:docs/benchmarks.md--> of orders; the order index takes
+26.8% <!--src:docs/benchmarks.md--> and the pool 15.6% <!--src:docs/benchmarks.md-->. The
+prediction that the index would dominate failed. The sample is small —
+418 <!--src:docs/benchmarks.md--> DRAM-served loads, about ±5 points.
+
+**The five failed predictions.** (2) Per-message p50 would sit above the batch
+mean: it sits below (120 against 167.78 ns), and the comparison was badly
+posed — a median against a mean that carries the tail. (4) The index would own
+at least 40% of DRAM-served loads: the overflow map owns 48%. (6) Chaining
+would lose on misses: it loses 7.2% on instructions and takes slightly fewer
+misses. (8) SPSC would be within 5% of direct: it is 31% slower. (10)
+Recenters would be rare, cheap to ignore, and set the maximum: they are
+0.25% <!--src:docs/benchmarks.md--> of NASDAQ and 4.29% <!--src:docs/benchmarks.md--> of BX
+messages, move p99.9 by 8.8% <!--src:docs/benchmarks.md--> and 36% <!--src:docs/benchmarks.md-->,
+and do not set the maximum. The other five held in whole or in part; each part is scored in
+`docs/benchmarks.md`.
+
+**A first run that measured nothing, kept.** The first NASDAQ layout run
+passed its order-size and window-width switches to CMake as cache variables
+that never reached the compiler, so four "configurations" were four more
+baseline runs. It was caught because every one reported the baseline's
+703,924 <!--src:docs/benchmarks.md--> recenters. The build was fixed and the
+four rerun; the invalid numbers are kept in the log as a measure of
+run-to-run spread (2.5% <!--src:docs/benchmarks.md--> across separate processes).
+
+## Limitations
+
+**Performance**
+
+- **Replay, not a wire path.** Messages are replayed from memory: no NIC, no
+  kernel network stack, no MoldUDP64 receive, no kernel bypass. The figures
+  are book-update cost, not wire-to-book latency.
+- **Throughput, not responsiveness.** Replay has no arrival process and no
+  queueing, so the numbers say nothing about behaviour under a real message
+  rate.
+- **One machine, one session for the full matrix.** Every configuration was
+  timed on `12302019.NASDAQ_ITCH50` on the 5950X; BX 2019-01-30 has a baseline
+  only. The book is about 20× the L3 it runs against, so a machine with a
+  different memory system would give different numbers.
+- **The ~1.1 ms maximum on `F` messages is unexplained.** In every baseline
+  run the all-types maximum is about 1.1 ms, on an `F` (Add with MPID) message
+  that triggers no recenter, with no page fault in the timed region. It recurs
+  at the same size across runs, so it is a property of some message and not
+  noise, and it is **not attributed**. The maximum is reported, not explained.
+- **Raw benchmark output is not committed.** The runner wrote it to
+  `results/` on the host, which is gitignored. The performance figures above
+  trace to the transcription in `docs/benchmarks.md`, made at the time with
+  the machine report embedded, and not to a raw file.
+- **Per-message timing perturbs what it measures.** The fence costs about
+  20 ns against a median of 120, and is subtracted; batch timing is the
+  unperturbed figure.
+- **Untested claims.** That the sliding window is not a throughput regression
+  needs a fixed-window build, which was not run. The prefetch sweep did not run
+  because its pre-set rule was not met.
+- **Single-threaded.** Sharding by stock locate is the obvious parallelisation
+  and is out of scope; the one two-core design measured (SPSC) was slower.
+
+**Correctness**
+
+- **No independent reconstruction.** LOBSTER's samples need proof of purchase
+  and its sample date is not in the NASDAQ archive, so layer 3 is missing. A
+  misunderstanding of the feed shared by both books would pass every remaining
+  layer.
+- **Raw differential output is committed for the two held-out sessions only.**
+  The other eight counts were transcribed into `docs/data.md` from the runs.
+- **The price axis is in cents**, correct for the 2019-2020 sessions used here
+  and not for post-amendment tick sizes (`docs/design.md` record 005).
+
+**Studies**
+
+- **Two sessions each.** Two queue-bias sessions confounded in venue, date and
+  basket; two held-out sessions for the pre-registered study, whose verdicts
+  apply to those sessions only.
+- **Hidden liquidity is invisible.** `P` reports non-displayed executions after
+  the fact; those orders never enter the book.
+- **Zero market impact** is assumed for every synthetic order: defensible for
+  one round lot, not shown.
+- **The study's symbol universe uses whole-day information** and could not have
+  been chosen live.
+- **One registered secondary was never implemented** (queue-position-conditioned
+  OFI), and the strategy component is exploratory because two of its registered
+  constants were never filled in.
+- **Microstructure figures are one BX session**, BX's own book, not the NBBO.
+
+**Out of scope:** matching engine, order entry and risk, GLIMPSE snapshot
+recovery, web interface, containerisation.
+
+## Numbers are checked, not typed
+
+`tools/check_numbers.py` runs in CI and fails on any mismatch:
+
+- every figure in `docs/preregistration.md`, and those in this README tagged
+  `gen:`, must equal the value `research/gated.py` wrote to
+  `docs/generated/gated_values.tsv`;
+- every figure in this README tagged `src:<path>` must appear in that committed
+  file.
+
+`tests/numbers_negative.sh`, also in CI, breaks one figure, key and source at
+a time and requires each to fail. The tags are HTML comments and do not
+render. The sections below repeat the
+tagged figures in context; their remaining numbers are quoted from the design
+record or document each section cites.
+
+## Pre-registered study, in detail
 
 Registered before the held-out sessions were downloaded, run once on
 2026-09-25. The registration is `docs/preregistration.md`, commit `29228cc`,
@@ -206,27 +401,6 @@ Price Predictor in a Limit Order Book", *Market Microstructure and Liquidity*
 the cost-inclusive held-out test with exact market-by-order queue position,
 and the finding that the signal holds while the strategy built on it does not
 pay.
-
-## Limitations
-
-Stated before the results, because they are what makes the results meaningful.
-
-- **No wire path.** No NIC, no kernel network stack, no kernel bypass. The
-  benchmark measures book-update cost, not wire-to-book latency.
-- **Throughput, not responsiveness.** Replay from a file has no arrival
-  process and no queueing, so the numbers say nothing about behaviour under
-  load.
-- **Single-threaded.** Sharding by stock locate is the obvious parallelisation
-  and is out of scope.
-- **Hidden liquidity is invisible.** `P` messages report non-displayed
-  executions after the fact; those orders never enter the book, so fills
-  against hidden liquidity are unmodelled.
-- **Replay cannot react.** Any simulated order assumes zero market impact,
-  which is defensible only for small orders.
-- **The price axis is in cents**, correct for the 2017-2020 sessions used here
-  and not for post-amendment tick sizes. See `docs/design.md` record 005.
-- **Out of scope:** matching engine, strategy and order-entry layer, web
-  interface, containerisation.
 
 ## Prior art
 
@@ -628,9 +802,9 @@ no conclusion above.
 
 ### Limitations
 
-- **One venue, one session, 50 symbols, one order size.** BX is taker-maker
-  and thin; NASDAQ is maker-taker and has auctions, and is not yet measured.
-  The mechanism behind conservative's bias — that its fills are
+- **Two sessions, one per venue, 50 symbols each, one order size.** Venue,
+  date and basket are confounded (record 037), so nothing here is a venue
+  effect. The mechanism behind conservative's bias — that its fills are
   trade-throughs by construction — does not depend on the venue; the
   particular numbers do.
 - **Zero market impact.** The synthetic order never affects the flow it is
@@ -735,7 +909,7 @@ in what happened.
 
 One venue, one session, and a 50-symbol universe for the spread and depth
 panels. Nothing here is evidence about NASDAQ, about other dates, or about the
-consolidated market. The ordering of magnitudes is likely robust; the
+consolidated market. The ordering of magnitudes is likely to hold; the
 particular numbers are not.
 
 ## Data
@@ -814,7 +988,7 @@ include/carteret/
   differential.hpp    message-by-message comparison of the two books
   determinism.hpp     event-stream and book-state hashes
   moldudp64.hpp       packet framing, gap detection, line arbitration
-  queue_sim.hpp       synthetic orders and the four queue models
+  queue_sim.hpp       synthetic orders and the five queue models
   sha256.hpp          in-tree, for the determinism hashes
   mapped_file.hpp     read-only mmap
 src/
@@ -824,15 +998,20 @@ src/
   export_micro.cpp    microstructure aggregates
   export_features.cpp signal features and labels
   queue_study.cpp     the queue-position bias study
-bench/                benchmark harness, fenced timer, Linux runner
-tools/                census comparison, data fetch, machine check, fuzzing
+  strategy_pnl.cpp    the exploratory maker strategy
+bench/                harness, fenced timer, rdpmc counters, attribution,
+                      SPSC and chained-index variants, Linux runner
+tools/                census comparison, data fetch, machine check, fuzzing,
+                      numbers and placeholder gates
 tests/                unit, fixture, differential, determinism and fuzz targets
 research/             Python analysis; run_heldout.sh and its lock
-docs/design.md        31 numbered design decision records
+docs/design.md        44 numbered design decision records
 docs/benchmarks.md    structural measurements and the experiment log
 docs/correctness.md   the five verification layers
 docs/data.md          sessions, venues, provenance, study split
-docs/preregistration.md
+docs/preregistration.md                the registration, unchanged since 29228cc
+docs/heldout-harness-amendment.md      three harness amendments
+docs/generated/       committed output of the held-out run and gated values
 docs/figures/         committed figures; never market data
 ```
 
@@ -845,15 +1024,17 @@ A tag is applied only once the evidence for it exists in the repository.
 |---|---|---|
 | `v0.1.0` | 0–1 | framing, parser and census, per-type counts verified against an independent implementation |
 | `v0.2.0` | 3 | differential book verified on two venues, 339M messages compared, `RESULT: identical` |
-| `v0.3.0` | 5 | feed handling — MoldUDP64 framing, gap detection, line arbitration, determinism hashes — **pending a green CI run** |
+| `v0.3.0` | 5 | feed handling — MoldUDP64 framing, gap detection, line arbitration, determinism hashes — applied after CI went green on both compilers and both platforms |
 | `v0.4.0` | 7 | queue-position bias on two sessions, reported per session |
-| `v0.5.0` | 4 | latency from the benchmark host, `bench/run_linux.sh` on an isolated x86-64 Linux machine |
-| `v1.0.0` | 8 | the pre-registered study, held-out result reported under the registered decision rules |
+| `v0.5.0` | 8 | the pre-registered study, held-out result reported under the registered decision rules |
+| `v0.6.0` | 4 | latency and miss attribution on the Ryzen 9 5950X, scored against predictions recorded before the run |
+| `v1.0.0` | — | results-first README, every headline figure gated against a committed file, limitations current |
 
 Stages did not complete in numeric order. Stage 3's gate needed a 3.5 GB
 NASDAQ session whose download failed three times, so Stage 5's code landed
 first and Stage 3's verification came later; the tags follow the order in
 which each stage's evidence arrived, not the order the stages are numbered.
-`v0.3.0` is deliberately unapplied until CI has run, because what it marks is
-a claim about two compilers and two platforms agreeing, and that claim cannot
-be made from one machine.
+`v0.3.0` was held back until CI had run, because what it marks is a claim
+about two compilers and two platforms agreeing, and that claim cannot be made
+from one machine. Stage 8's evidence arrived before Stage 4's benchmark host
+was available, so the study is `v0.5.0` and the benchmarks `v0.6.0`.
