@@ -170,6 +170,16 @@ add_test(NAME chunk_negative
     -DVERIFY=${CMAKE_SOURCE_DIR}/tools/verify_archive.sh
     -P ${CMAKE_SOURCE_DIR}/tests/chunk_negative.cmake)
 
+# The machine check, driven from a synthetic sysfs and procfs tree shaped like
+# the benchmark host, then broken one condition at a time: each AMD boost
+# switch, SMT, an isolation that covers only part of the CCD, a user task on
+# it. Linux x86_64 only, because anywhere else the check exits 2 by design.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+  add_test(NAME machine_check_negative
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tests/machine_check_negative.sh
+      ${CMAKE_SOURCE_DIR}/tools/machine_check.sh)
+endif()
+
 # Pins every random draw. The CI matrix runs this under both compilers, which
 # is the point: an implementation-defined distribution would diverge between
 # them and this is what makes that visible.
